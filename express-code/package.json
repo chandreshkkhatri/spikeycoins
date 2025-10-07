@@ -1,0 +1,61 @@
+{
+  "name": "flip-safe-express-backend",
+  "version": "1.0.0",
+  "description": "Express backend for Flip Safe trading platform",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "start:debug": "NODE_OPTIONS='--inspect=9229' node dist/server.js",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix"
+  },
+  "keywords": [
+    "trading",
+    "express",
+    "api",
+    "backend"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "mongoose": "^8.0.3",
+    "axios": "^1.6.2",
+    "kiteconnect": "^5.1.0",
+    "upstox-js-sdk": "^2.19.0",
+    "bottleneck": "^2.19.5",
+    "protobufjs": "^7.2.4",
+    "cookie-parser": "^1.4.6",
+    "express-session": "^1.17.3",
+    "compression": "^1.7.4",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^20.10.5",
+    "@types/cookie-parser": "^1.4.6",
+    "@types/express-session": "^1.17.10",
+    "@types/compression": "^1.7.5",
+    "@types/morgan": "^1.9.9",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
+  },
+  "optionalDependencies": {
+    "bufferutil": "^4.0.9",
+    "utf-8-validate": "^6.0.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
