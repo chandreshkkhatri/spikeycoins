@@ -1,0 +1,57 @@
+{
+  // VS Code Debugging for Next.js app router
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Next.js: Dev (launch)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:debug"
+      ],
+      "env": {
+        "NODE_OPTIONS": "--inspect=9229"
+      },
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "autoAttachChildProcesses": true,
+      "serverReadyAction": {
+        "pattern": "started server on .*url: http://localhost:(\\d+)",
+        "action": "openExternally",
+        "uriFormat": "http://localhost:%s"
+      }
+    },
+    {
+      "type": "node",
+      "request": "attach",
+      "name": "Attach to Next.js (9229)",
+      "port": 9229,
+      "restart": true,
+      "address": "localhost",
+      "autoAttachChildProcesses": true,
+      "continueOnAttach": true
+    },
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "Chrome: Debug client",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}",
+      "presentation": {
+        "group": "client"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack: Server + Client",
+      "configurations": [
+        "Next.js: Dev (launch)",
+        "Chrome: Debug client"
+      ]
+    }
+  ]
+}
