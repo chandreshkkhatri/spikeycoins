@@ -1,0 +1,147 @@
+import express, { Application } from "express";
+import cors from "cors";
+import helmet from "helmet";
+import compression from "compression";
+import morgan from "morgan";
+import cookieParser from "cookie-parser";
+import session from "express-session";
+import dotenv from "dotenv";
+import path from "path";
+
+// Load environment variables
+dotenv.config();
+
+// Import routes
+import accountsRouter from "./routes/accounts";
+import authRouter from "./routes/auth";
+import binanceRouter from "./routes/binance";
+import dbRouter from "./routes/db";
+import fundsRouter from "./routes/funds";
+import historicalDataRouter from "./routes/historical-data";
+import holdingsRouter from "./routes/holdings";
+import ordersRouter from "./routes/orders";
+import positionsRouter from "./routes/positions";
+import searchRouter from "./routes/search";
+import tradingRouter from "./routes/trading";
+import upstoxRouter from "./routes/upstox";
+import watchlistRouter from "./routes/watchlist";
+
+// Import database connection
+import connectDB from "./lib/mongodb";
+
+const app: Application = express();
+const PORT = process.env.PORT || 3001;
+
+// Security middleware
+app.use(helmet());
+
+// CORS configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
+  "http://localhost:3000",
+  "http://localhost:5173",
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
+
+// Compression middleware
+app.use(compression());
+
+// Body parsing middleware
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Cookie parser
+app.use(cookieParser());
+
+// Session middleware
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "flip-safe-secret-key",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    },
+  })
+);
+
+// Logging middleware
+if (process.env.NODE_ENV !== "production") {
+  app.use(morgan("dev"));
+} else {
+  app.use(morgan("combined"));
+}
+
+// Connect to MongoDB
+connectDB().catch((err) => {
+  console.error("Failed to connect to MongoDB:", err);
+});
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+// API Routes
+app.use("/api/accounts", accountsRouter);
+app.use("/api/auth", authRouter);
+app.use("/api/binance", binanceRouter);
+app.use("/api/db", dbRouter);
+app.use("/api/funds", fundsRouter);
+app.use("/api/historical-data", historicalDataRouter);
+app.use("/api/holdings", holdingsRouter);
+app.use("/api/orders", ordersRouter);
+app.use("/api/positions", positionsRouter);
+app.use("/api/search", searchRouter);
+app.use("/api/trading", tradingRouter);
+app.use("/api/upstox", upstoxRouter);
+app.use("/api/watchlist", watchlistRouter);
+
+// Error handling middleware
+app.use(
+  (
+    err: Error,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    console.error("Error:", err);
+    res.status(500).json({
+      error: err.message || "Internal server error",
+      ...(process.env.NODE_ENV !== "production" && { stack: err.stack }),
+    });
+  }
+);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`   Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`   API URL: http://localhost:${PORT}`);
+});
+
+export default app;
