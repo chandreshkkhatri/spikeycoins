@@ -1,0 +1,343 @@
+.funds-summary {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  color: white;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+}
+
+.summary-item {
+  text-align: center;
+}
+
+.summary-label {
+  font-size: 0.75rem;
+  opacity: 0.9;
+  margin-bottom: 4px;
+}
+
+.summary-value {
+  font-size: 1.1rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.summary-value.available {
+  color: #4ade80;
+}
+
+.summary-value.positive {
+  color: #4ade80;
+}
+
+.summary-value.negative {
+  color: #f87171;
+}
+
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 0.875rem;
+  margin-bottom: 16px;
+}
+
+:global(.dark) .error-message {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #fca5a5;
+}
+
+.auth-errors-container {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-error-alert {
+  padding: 16px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+:global(.dark) .auth-error-alert {
+  background: rgba(251, 146, 60, 0.1);
+  border-color: rgba(251, 146, 60, 0.3);
+}
+
+.auth-error-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+}
+
+.auth-error-icon {
+  color: #ea580c;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.auth-error-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auth-error-title {
+  font-weight: 600;
+  color: #9a3412;
+  font-size: 0.875rem;
+}
+
+:global(.dark) .auth-error-title {
+  color: #fed7aa;
+}
+
+.auth-error-message {
+  font-size: 0.8rem;
+  color: #c2410c;
+}
+
+:global(.dark) .auth-error-message {
+  color: #fdba74;
+}
+
+.accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.account-funds-card {
+  padding: 16px;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+:global(.dark) .account-funds-card {
+  background: #18181b;
+  border-color: #3f3f46;
+}
+
+.account-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.account-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: #333;
+  letter-spacing: -0.01em;
+}
+
+:global(.dark) .account-name {
+  color: #ffffff;
+}
+
+.account-status {
+  display: flex;
+  align-items: center;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.active {
+  background-color: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+.status-dot.inactive {
+  background-color: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+}
+
+.account-type-row {
+  display: flex;
+  align-items: center;
+}
+
+.account-type-icon {
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.refresh-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.funds-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.funds-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.funds-row .label {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+:global(.dark) .funds-row .label {
+  color: #a1a1aa;
+}
+
+.funds-row .value {
+  font-weight: 600;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.value.available {
+  color: #059669;
+}
+
+.value.used {
+  color: #dc2626;
+}
+
+.value.positive {
+  color: #059669;
+}
+
+.value.negative {
+  color: #dc2626;
+}
+
+.timestamp {
+  font-size: 0.75rem;
+  color: #999;
+  text-align: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+}
+
+:global(.dark) .timestamp {
+  color: #71717a;
+  border-top-color: #3f3f46;
+}
+
+.funds-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  color: #dc2626;
+  background: #fef2f2;
+  border-radius: 8px;
+  justify-content: center;
+}
+
+:global(.dark) .funds-error {
+  background: rgba(220, 38, 38, 0.1);
+  color: #fca5a5;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.empty-icon {
+  color: #9ca3af;
+  margin-bottom: 16px;
+}
+
+.empty-state h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+:global(.dark) .empty-state h3 {
+  color: #ffffff;
+}
+
+.empty-state p {
+  color: #666;
+  margin-bottom: 16px;
+}
+
+:global(.dark) .empty-state p {
+  color: #a1a1aa;
+}
+
+@media (max-width: 768px) {
+  .accounts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+}

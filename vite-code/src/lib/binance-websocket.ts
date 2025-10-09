@@ -1,0 +1,341 @@
+/**
+ * Binance WebSocket Service
+ * Handles real-time market data for Spot and USD(S)-M Futures
+ * Based on Binance WebSocket API documentation
+ */
+
+type TradingSegment = "spot" | "usdm";
+
+interface BinanceTickerData {
+  symbol: string;
+  lastPrice: string;
+  priceChange: string;
+  priceChangePercent: string;
+  high: string;
+  low: string;
+  volume: string;
+  quoteVolume?: string;
+  openTime?: number;
+  closeTime?: number;
+}
+
+interface SubscriptionCallback {
+  (data: any): void;
+}
+
+class BinanceWebSocketService {
+  private ws: WebSocket | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 3000;
+  private subscribedSymbols: Set<string> = new Set();
+  private callbacks: Map<string, SubscriptionCallback[]> = new Map();
+  private segment: TradingSegment = "spot";
+  private isConnecting = false;
+  private pingInterval: NodeJS.Timeout | null = null;
+
+  // WebSocket URLs according to Binance documentation
+  private readonly SPOT_WS_URL = "wss://stream.binance.com:9443/ws";
+  private readonly FUTURES_WS_URL = "wss://fstream.binance.com/ws";
+  private readonly SPOT_TESTNET_WS_URL = "wss://testnet.binance.vision/ws";
+  private readonly FUTURES_TESTNET_WS_URL = "wss://stream.binancefuture.com/ws";
+
+  /**
+   * Initialize WebSocket connection
+   */
+  connect(
+    segment: TradingSegment = "spot",
+    testnet: boolean = false
+  ): Promise<void> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log("Binance WebSocket already connected");
+      return Promise.resolve();
+    }
+
+    if (this.isConnecting) {
+      console.log("Binance WebSocket connection already in progress");
+      return Promise.resolve();
+    }
+
+    this.segment = segment;
+    this.isConnecting = true;
+
+    return new Promise((resolve, reject) => {
+      try {
+        // Select WebSocket URL based on segment and testnet flag
+        let wsUrl: string;
+        if (segment === "usdm") {
+          wsUrl = testnet ? this.FUTURES_TESTNET_WS_URL : this.FUTURES_WS_URL;
+        } else {
+          wsUrl = testnet ? this.SPOT_TESTNET_WS_URL : this.SPOT_WS_URL;
+        }
+
+        console.log(
+          `Connecting to Binance ${segment} WebSocket${
+            testnet ? " (testnet)" : ""
+          }...`
+        );
+        this.ws = new WebSocket(wsUrl);
+
+        this.ws.onopen = () => {
+          console.log(`Binance ${segment} WebSocket connected`);
+          this.isConnecting = false;
+          this.reconnectAttempts = 0;
+
+          // Start ping interval to keep connection alive
+          this.startPingInterval();
+
+          // Resubscribe to previously subscribed symbols
+          this.resubscribeAll();
+
+          resolve();
+        };
+
+        this.ws.onmessage = (event) => {
+          this.handleMessage(event.data);
+        };
+
+        this.ws.onerror = (error) => {
+          console.error("Binance WebSocket error:", error);
+          this.isConnecting = false;
+          reject(error);
+        };
+
+        this.ws.onclose = () => {
+          console.log("Binance WebSocket closed");
+          this.isConnecting = false;
+          this.stopPingInterval();
+          this.handleReconnect();
+        };
+      } catch (error) {
+        console.error("Error connecting to Binance WebSocket:", error);
+        this.isConnecting = false;
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Handle incoming WebSocket messages
+   */
+  private handleMessage(data: string) {
+    try {
+      const message = JSON.parse(data);
+
+      // Handle different message types
+      if (message.e) {
+        // Event-based message (ticker, trade, etc.)
+        const eventType = message.e;
+        const symbol = message.s;
+
+        // Invoke callbacks for this symbol
+        const symbolCallbacks = this.callbacks.get(symbol.toLowerCase());
+        if (symbolCallbacks) {
+          symbolCallbacks.forEach((callback) => {
+            try {
+              callback(this.formatTickerData(message));
+            } catch (error) {
+              console.error("Error in callback:", error);
+            }
+          });
+        }
+      } else if (message.result === null) {
+        // Subscription confirmation
+        console.log("Subscription confirmed");
+      } else if (message.error) {
+        // Error message
+        console.error("Binance WebSocket error:", message.error);
+      }
+    } catch (error) {
+      console.error("Error parsing WebSocket message:", error);
+    }
+  }
+
+  /**
+   * Format ticker data to a consistent structure
+   */
+  private formatTickerData(rawData: any): BinanceTickerData {
+    return {
+      symbol: rawData.s,
+      lastPrice: rawData.c || rawData.p,
+      priceChange: rawData.p || "0",
+      priceChangePercent: rawData.P || "0",
+      high: rawData.h || "0",
+      low: rawData.l || "0",
+      volume: rawData.v || "0",
+      quoteVolume: rawData.q,
+      openTime: rawData.O,
+      closeTime: rawData.C,
+    };
+  }
+
+  /**
+   * Subscribe to ticker updates for a symbol
+   */
+  subscribe(symbol: string, callback: SubscriptionCallback) {
+    // Safety check
+    if (!symbol) {
+      console.warn("Attempted to subscribe with null/undefined symbol");
+      return;
+    }
+
+    const symbolLower = symbol.toLowerCase();
+
+    // Add callback to the list
+    if (!this.callbacks.has(symbolLower)) {
+      this.callbacks.set(symbolLower, []);
+    }
+    this.callbacks.get(symbolLower)!.push(callback);
+
+    // Add to subscribed symbols
+    this.subscribedSymbols.add(symbolLower);
+
+    // Send subscription message if connected
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.sendSubscription(symbolLower);
+    }
+  }
+
+  /**
+   * Send subscription message to WebSocket
+   */
+  private sendSubscription(symbol: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    // Subscribe to 24hr ticker for the symbol
+    const subscribeMessage = {
+      method: "SUBSCRIBE",
+      params: [`${symbol}@ticker`],
+      id: Date.now(),
+    };
+
+    this.ws.send(JSON.stringify(subscribeMessage));
+    console.log(`Subscribed to ${symbol} ticker`);
+  }
+
+  /**
+   * Unsubscribe from a symbol
+   */
+  unsubscribe(symbol: string) {
+    const symbolLower = symbol.toLowerCase();
+
+    this.callbacks.delete(symbolLower);
+    this.subscribedSymbols.delete(symbolLower);
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const unsubscribeMessage = {
+        method: "UNSUBSCRIBE",
+        params: [`${symbolLower}@ticker`],
+        id: Date.now(),
+      };
+
+      this.ws.send(JSON.stringify(unsubscribeMessage));
+      console.log(`Unsubscribed from ${symbolLower} ticker`);
+    }
+  }
+
+  /**
+   * Resubscribe to all symbols after reconnection
+   */
+  private resubscribeAll() {
+    this.subscribedSymbols.forEach((symbol) => {
+      this.sendSubscription(symbol);
+    });
+  }
+
+  /**
+   * Handle reconnection logic
+   */
+  private handleReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error("Max reconnection attempts reached. Giving up.");
+      return;
+    }
+
+    this.reconnectAttempts++;
+    console.log(
+      `Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${this.reconnectDelay}ms...`
+    );
+
+    setTimeout(() => {
+      this.connect(this.segment);
+    }, this.reconnectDelay);
+  }
+
+  /**
+   * Start ping interval to keep connection alive
+   */
+  private startPingInterval() {
+    this.pingInterval = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        // Binance WebSocket expects pong responses to ping, but we can also send list subscriptions
+        const pingMessage = {
+          method: "LIST_SUBSCRIPTIONS",
+          id: Date.now(),
+        };
+        this.ws.send(JSON.stringify(pingMessage));
+      }
+    }, 180000); // 3 minutes (Binance timeout is 5 minutes)
+  }
+
+  /**
+   * Stop ping interval
+   */
+  private stopPingInterval() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+
+  /**
+   * Add a symbol to watchlist (alias for subscribe without callback)
+   */
+  addSymbol(symbol: string) {
+    // Subscribe without a specific callback - data will be handled by existing listeners
+    this.subscribe(symbol, () => {
+      // Default no-op callback
+    });
+  }
+
+  /**
+   * Remove a symbol from watchlist (alias for unsubscribe)
+   */
+  removeSymbol(symbol: string) {
+    this.unsubscribe(symbol);
+  }
+
+  /**
+   * Disconnect from WebSocket
+   */
+  disconnect() {
+    if (this.ws) {
+      this.stopPingInterval();
+      this.ws.close();
+      this.ws = null;
+    }
+    this.subscribedSymbols.clear();
+    this.callbacks.clear();
+    this.reconnectAttempts = 0;
+  }
+
+  /**
+   * Check if WebSocket is connected
+   */
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Get current trading segment
+   */
+  getSegment(): TradingSegment {
+    return this.segment;
+  }
+}
+
+// Export singleton instance
+const binanceWebSocketService = new BinanceWebSocketService();
+export default binanceWebSocketService;

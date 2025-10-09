@@ -206,3 +206,10 @@ To complete the migration from Next.js:
 ## Support
 
 For issues or questions, check the main project README or contact the development team.
+
+
+
+
+
+
+

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
+import binanceService from "../lib/binance-service";
 import { getAccountById } from "../models/account";
 
 const router = Router();
@@ -20,13 +21,12 @@ router.get("/", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Account not found" });
     }
 
-    if (!account.accessToken) {
-      return res.status(401).json({ error: "Account not authenticated" });
-    }
-
     let orders;
 
     if (account.accountType === "kite") {
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret
@@ -34,6 +34,9 @@ router.get("/", async (req: Request, res: Response) => {
       kiteConnectService.setAccessToken(account.accessToken);
       orders = await kiteConnectService.getOrders();
     } else if (account.accountType === "upstox") {
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
       const isSandbox = account.metadata?.sandbox || false;
       upstoxService.initializeWithCredentials(
         account.apiKey,
@@ -41,23 +44,62 @@ router.get("/", async (req: Request, res: Response) => {
         isSandbox
       );
       upstoxService.setAccessToken(account.accessToken);
-      orders = await upstoxService.getOrders();
+
+      try {
+        orders = await upstoxService.getOrders();
+      } catch (upstoxError: any) {
+        // Handle Upstox SDK superagent bug - return empty array for now
+        console.warn(
+          "Upstox SDK error (known superagent issue):",
+          upstoxError.message
+        );
+        orders = [];
+      }
+    } else if (account.accountType === "binance") {
+      const tradingSegment = account.metadata?.tradingSegment || "spot";
+      const isTestnet = account.metadata?.testnet || false;
+
+      binanceService.initializeWithCredentials(
+        account.apiKey,
+        account.apiSecret,
+        isTestnet
+      );
+
+      if (tradingSegment === "usdm") {
+        // USD(S)-M Futures - Get open orders (can specify symbol if needed)
+        orders = await binanceService.getFuturesOpenOrders();
+      } else {
+        // Spot - Get open orders
+        orders = await binanceService.getSpotOpenOrders();
+      }
     } else {
       return res
         .status(400)
         .json({ error: "Unsupported account type for orders" });
     }
 
+    // Map orders to unified format
+    const unifiedOrders = Array.isArray(orders)
+      ? orders.map((order: any) => ({
+          ...order,
+          accountId: account._id,
+          vendor: account.accountType,
+        }))
+      : [];
+
     return res.json({
       success: true,
-      orders,
+      data: unifiedOrders,
       accountType: account.accountType,
     });
   } catch (error: any) {
     console.error("Error fetching orders:", error);
+    // Return consistent structure even on error
     return res.status(500).json({
+      success: false,
       error: "Failed to fetch orders",
       details: error.message,
+      data: [], // Ensure data is always present
     });
   }
 });
@@ -77,13 +119,12 @@ router.post("/place", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Account not found" });
     }
 
-    if (!account.accessToken) {
-      return res.status(401).json({ error: "Account not authenticated" });
-    }
-
     let result;
 
     if (account.accountType === "kite") {
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret
@@ -91,6 +132,9 @@ router.post("/place", async (req: Request, res: Response) => {
       kiteConnectService.setAccessToken(account.accessToken);
       result = await kiteConnectService.placeOrder(orderParams);
     } else if (account.accountType === "upstox") {
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
       const isSandbox = account.metadata?.sandbox || false;
       upstoxService.initializeWithCredentials(
         account.apiKey,
@@ -99,6 +143,23 @@ router.post("/place", async (req: Request, res: Response) => {
       );
       upstoxService.setAccessToken(account.accessToken);
       result = await upstoxService.placeOrder(orderParams);
+    } else if (account.accountType === "binance") {
+      const tradingSegment = account.metadata?.tradingSegment || "spot";
+      const isTestnet = account.metadata?.testnet || false;
+
+      binanceService.initializeWithCredentials(
+        account.apiKey,
+        account.apiSecret,
+        isTestnet
+      );
+
+      if (tradingSegment === "usdm") {
+        // USD(S)-M Futures
+        result = await binanceService.placeFuturesOrder(orderParams);
+      } else {
+        // Spot
+        result = await binanceService.placeSpotOrder(orderParams);
+      }
     } else {
       return res
         .status(400)
@@ -181,7 +242,7 @@ router.put("/modify", async (req: Request, res: Response) => {
 // DELETE /api/orders/cancel - Cancel an order
 router.delete("/cancel", async (req: Request, res: Response) => {
   try {
-    const { accountId, orderId } = req.query;
+    const { accountId, orderId, symbol } = req.query;
 
     if (!accountId || !orderId) {
       return res
@@ -195,13 +256,12 @@ router.delete("/cancel", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Account not found" });
     }
 
-    if (!account.accessToken) {
-      return res.status(401).json({ error: "Account not authenticated" });
-    }
-
     let result;
 
     if (account.accountType === "kite") {
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret
@@ -209,6 +269,9 @@ router.delete("/cancel", async (req: Request, res: Response) => {
       kiteConnectService.setAccessToken(account.accessToken);
       result = await kiteConnectService.cancelOrder(orderId as string);
     } else if (account.accountType === "upstox") {
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
       const isSandbox = account.metadata?.sandbox || false;
       upstoxService.initializeWithCredentials(
         account.apiKey,
@@ -217,6 +280,35 @@ router.delete("/cancel", async (req: Request, res: Response) => {
       );
       upstoxService.setAccessToken(account.accessToken);
       result = await upstoxService.cancelOrder(orderId as string);
+    } else if (account.accountType === "binance") {
+      const tradingSegment = account.metadata?.tradingSegment || "spot";
+      const isTestnet = account.metadata?.testnet || false;
+
+      binanceService.initializeWithCredentials(
+        account.apiKey,
+        account.apiSecret,
+        isTestnet
+      );
+
+      if (!symbol) {
+        return res
+          .status(400)
+          .json({ error: "symbol is required for Binance orders" });
+      }
+
+      if (tradingSegment === "usdm") {
+        // USD(S)-M Futures
+        result = await binanceService.cancelFuturesOrder(
+          symbol as string,
+          parseInt(orderId as string)
+        );
+      } else {
+        // Spot
+        result = await binanceService.cancelSpotOrder(
+          symbol as string,
+          parseInt(orderId as string)
+        );
+      }
     } else {
       return res
         .status(400)

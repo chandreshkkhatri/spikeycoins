@@ -13,6 +13,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 interface MultiTimeframeChartProps {
   symbol: string;
   accountId?: string;
+  accountType?: 'binance' | 'kite' | 'upstox';
 }
 
 const DEFAULT_TIMEFRAMES = [{ interval: '1h', label: '1 Hour', index: 0 }];
@@ -34,7 +35,7 @@ const AVAILABLE_TIMEFRAMES = [
   { interval: '1M', label: '1 Month' },
 ];
 
-const MultiTimeframeChart = memo<MultiTimeframeChartProps>(({ symbol, accountId }) => {
+const MultiTimeframeChart = memo<MultiTimeframeChartProps>(({ symbol, accountId, accountType }) => {
   const [selectedTimeframes, setSelectedTimeframes] = useState(DEFAULT_TIMEFRAMES);
   const [showTimeframeSelector, setShowTimeframeSelector] = useState(false);
   const containerRefs = useRef<(HTMLDivElement | null)[]>(
@@ -170,16 +171,16 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(({ symbol, accountId 
   const fetchChartData = useCallback(
     async (interval: string): Promise<CandlestickData[]> => {
       try {
-        // Determine vendor based on symbol (USDT = Binance, others = Upstox/Kite)
-        const vendor = symbol.endsWith('USDT') ? 'binance' : 'upstox';
-
-        // Build URL with required parameters
-        let url = `/api/historical-data?vendor=${vendor}&symbol=${symbol}&interval=${interval}`;
-
-        // Add accountId for non-binance vendors
-        if (vendor !== 'binance' && accountId) {
-          url += `&accountId=${accountId}`;
+        // Safety check for symbol
+        if (!symbol) {
+          throw new Error('Symbol is required');
         }
+
+        // Use accountType if provided, otherwise try to detect from symbol
+        const vendor = accountType || (symbol.endsWith('USDT') || symbol.endsWith('BUSD') || symbol.endsWith('BTC') ? 'binance' : 'upstox');
+
+        // Build URL with required parameters - accountId is ALWAYS required
+        let url = `/api/historical-data?vendor=${vendor}&symbol=${symbol}&interval=${interval}&accountId=${accountId}`;
 
         const response = await fetch(url);
 

@@ -1,17 +1,21 @@
-
-
-import EnhancedCard from '@/components/enhanced-card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import LoadingSpinner from '@/components/ui/LoadingSpinner';
-import axios from 'axios';
-import { AlertTriangle, Package, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import EnhancedCard from "@/components/enhanced-card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import axios from "axios";
+import {
+  AlertTriangle,
+  Package,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface TradingAccount {
   _id?: string;
   accountName: string;
-  accountType: 'binance' | 'kite' | 'upstox';
+  accountType: "binance" | "kite" | "upstox";
   isActive: boolean;
   accessToken?: string;
 }
@@ -51,7 +55,9 @@ export default function PositionsCard({
   selectedAccountId,
   className,
 }: PositionsCardProps) {
-  const [positionsData, setPositionsData] = useState<UnifiedPositionResponse[]>([]);
+  const [positionsData, setPositionsData] = useState<UnifiedPositionResponse[]>(
+    []
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accountErrors, setAccountErrors] = useState<AccountError[]>([]);
@@ -59,10 +65,13 @@ export default function PositionsCard({
 
   // Filter accounts to show - if selectedAccountId is provided, show only that account
   const accountsToShow = selectedAccountId
-    ? accounts.filter(acc => acc._id === selectedAccountId)
+    ? accounts.filter((acc) => acc._id === selectedAccountId)
     : accounts;
 
-  const fetchPositionsForAccount = async (account: TradingAccount, isRefresh = false) => {
+  const fetchPositionsForAccount = async (
+    account: TradingAccount,
+    isRefresh = false
+  ) => {
     if (isRefresh) {
       setRefreshing(account._id!);
     }
@@ -73,23 +82,30 @@ export default function PositionsCard({
       );
 
       if (response.data?.success) {
-        setPositionsData(prev => {
-          const filtered = prev.filter(p => p.accountId !== account._id);
-          return [...filtered, ...response.data.data];
+        // Ensure data is an array before spreading
+        const positionsArray = Array.isArray(response.data.data)
+          ? response.data.data
+          : [];
+
+        setPositionsData((prev) => {
+          const filtered = prev.filter((p) => p.accountId !== account._id);
+          return [...filtered, ...positionsArray];
         });
 
         // Clear any previous errors for this account
-        setAccountErrors(prev => prev.filter(e => e.accountId !== account._id));
+        setAccountErrors((prev) =>
+          prev.filter((e) => e.accountId !== account._id)
+        );
         setError(null);
       } else {
-        throw new Error(response.data?.error || 'Failed to fetch positions');
+        throw new Error(response.data?.error || "Failed to fetch positions");
       }
     } catch (err: any) {
       // Check if it's a 401 error (authentication failure)
       if (err.response?.status === 401) {
         const errorData = err.response?.data;
-        setAccountErrors(prev => {
-          const filtered = prev.filter(e => e.accountId !== account._id);
+        setAccountErrors((prev) => {
+          const filtered = prev.filter((e) => e.accountId !== account._id);
           return [
             ...filtered,
             {
@@ -97,13 +113,16 @@ export default function PositionsCard({
               accountName: account.accountName,
               requiresReauth: errorData?.requiresReauth || true,
               message:
-                errorData?.error || 'Authentication failed. Please re-authenticate your account.',
+                errorData?.error ||
+                "Authentication failed. Please re-authenticate your account.",
             },
           ];
         });
       } else {
         const errorMessage =
-          err.response?.data?.error || err.message || 'Failed to fetch positions';
+          err.response?.data?.error ||
+          err.message ||
+          "Failed to fetch positions";
         setError(`${account.accountName}: ${errorMessage}`);
       }
     } finally {
@@ -123,7 +142,9 @@ export default function PositionsCard({
 
     try {
       // Fetch positions for all accounts in parallel
-      await Promise.allSettled(accountsToShow.map(account => fetchPositionsForAccount(account)));
+      await Promise.allSettled(
+        accountsToShow.map((account) => fetchPositionsForAccount(account))
+      );
     } finally {
       setLoading(false);
     }
@@ -138,29 +159,36 @@ export default function PositionsCard({
     if (accountsToShow.length > 0) {
       fetchAllPositions();
     }
-  }, [JSON.stringify(accounts.map(a => a._id)), selectedAccountId]); // Use stable stringified IDs
+  }, [JSON.stringify(accounts.map((a) => a._id)), selectedAccountId]); // Use stable stringified IDs
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number | undefined | null) => {
+    if (amount === undefined || amount === null || isNaN(amount)) {
+      return "₹0.00";
+    }
     return `₹${amount.toFixed(2)}`;
   };
 
   const getVendorColor = (vendor: string) => {
     switch (vendor.toLowerCase()) {
-      case 'kite':
-        return '#ff6600';
-      case 'upstox':
-        return '#387ed1';
-      case 'binance':
-        return '#f3ba2f';
+      case "kite":
+        return "#ff6600";
+      case "upstox":
+        return "#387ed1";
+      case "binance":
+        return "#f3ba2f";
       default:
-        return '#666';
+        return "#666";
     }
   };
 
-  const totalPnl = positionsData.reduce((sum, position) => sum + position.pnl, 0);
+  const totalPnl = positionsData.reduce(
+    (sum, position) => sum + (position.pnl || 0),
+    0
+  );
 
   const totalValue = positionsData.reduce(
-    (sum, position) => sum + position.lastPrice * Math.abs(position.quantity),
+    (sum, position) =>
+      sum + (position.lastPrice || 0) * Math.abs(position.quantity || 0),
     0
   );
 
@@ -171,7 +199,10 @@ export default function PositionsCard({
           <Package className="empty-icon" size={48} />
           <h3>No Accounts Available</h3>
           <p>Add trading accounts to view your positions.</p>
-          <Button onClick={() => (window.location.href = '/accounts')} className="mt-4">
+          <Button
+            onClick={() => (window.location.href = "/accounts")}
+            className="mt-4"
+          >
             Add Account
           </Button>
         </div>
@@ -203,8 +234,16 @@ export default function PositionsCard({
             </div>
             <div className="summary-item">
               <div className="summary-label">Total P&L</div>
-              <div className={`summary-value ${totalPnl >= 0 ? 'positive' : 'negative'}`}>
-                {totalPnl >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+              <div
+                className={`summary-value ${
+                  totalPnl >= 0 ? "positive" : "negative"
+                }`}
+              >
+                {totalPnl >= 0 ? (
+                  <TrendingUp size={16} />
+                ) : (
+                  <TrendingDown size={16} />
+                )}
                 {formatCurrency(totalPnl)}
               </div>
             </div>
@@ -223,8 +262,10 @@ export default function PositionsCard({
       {/* Authentication Errors */}
       {accountErrors.length > 0 && (
         <div className="auth-errors-container">
-          {accountErrors.map(error => {
-            const account = accountsToShow.find(a => a._id === error.accountId);
+          {accountErrors.map((error) => {
+            const account = accountsToShow.find(
+              (a) => a._id === error.accountId
+            );
             if (!account) return null;
 
             return (
@@ -243,9 +284,9 @@ export default function PositionsCard({
                   variant="default"
                   onClick={() => {
                     // Handle re-authentication based on account type
-                    if (account.accountType === 'upstox') {
+                    if (account.accountType === "upstox") {
                       window.location.href = `/api/auth/upstox?accountId=${account._id}`;
-                    } else if (account.accountType === 'kite') {
+                    } else if (account.accountType === "kite") {
                       window.location.href = `/api/auth/kite?accountId=${account._id}`;
                     }
                   }}
@@ -266,11 +307,14 @@ export default function PositionsCard({
         </div>
       ) : (
         <div className="positions-list">
-          {positionsData.map(position => {
+          {positionsData.map((position) => {
             const isRefreshing = refreshing === position.accountId;
 
             return (
-              <div key={position.id} className="position-card">
+              <div
+                key={`${position.accountId}-${position.symbol}-${position.product}`}
+                className="position-card"
+              >
                 <div className="position-header">
                   <div className="position-info">
                     <div className="position-symbol-row">
@@ -284,16 +328,24 @@ export default function PositionsCard({
                       >
                         {position.vendor.toUpperCase()}
                       </Badge>
-                      <span className="position-exchange">{position.exchange}</span>
-                      <span className="position-product">{position.product}</span>
+                      <span className="position-exchange">
+                        {position.exchange}
+                      </span>
+                      <span className="position-product">
+                        {position.product}
+                      </span>
                     </div>
-                    <div className="position-account">{position.accountName}</div>
+                    <div className="position-account">
+                      {position.accountName}
+                    </div>
                   </div>
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => {
-                      const account = accountsToShow.find(a => a._id === position.accountId);
+                      const account = accountsToShow.find(
+                        (a) => a._id === position.accountId
+                      );
                       if (account) handleRefresh(account);
                     }}
                     disabled={isRefreshing}
@@ -313,19 +365,27 @@ export default function PositionsCard({
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Avg:</span>
-                    <span className="detail-value">{formatCurrency(position.averagePrice)}</span>
+                    <span className="detail-value">
+                      {formatCurrency(position.averagePrice)}
+                    </span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">LTP:</span>
-                    <span className="detail-value">{formatCurrency(position.lastPrice)}</span>
+                    <span className="detail-value">
+                      {formatCurrency(position.lastPrice)}
+                    </span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">P&L:</span>
                     <span
-                      className={`detail-value pnl ${position.pnl >= 0 ? 'positive' : 'negative'}`}
+                      className={`detail-value pnl ${
+                        position.pnl >= 0 ? "positive" : "negative"
+                      }`}
                     >
                       {formatCurrency(position.pnl)}
-                      <span className="pnl-percentage">({position.pnlPercentage.toFixed(2)}%)</span>
+                      <span className="pnl-percentage">
+                        ({position.pnlPercentage?.toFixed(2) ?? "0.00"}%)
+                      </span>
                     </span>
                   </div>
                 </div>

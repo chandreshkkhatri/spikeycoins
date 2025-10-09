@@ -1,9 +1,7 @@
-
-
-import { Button } from '@/components/ui/button';
-import { ChevronDown, Search, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { Button } from "@/components/ui/button";
+import { ChevronDown, Search, X } from "lucide-react";
+import { memo, useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 interface SymbolSearchResult {
   symbol: string;
@@ -44,34 +42,34 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
   useEffect(() => {
     if (!isOpen) return;
     const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
   }, [isOpen]);
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SymbolSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedExchange, setSelectedExchange] = useState<string>('ALL');
-  const [selectedSegment, setSelectedSegment] = useState<string>('ALL');
+  const [selectedExchange, setSelectedExchange] = useState<string>("ALL");
+  const [selectedSegment, setSelectedSegment] = useState<string>("ALL");
   const [showExchangeDropdown, setShowExchangeDropdown] = useState(false);
   const [showSegmentDropdown, setShowSegmentDropdown] = useState(false);
 
-  const exchanges = ['ALL', 'NSE', 'BSE', 'MCX'];
+  const exchanges = ["ALL", "NSE", "BSE", "MCX"];
   const segments = [
-    'ALL',
-    'NSE_EQ',
-    'BSE_EQ',
-    'NSE_FO',
-    'BSE_FO',
-    'MCX_FO',
-    'BCD_FO',
-    'NCD_FO',
-    'NSE_INDEX',
-    'BSE_INDEX',
-    'NSE_COM',
+    "ALL",
+    "NSE_EQ",
+    "BSE_EQ",
+    "NSE_FO",
+    "BSE_FO",
+    "MCX_FO",
+    "BCD_FO",
+    "NCD_FO",
+    "NSE_INDEX",
+    "BSE_INDEX",
+    "NSE_COM",
   ];
 
   const searchSymbols = useCallback(async () => {
@@ -79,9 +77,12 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
       setLoading(true);
       setError(null);
 
-      let queryParams = `query=${encodeURIComponent(searchQuery)}&vendor=${accountType}`;
-      if (selectedExchange !== 'ALL') queryParams += `&exchange=${selectedExchange}`;
-      if (selectedSegment !== 'ALL')
+      let queryParams = `query=${encodeURIComponent(
+        searchQuery
+      )}&vendor=${accountType}`;
+      if (selectedExchange !== "ALL")
+        queryParams += `&exchange=${selectedExchange}`;
+      if (selectedSegment !== "ALL")
         queryParams += `&segment=${encodeURIComponent(selectedSegment)}`;
 
       const response = await fetch(`/api/search/symbols?${queryParams}`);
@@ -89,12 +90,12 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
       if (data.success) {
         setSearchResults(data.results);
       } else {
-        setError(data.error || 'Failed to search symbols');
+        setError(data.error || "Failed to search symbols");
         setSearchResults([]);
       }
     } catch (err) {
-      console.error('Error searching symbols:', err);
-      setError('Failed to search symbols');
+      console.error("Error searching symbols:", err);
+      setError("Failed to search symbols");
       setSearchResults([]);
     } finally {
       setLoading(false);
@@ -112,7 +113,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
 
   const handleSelectSymbol = (item: SymbolSearchResult) => {
     onSelectSymbol(item);
-    setSearchQuery('');
+    setSearchQuery("");
     setSearchResults([]);
     onClose();
   };
@@ -144,7 +145,12 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
           }
         }
 
-        return { position: 'absolute', top, left, width: contentWidth } as React.CSSProperties;
+        return {
+          position: "absolute",
+          top,
+          left,
+          width: contentWidth,
+        } as React.CSSProperties;
       })()
     : undefined;
 
@@ -156,7 +162,11 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
       aria-modal="true"
       style={{ zIndex: 2147483647 }}
     >
-      <div className="modal-content" style={anchoredStyle} onClick={e => e.stopPropagation()}>
+      <div
+        className="modal-content"
+        style={anchoredStyle}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <h2>Add Symbol to Watchlist</h2>
           <Button variant="ghost" size="icon" onClick={onClose}>
@@ -171,13 +181,13 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
               type="text"
               placeholder={`Search ${accountType} symbols...`}
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="search-input"
               autoFocus
             />
           </div>
 
-          {(accountType === 'upstox' || accountType === 'kite') && (
+          {(accountType === "upstox" || accountType === "kite") && (
             <div className="filter-container">
               <div className="filter-dropdown">
                 <button
@@ -192,10 +202,12 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
                 </button>
                 {showExchangeDropdown && (
                   <div className="dropdown-menu">
-                    {exchanges.map(exchange => (
+                    {exchanges.map((exchange) => (
                       <div
                         key={exchange}
-                        className={`dropdown-item ${selectedExchange === exchange ? 'selected' : ''}`}
+                        className={`dropdown-item ${
+                          selectedExchange === exchange ? "selected" : ""
+                        }`}
                         onClick={() => {
                           setSelectedExchange(exchange);
                           setShowExchangeDropdown(false);
@@ -221,10 +233,12 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
                 </button>
                 {showSegmentDropdown && (
                   <div className="dropdown-menu">
-                    {segments.map(segment => (
+                    {segments.map((segment) => (
                       <div
                         key={segment}
-                        className={`dropdown-item ${selectedSegment === segment ? 'selected' : ''}`}
+                        className={`dropdown-item ${
+                          selectedSegment === segment ? "selected" : ""
+                        }`}
                         onClick={() => {
                           setSelectedSegment(segment);
                           setShowSegmentDropdown(false);
@@ -243,9 +257,9 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
         {error && <div className="error-message">{error}</div>}
         {loading && <div className="loading-state">Searching symbols...</div>}
 
-        {!loading && searchResults.length > 0 && (
+        {!loading && searchResults && searchResults.length > 0 && (
           <div className="search-results">
-            {searchResults.map(result => (
+            {searchResults.map((result) => (
               <div
                 key={result.symbol}
                 className="search-result-item"
@@ -265,11 +279,18 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
           </div>
         )}
 
-        {!loading && searchQuery.length >= 2 && searchResults.length === 0 && (
-          <div className="no-results">No symbols found matching "{searchQuery}"</div>
-        )}
+        {!loading &&
+          searchQuery.length >= 2 &&
+          searchResults &&
+          searchResults.length === 0 && (
+            <div className="no-results">
+              No symbols found matching "{searchQuery}"
+            </div>
+          )}
 
-        {searchQuery.length < 2 && <div className="hint">Type at least 2 characters to search</div>}
+        {searchQuery.length < 2 && (
+          <div className="hint">Type at least 2 characters to search</div>
+        )}
 
         <style jsx>{`
           .modal-overlay {
@@ -283,7 +304,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
           .modal-content {
             background: white;
             border-radius: 10px;
-            width: ${anchorRect ? 'auto' : '90%'};
+            width: ${anchorRect ? "auto" : "90%"};
             max-width: 650px;
             max-height: 85vh;
             display: flex;
@@ -291,8 +312,8 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             animation: slideIn 0.2s ease;
             margin: 0 auto; /* when not anchored */
-            position: ${anchorRect ? 'absolute' : 'relative'};
-            top: ${anchorRect ? 'auto' : '3vh'};
+            position: ${anchorRect ? "absolute" : "relative"};
+            top: ${anchorRect ? "auto" : "3vh"};
             z-index: 2147483646;
           }
 

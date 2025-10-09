@@ -18,6 +18,7 @@ export interface IAccount {
     scope?: string;
     testnet?: boolean;
     sandbox?: boolean;
+    tradingSegment?: "spot" | "usdm"; // Binance: spot or USD(S)-M Futures
     [key: string]: any;
   };
   createdAt?: Date;

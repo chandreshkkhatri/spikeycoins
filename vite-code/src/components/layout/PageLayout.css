@@ -1,0 +1,30 @@
+.page-layout {
+  min-height: 100vh;
+}
+
+.page-layout.dark-theme {
+  color: var(--foreground);
+}
+
+.main-content {
+  margin-top: 16px;
+  padding-bottom: 32px;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+@media (max-width: 960px) {
+  .main-content {
+    margin-top: 56px;
+  }
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 0 0.75rem;
+  }
+}

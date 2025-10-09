@@ -56,3 +56,10 @@ const Watchlist: Model<IWatchlist> =
   mongoose.model<IWatchlist>("Watchlist", WatchlistSchema);
 
 export default Watchlist;
+
+
+
+
+
+
+

@@ -1,17 +1,15 @@
-
-
-import EnhancedCard from '@/components/enhanced-card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import LoadingSpinner from '@/components/ui/LoadingSpinner';
-import axios from 'axios';
-import { AlertTriangle, Receipt, RefreshCw, ShoppingCart } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import EnhancedCard from "@/components/enhanced-card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import axios from "axios";
+import { AlertTriangle, Receipt, RefreshCw, ShoppingCart } from "lucide-react";
+import { useEffect, useState } from "react";
 
 interface TradingAccount {
   _id?: string;
   accountName: string;
-  accountType: 'binance' | 'kite' | 'upstox';
+  accountType: "binance" | "kite" | "upstox";
   isActive: boolean;
   accessToken?: string;
 }
@@ -50,7 +48,11 @@ interface AccountError {
   message: string;
 }
 
-export default function OrdersCard({ accounts, selectedAccountId, className }: OrdersCardProps) {
+export default function OrdersCard({
+  accounts = [],
+  selectedAccountId,
+  className,
+}: OrdersCardProps) {
   const [ordersData, setOrdersData] = useState<UnifiedOrderResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,10 +61,13 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
 
   // Filter accounts to show - if selectedAccountId is provided, show only that account
   const accountsToShow = selectedAccountId
-    ? accounts.filter(acc => acc._id === selectedAccountId)
+    ? accounts.filter((acc) => acc._id === selectedAccountId)
     : accounts;
 
-  const fetchOrdersForAccount = async (account: TradingAccount, isRefresh = false) => {
+  const fetchOrdersForAccount = async (
+    account: TradingAccount,
+    isRefresh = false
+  ) => {
     if (isRefresh) {
       setRefreshing(account._id!);
     }
@@ -73,23 +78,30 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
       );
 
       if (response.data?.success) {
-        setOrdersData(prev => {
-          const filtered = prev.filter(o => o.accountId !== account._id);
-          return [...filtered, ...response.data.data];
+        // Ensure data is an array before spreading
+        const ordersArray = Array.isArray(response.data.data)
+          ? response.data.data
+          : [];
+
+        setOrdersData((prev) => {
+          const filtered = prev.filter((o) => o.accountId !== account._id);
+          return [...filtered, ...ordersArray];
         });
 
         // Clear any previous errors for this account
-        setAccountErrors(prev => prev.filter(e => e.accountId !== account._id));
+        setAccountErrors((prev) =>
+          prev.filter((e) => e.accountId !== account._id)
+        );
         setError(null);
       } else {
-        throw new Error(response.data?.error || 'Failed to fetch orders');
+        throw new Error(response.data?.error || "Failed to fetch orders");
       }
     } catch (err: any) {
       // Check if it's a 401 error (authentication failure)
       if (err.response?.status === 401) {
         const errorData = err.response?.data;
-        setAccountErrors(prev => {
-          const filtered = prev.filter(e => e.accountId !== account._id);
+        setAccountErrors((prev) => {
+          const filtered = prev.filter((e) => e.accountId !== account._id);
           return [
             ...filtered,
             {
@@ -97,12 +109,14 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
               accountName: account.accountName,
               requiresReauth: errorData?.requiresReauth || true,
               message:
-                errorData?.error || 'Authentication failed. Please re-authenticate your account.',
+                errorData?.error ||
+                "Authentication failed. Please re-authenticate your account.",
             },
           ];
         });
       } else {
-        const errorMessage = err.response?.data?.error || err.message || 'Failed to fetch orders';
+        const errorMessage =
+          err.response?.data?.error || err.message || "Failed to fetch orders";
         setError(`${account.accountName}: ${errorMessage}`);
       }
     } finally {
@@ -122,7 +136,9 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
 
     try {
       // Fetch orders for all accounts in parallel
-      await Promise.allSettled(accountsToShow.map(account => fetchOrdersForAccount(account)));
+      await Promise.allSettled(
+        accountsToShow.map((account) => fetchOrdersForAccount(account))
+      );
     } finally {
       setLoading(false);
     }
@@ -137,59 +153,64 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
     if (accountsToShow.length > 0) {
       fetchAllOrders();
     }
-  }, [JSON.stringify(accounts.map(a => a._id)), selectedAccountId]); // Use stable stringified IDs
+  }, [JSON.stringify(accounts?.map((a) => a._id) || []), selectedAccountId]); // Use stable stringified IDs
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number | undefined | null) => {
+    if (amount === undefined || amount === null || isNaN(amount)) {
+      return "₹0.00";
+    }
     return `₹${amount.toFixed(2)}`;
   };
 
   const getVendorColor = (vendor: string) => {
     switch (vendor.toLowerCase()) {
-      case 'kite':
-        return '#ff6600';
-      case 'upstox':
-        return '#387ed1';
-      case 'binance':
-        return '#f3ba2f';
+      case "kite":
+        return "#ff6600";
+      case "upstox":
+        return "#387ed1";
+      case "binance":
+        return "#f3ba2f";
       default:
-        return '#666';
+        return "#666";
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'complete':
-      case 'executed':
-      case 'filled':
-        return 'success';
-      case 'open':
-      case 'pending':
-      case 'placed':
-      case 'trigger_pending':
-        return 'info';
-      case 'cancelled':
-      case 'rejected':
-      case 'canceled': // Alternative spelling
-        return 'danger';
-      case 'partial':
-        return 'warning';
+      case "complete":
+      case "executed":
+      case "filled":
+        return "success";
+      case "open":
+      case "pending":
+      case "placed":
+      case "trigger_pending":
+        return "info";
+      case "cancelled":
+      case "rejected":
+      case "canceled": // Alternative spelling
+        return "danger";
+      case "partial":
+        return "warning";
       default:
-        return 'neutral';
+        return "neutral";
     }
   };
 
   const totalOrders = ordersData.length;
-  const completedOrders = ordersData.filter(order => {
-    const status = order.status.toLowerCase();
-    return status === 'complete' || status === 'executed' || status === 'filled';
-  }).length;
-  const openOrders = ordersData.filter(order => {
+  const completedOrders = ordersData.filter((order) => {
     const status = order.status.toLowerCase();
     return (
-      status === 'open' ||
-      status === 'pending' ||
-      status === 'placed' ||
-      status === 'trigger_pending'
+      status === "complete" || status === "executed" || status === "filled"
+    );
+  }).length;
+  const openOrders = ordersData.filter((order) => {
+    const status = order.status.toLowerCase();
+    return (
+      status === "open" ||
+      status === "pending" ||
+      status === "placed" ||
+      status === "trigger_pending"
     );
   }).length;
 
@@ -200,7 +221,10 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
           <ShoppingCart className="empty-icon" size={48} />
           <h3>No Accounts Available</h3>
           <p>Add trading accounts to view your orders.</p>
-          <Button onClick={() => (window.location.href = '/accounts')} className="mt-4">
+          <Button
+            onClick={() => (window.location.href = "/accounts")}
+            className="mt-4"
+          >
             Add Account
           </Button>
         </div>
@@ -249,8 +273,10 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
       {/* Authentication Errors */}
       {accountErrors.length > 0 && (
         <div className="auth-errors-container">
-          {accountErrors.map(error => {
-            const account = accountsToShow.find(a => a._id === error.accountId);
+          {accountErrors.map((error) => {
+            const account = accountsToShow.find(
+              (a) => a._id === error.accountId
+            );
             if (!account) return null;
 
             return (
@@ -269,9 +295,9 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
                   variant="default"
                   onClick={() => {
                     // Handle re-authentication based on account type
-                    if (account.accountType === 'upstox') {
+                    if (account.accountType === "upstox") {
                       window.location.href = `/api/auth/upstox?accountId=${account._id}`;
-                    } else if (account.accountType === 'kite') {
+                    } else if (account.accountType === "kite") {
                       window.location.href = `/api/auth/kite?accountId=${account._id}`;
                     }
                   }}
@@ -292,11 +318,16 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
         </div>
       ) : (
         <div className="orders-list">
-          {ordersData.map(order => {
+          {ordersData.map((order) => {
             const isRefreshing = refreshing === order.accountId;
 
             return (
-              <div key={order.id} className="order-card">
+              <div
+                key={`${order.accountId}-${
+                  order.orderId || order.orderReference
+                }`}
+                className="order-card"
+              >
                 <div className="order-header">
                   <div className="order-info">
                     <div className="order-symbol-row">
@@ -325,7 +356,9 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
                     size="sm"
                     variant="ghost"
                     onClick={() => {
-                      const account = accountsToShow.find(a => a._id === order.accountId);
+                      const account = accountsToShow.find(
+                        (a) => a._id === order.accountId
+                      );
                       if (account) handleRefresh(account);
                     }}
                     disabled={isRefreshing}
@@ -342,7 +375,11 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
                   <div className="detail-row">
                     <span className="detail-label">Type:</span>
                     <span
-                      className={`detail-value ${order.transactionType.toLowerCase() === 'buy' ? 'buy-text' : 'sell-text'}`}
+                      className={`detail-value ${
+                        order.transactionType.toLowerCase() === "buy"
+                          ? "buy-text"
+                          : "sell-text"
+                      }`}
                     >
                       {order.transactionType} {order.orderType}
                     </span>
@@ -354,13 +391,15 @@ export default function OrdersCard({ accounts, selectedAccountId, className }: O
                   <div className="detail-row">
                     <span className="detail-label">Price:</span>
                     <span className="detail-value">
-                      {order.price > 0 ? formatCurrency(order.price) : 'Market'}
+                      {order.price > 0 ? formatCurrency(order.price) : "Market"}
                     </span>
                   </div>
                   {order.averagePrice > 0 && (
                     <div className="detail-row">
                       <span className="detail-label">Avg:</span>
-                      <span className="detail-value">{formatCurrency(order.averagePrice)}</span>
+                      <span className="detail-value">
+                        {formatCurrency(order.averagePrice)}
+                      </span>
                     </div>
                   )}
                   <div className="detail-row">

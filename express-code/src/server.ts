@@ -30,7 +30,7 @@ import watchlistRouter from "./routes/watchlist";
 import connectDB from "./lib/mongodb";
 
 const app: Application = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8000;
 
 // Security middleware
 app.use(helmet());
@@ -39,13 +39,23 @@ app.use(helmet());
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
   "http://localhost:3000",
   "http://localhost:5173",
+  "http://localhost:8000",
 ];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl requests)
+      // Allow requests with no origin (like mobile apps, curl, or Vite proxy requests)
       if (!origin) return callback(null, true);
+
+      // In development, allow localhost on any port
+      if (
+        process.env.NODE_ENV !== "production" &&
+        origin?.includes("localhost")
+      ) {
+        return callback(null, true);
+      }
+
       if (allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);
       } else {

@@ -2,18 +2,115 @@ import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { getAccountById } from "../models/account";
+import axios from "axios";
 
 const router = Router();
 
 // GET /api/historical-data - Get historical data for an instrument
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const { accountId, instrumentToken, interval, fromDate, toDate } =
-      req.query;
+    const {
+      accountId,
+      instrumentToken,
+      symbol,
+      interval,
+      fromDate,
+      toDate,
+      vendor,
+    } = req.query;
 
-    if (!accountId || !instrumentToken || !interval) {
+    let historicalData;
+
+    // Priority 1: Check vendor parameter first (for public APIs like Binance)
+    if (vendor === "binance") {
+      // Binance uses symbol (e.g., BTCUSDT) instead of instrumentToken
+      if (!symbol || !interval) {
+        return res.status(400).json({
+          error: "symbol and interval are required for Binance",
+        });
+      }
+
+      // Try to get account preferences, but use defaults if not available
+      let tradingSegment = "spot";
+      let isTestnet = false;
+
+      if (accountId) {
+        try {
+          const account = await getAccountById(accountId as string);
+          if (account && account.accountType === "binance") {
+            tradingSegment = account.metadata?.tradingSegment || "spot";
+            isTestnet = account.metadata?.testnet || false;
+          }
+        } catch (err) {
+          // Account not found or error - use defaults
+          console.log("Using default Binance settings (spot, production)");
+        }
+      }
+
+      // Map interval format (1h -> 1h, 1d -> 1d, etc.)
+      const binanceInterval = interval as string;
+
+      // Calculate time range (default: last 100 candles)
+      const limit = 100;
+
+      try {
+        let apiUrl: string;
+        if (tradingSegment === "usdm") {
+          // USD(S)-M Futures
+          apiUrl = isTestnet
+            ? "https://testnet.binancefuture.com/fapi/v1/klines"
+            : "https://fapi.binance.com/fapi/v1/klines";
+        } else {
+          // Spot
+          apiUrl = isTestnet
+            ? "https://testnet.binance.vision/api/v3/klines"
+            : "https://api.binance.com/api/v3/klines";
+        }
+
+        const params: any = {
+          symbol: symbol as string,
+          interval: binanceInterval,
+          limit,
+        };
+
+        if (fromDate) {
+          params.startTime = new Date(fromDate as string).getTime();
+        }
+        if (toDate) {
+          params.endTime = new Date(toDate as string).getTime();
+        }
+
+        const response = await axios.get(apiUrl, { params });
+
+        // Convert Binance klines format to standard format
+        // Binance format: [openTime, open, high, low, close, volume, closeTime, ...]
+        historicalData = response.data.map((candle: any[]) => ({
+          date: new Date(candle[0]).toISOString(), // Convert timestamp to ISO date string
+          open: parseFloat(candle[1]),
+          high: parseFloat(candle[2]),
+          low: parseFloat(candle[3]),
+          close: parseFloat(candle[4]),
+          volume: parseFloat(candle[5]),
+        }));
+
+        return res.json({
+          success: true,
+          data: historicalData,
+          accountType: "binance",
+        });
+      } catch (error: any) {
+        console.error("Error fetching Binance historical data:", error);
+        return res.status(500).json({
+          error: "Failed to fetch historical data",
+          details: error.message,
+        });
+      }
+    }
+
+    // Priority 2: For other vendors, require accountId and check account type
+    if (!accountId || !interval) {
       return res.status(400).json({
-        error: "accountId, instrumentToken, and interval are required",
+        error: "accountId and interval are required",
       });
     }
 
@@ -23,13 +120,17 @@ router.get("/", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Account not found" });
     }
 
-    if (!account.accessToken) {
-      return res.status(401).json({ error: "Account not authenticated" });
-    }
-
-    let historicalData;
-
     if (account.accountType === "kite") {
+      if (!instrumentToken) {
+        return res.status(400).json({
+          error: "instrumentToken is required for Kite accounts",
+        });
+      }
+
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
+
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret
@@ -44,6 +145,16 @@ router.get("/", async (req: Request, res: Response) => {
         false
       );
     } else if (account.accountType === "upstox") {
+      if (!instrumentToken) {
+        return res.status(400).json({
+          error: "instrumentToken is required for Upstox accounts",
+        });
+      }
+
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
+
       const isSandbox = account.metadata?.sandbox || false;
       upstoxService.initializeWithCredentials(
         account.apiKey,

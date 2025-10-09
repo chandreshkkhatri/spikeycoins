@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
+import binanceService from "../lib/binance-service";
 import { getAccountById } from "../models/account";
 
 const router = Router();
@@ -20,13 +21,12 @@ router.get("/", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Account not found" });
     }
 
-    if (!account.accessToken) {
-      return res.status(401).json({ error: "Account not authenticated" });
-    }
-
     let funds;
 
     if (account.accountType === "kite") {
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret
@@ -34,6 +34,9 @@ router.get("/", async (req: Request, res: Response) => {
       kiteConnectService.setAccessToken(account.accessToken);
       funds = await kiteConnectService.getMargins();
     } else if (account.accountType === "upstox") {
+      if (!account.accessToken) {
+        return res.status(401).json({ error: "Account not authenticated" });
+      }
       const isSandbox = account.metadata?.sandbox || false;
       upstoxService.initializeWithCredentials(
         account.apiKey,
@@ -42,15 +45,67 @@ router.get("/", async (req: Request, res: Response) => {
       );
       upstoxService.setAccessToken(account.accessToken);
       funds = await upstoxService.getFunds();
+    } else if (account.accountType === "binance") {
+      // Binance doesn't require separate accessToken - API Key/Secret is sufficient
+      const tradingSegment = account.metadata?.tradingSegment || "spot";
+      const isTestnet = account.metadata?.testnet || false;
+
+      binanceService.initializeWithCredentials(
+        account.apiKey,
+        account.apiSecret,
+        isTestnet
+      );
+
+      if (tradingSegment === "usdm") {
+        // USD(S)-M Futures - Get futures balance
+        const futuresAccount = await binanceService.getFuturesAccount();
+        funds = {
+          segment: "usdm",
+          totalWalletBalance: futuresAccount.totalWalletBalance,
+          totalUnrealizedProfit: futuresAccount.totalUnrealizedProfit,
+          totalMarginBalance: futuresAccount.totalMarginBalance,
+          availableBalance: futuresAccount.availableBalance,
+          maxWithdrawAmount: futuresAccount.maxWithdrawAmount,
+          assets: futuresAccount.assets,
+          positions: futuresAccount.positions,
+        };
+      } else {
+        // Spot - Get spot balances
+        const spotAccount = await binanceService.getSpotAccount();
+        funds = {
+          segment: "spot",
+          canTrade: spotAccount.canTrade,
+          canWithdraw: spotAccount.canWithdraw,
+          canDeposit: spotAccount.canDeposit,
+          balances: spotAccount.balances.filter(
+            (b: any) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0
+          ),
+        };
+      }
     } else {
       return res
         .status(400)
         .json({ error: "Unsupported account type for funds" });
     }
 
+    // Format funds data with unified structure
+    const unifiedFunds = {
+      totalBalance:
+        funds.equity?.available_margin || funds.totalWalletBalance || "0",
+      availableBalance:
+        funds.equity?.available_margin || funds.availableBalance || "0",
+      usedMargin:
+        funds.equity?.used_margin || funds.totalMarginBalance || undefined,
+      unrealizedPnl:
+        funds.equity?.unrealised_pnl ||
+        funds.totalUnrealizedProfit ||
+        undefined,
+      details: funds,
+    };
+
     return res.json({
       success: true,
-      funds,
+      funds: unifiedFunds,
       accountType: account.accountType,
     });
   } catch (error: any) {

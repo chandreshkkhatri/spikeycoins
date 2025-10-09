@@ -1,0 +1,172 @@
+.account-selector {
+  position: relative;
+  display: inline-block;
+}
+
+.account-selector-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+:global(.dark) .account-selector-loading {
+  color: #a1a1aa;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e5e5e5;
+  border-top: 2px solid #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+:global(.dark) .loading-spinner {
+  border: 2px solid #3f3f46;
+  border-top: 2px solid #3b82f6;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.no-accounts {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+:global(.dark) .no-accounts {
+  color: #a1a1aa;
+}
+
+.selector-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 200px;
+  padding: 8px 12px;
+  gap: 8px;
+}
+
+.selected-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-type {
+  font-size: 16px;
+}
+
+.account-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.chevron {
+  transition: transform 0.2s ease;
+  color: #666;
+}
+
+:global(.dark) .chevron {
+  color: #a1a1aa;
+}
+
+.chevron.open {
+  transform: rotate(180deg);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 50;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+:global(.dark) .dropdown-menu {
+  background: #18181b;
+  border: 1px solid #3f3f46;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.dropdown-item:hover {
+  background: #f8f9fa;
+}
+
+:global(.dark) .dropdown-item:hover {
+  background: #27272a;
+}
+
+.dropdown-item.selected {
+  background: #f0f9ff;
+}
+
+:global(.dark) .dropdown-item.selected {
+  background: #1e3a8a;
+}
+
+.account-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-details .account-name {
+  font-weight: 500;
+  color: #333;
+  font-size: 0.9rem;
+}
+
+:global(.dark) .account-details .account-name {
+  color: #ffffff;
+}
+
+.account-type-text {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+:global(.dark) .account-type-text {
+  color: #a1a1aa;
+}
+
+.check-icon {
+  color: #3b82f6;
+}

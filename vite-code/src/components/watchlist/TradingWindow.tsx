@@ -1,10 +1,8 @@
-
-
-import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
-import axios from 'axios';
-import { memo, useEffect, useState } from 'react';
-import MultiTimeframeChart from './MultiTimeframeChart';
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import axios from "axios";
+import { memo, useEffect, useState } from "react";
+import MultiTimeframeChart from "./MultiTimeframeChart";
 
 interface TradingWindowProps {
   symbol: string;
@@ -12,16 +10,22 @@ interface TradingWindowProps {
   accounts: Array<{
     _id: string;
     accountName: string;
-    accountType: 'binance' | 'kite' | 'upstox';
+    accountType: "binance" | "kite" | "upstox";
     isActive: boolean;
   }>;
+  selectedAccount?: {
+    _id: string;
+    accountName: string;
+    accountType: "binance" | "kite" | "upstox";
+    isActive: boolean;
+  } | null;
   onOrderPlaced: () => void;
 }
 
 interface OrderForm {
   accountId: string;
-  side: 'BUY' | 'SELL';
-  type: 'MARKET' | 'LIMIT' | 'STOP_MARKET' | 'TAKE_PROFIT_MARKET';
+  side: "BUY" | "SELL";
+  type: "MARKET" | "LIMIT" | "STOP_MARKET" | "TAKE_PROFIT_MARKET";
   quantity: string;
   price: string;
   stopPrice: string;
@@ -33,16 +37,17 @@ const TradingWindow = memo(function TradingWindow({
   symbol,
   currentPrice,
   accounts,
+  selectedAccount,
   onOrderPlaced,
 }: TradingWindowProps) {
   const [orderForm, setOrderForm] = useState<OrderForm>({
-    accountId: accounts[0]?._id || '',
-    side: 'BUY',
-    type: 'LIMIT',
-    quantity: '0.001',
+    accountId: selectedAccount?._id || accounts[0]?._id || "",
+    side: "BUY",
+    type: "LIMIT",
+    quantity: "0.001",
     price: currentPrice.toFixed(2),
-    stopPrice: '',
-    leverage: '1',
+    stopPrice: "",
+    leverage: "1",
     reduceOnly: false,
   });
 
@@ -53,13 +58,16 @@ const TradingWindow = memo(function TradingWindow({
 
   // Update price when current price changes
   useEffect(() => {
-    if (orderForm.type === 'LIMIT') {
-      setOrderForm(prev => ({ ...prev, price: currentPrice.toFixed(2) }));
+    if (orderForm.type === "LIMIT") {
+      setOrderForm((prev) => ({ ...prev, price: currentPrice.toFixed(2) }));
     }
   }, [currentPrice, orderForm.type]);
 
-  const handleInputChange = (field: keyof OrderForm, value: string | boolean) => {
-    setOrderForm(prev => ({ ...prev, [field]: value }));
+  const handleInputChange = (
+    field: keyof OrderForm,
+    value: string | boolean
+  ) => {
+    setOrderForm((prev) => ({ ...prev, [field]: value }));
     setError(null);
     setSuccess(null);
   };
@@ -72,16 +80,21 @@ const TradingWindow = memo(function TradingWindow({
 
   const calculateOrderValue = () => {
     const qty = parseFloat(orderForm.quantity) || 0;
-    const price = orderForm.type === 'MARKET' ? currentPrice : parseFloat(orderForm.price) || 0;
+    const price =
+      orderForm.type === "MARKET"
+        ? currentPrice
+        : parseFloat(orderForm.price) || 0;
     return (qty * price).toFixed(2);
   };
 
   const calculateLiquidationPrice = () => {
     const leverage = parseFloat(orderForm.leverage) || 1;
     const entryPrice =
-      orderForm.type === 'MARKET' ? currentPrice : parseFloat(orderForm.price) || currentPrice;
+      orderForm.type === "MARKET"
+        ? currentPrice
+        : parseFloat(orderForm.price) || currentPrice;
 
-    if (orderForm.side === 'BUY') {
+    if (orderForm.side === "BUY") {
       return (entryPrice * (1 - 1 / leverage)).toFixed(2);
     } else {
       return (entryPrice * (1 + 1 / leverage)).toFixed(2);
@@ -91,24 +104,29 @@ const TradingWindow = memo(function TradingWindow({
   const setQuickQuantity = (percentage: number) => {
     // This would normally calculate based on available balance
     // For now, we'll use sample quantities
-    const baseAmount = orderForm.side === 'BUY' ? 100 : 0.1; // $100 for BUY, 0.1 for SELL
-    const quantity = ((baseAmount / currentPrice) * (percentage / 100)).toFixed(6);
-    handleInputChange('quantity', quantity);
+    const baseAmount = orderForm.side === "BUY" ? 100 : 0.1; // $100 for BUY, 0.1 for SELL
+    const quantity = ((baseAmount / currentPrice) * (percentage / 100)).toFixed(
+      6
+    );
+    handleInputChange("quantity", quantity);
   };
 
   const submitOrder = async () => {
     if (!orderForm.accountId) {
-      setError('Please select a trading account');
+      setError("Please select a trading account");
       return;
     }
 
     if (!orderForm.quantity || parseFloat(orderForm.quantity) <= 0) {
-      setError('Please enter a valid quantity');
+      setError("Please enter a valid quantity");
       return;
     }
 
-    if (orderForm.type === 'LIMIT' && (!orderForm.price || parseFloat(orderForm.price) <= 0)) {
-      setError('Please enter a valid price');
+    if (
+      orderForm.type === "LIMIT" &&
+      (!orderForm.price || parseFloat(orderForm.price) <= 0)
+    ) {
+      setError("Please enter a valid price");
       return;
     }
 
@@ -122,33 +140,42 @@ const TradingWindow = memo(function TradingWindow({
         side: orderForm.side,
         type: orderForm.type,
         quantity: parseFloat(orderForm.quantity),
-        ...(orderForm.type === 'LIMIT' && { price: parseFloat(orderForm.price) }),
-        ...(orderForm.type.includes('STOP') && { stopPrice: parseFloat(orderForm.stopPrice) }),
+        ...(orderForm.type === "LIMIT" && {
+          price: parseFloat(orderForm.price),
+        }),
+        ...(orderForm.type.includes("STOP") && {
+          stopPrice: parseFloat(orderForm.stopPrice),
+        }),
         reduceOnly: orderForm.reduceOnly,
         leverage: parseFloat(orderForm.leverage),
       };
 
-      const response = await axios.post('/api/trading/binance/place-order', orderData);
+      const response = await axios.post(
+        "/api/trading/binance/place-order",
+        orderData
+      );
 
       if (!response.data.success) {
-        throw new Error(response.data.error || 'Failed to place order');
+        throw new Error(response.data.error || "Failed to place order");
       }
 
-      setSuccess(`${orderForm.side} order placed successfully for ${orderForm.quantity} ${symbol}`);
+      setSuccess(
+        `${orderForm.side} order placed successfully for ${orderForm.quantity} ${symbol}`
+      );
       onOrderPlaced();
 
       // Reset form
-      setOrderForm(prev => ({
+      setOrderForm((prev) => ({
         ...prev,
-        quantity: '0.001',
+        quantity: "0.001",
         price: currentPrice.toFixed(2),
-        stopPrice: '',
+        stopPrice: "",
       }));
       setPositionSizePercentage(0);
     } catch (err: any) {
       // eslint-disable-next-line no-console -- surfaced during order error handling
-      console.error('Order placement error:', err);
-      setError(err.response?.data?.error || 'Failed to place order');
+      console.error("Order placement error:", err);
+      setError(err.response?.data?.error || "Failed to place order");
     } finally {
       setIsSubmitting(false);
     }
@@ -164,7 +191,13 @@ const TradingWindow = memo(function TradingWindow({
 
   return (
     <div className="trading-window">
-      <MultiTimeframeChart symbol={symbol} accountId={orderForm.accountId} />
+      <MultiTimeframeChart
+        symbol={symbol}
+        accountId={orderForm.accountId}
+        accountType={
+          accounts.find((a) => a._id === orderForm.accountId)?.accountType
+        }
+      />
       <div className="trading-header">
         <h3>{symbol} Trading</h3>
         <div className="current-price">${currentPrice.toFixed(2)}</div>
@@ -176,7 +209,7 @@ const TradingWindow = memo(function TradingWindow({
           <label>Account</label>
           <select
             value={orderForm.accountId}
-            onChange={e => handleInputChange('accountId', e.target.value)}
+            onChange={(e) => handleInputChange("accountId", e.target.value)}
             className="form-select"
           >
             {accounts.map((account: any) => (
@@ -193,17 +226,17 @@ const TradingWindow = memo(function TradingWindow({
           <div className="button-group">
             <Button
               type="button"
-              variant={orderForm.side === 'BUY' ? 'success' : 'outline'}
+              variant={orderForm.side === "BUY" ? "success" : "outline"}
               size="sm"
-              onClick={() => handleInputChange('side', 'BUY')}
+              onClick={() => handleInputChange("side", "BUY")}
             >
               Buy
             </Button>
             <Button
               type="button"
-              variant={orderForm.side === 'SELL' ? 'danger' : 'outline'}
+              variant={orderForm.side === "SELL" ? "danger" : "outline"}
               size="sm"
-              onClick={() => handleInputChange('side', 'SELL')}
+              onClick={() => handleInputChange("side", "SELL")}
             >
               Sell
             </Button>
@@ -215,7 +248,7 @@ const TradingWindow = memo(function TradingWindow({
           <label>Type</label>
           <select
             value={orderForm.type}
-            onChange={e => handleInputChange('type', e.target.value as any)}
+            onChange={(e) => handleInputChange("type", e.target.value as any)}
             className="form-select"
           >
             <option value="MARKET">Market</option>
@@ -231,7 +264,7 @@ const TradingWindow = memo(function TradingWindow({
           <input
             type="number"
             value={orderForm.quantity}
-            onChange={e => handleInputChange('quantity', e.target.value)}
+            onChange={(e) => handleInputChange("quantity", e.target.value)}
             className="form-input"
             placeholder="0.001"
             step="0.000001"
@@ -266,13 +299,13 @@ const TradingWindow = memo(function TradingWindow({
         </div>
 
         {/* Price (for limit orders) */}
-        {orderForm.type === 'LIMIT' && (
+        {orderForm.type === "LIMIT" && (
           <div className="form-group">
             <label>Price (USDT)</label>
             <input
               type="number"
               value={orderForm.price}
-              onChange={e => handleInputChange('price', e.target.value)}
+              onChange={(e) => handleInputChange("price", e.target.value)}
               className="form-input"
               placeholder={currentPrice.toFixed(2)}
               step="0.01"
@@ -285,7 +318,7 @@ const TradingWindow = memo(function TradingWindow({
           <label>Leverage</label>
           <select
             value={orderForm.leverage}
-            onChange={e => handleInputChange('leverage', e.target.value)}
+            onChange={(e) => handleInputChange("leverage", e.target.value)}
             className="form-select"
           >
             <option value="1">1x</option>
@@ -306,7 +339,9 @@ const TradingWindow = memo(function TradingWindow({
               type="checkbox"
               id="reduceOnly"
               checked={orderForm.reduceOnly}
-              onChange={e => handleInputChange('reduceOnly', e.target.checked)}
+              onChange={(e) =>
+                handleInputChange("reduceOnly", e.target.checked)
+              }
               className="form-checkbox"
             />
             <label htmlFor="reduceOnly" className="checkbox-label">
@@ -333,12 +368,12 @@ const TradingWindow = memo(function TradingWindow({
 
         {/* Submit Button */}
         <Button
-          variant={orderForm.side === 'BUY' ? 'success' : 'danger'}
+          variant={orderForm.side === "BUY" ? "success" : "danger"}
           size="sm"
           disabled={isSubmitting}
           onClick={submitOrder}
         >
-          {isSubmitting ? 'Placing Order...' : `${orderForm.side} ${symbol}`}
+          {isSubmitting ? "Placing Order..." : `${orderForm.side} ${symbol}`}
         </Button>
       </div>
 

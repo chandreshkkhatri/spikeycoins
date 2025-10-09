@@ -1,12 +1,10 @@
-
-
-import { Button } from '@/components/ui/button';
-import { binanceWebSocket } from '@/lib/binance-websocket';
-import { upstoxWebSocket } from '@/lib/upstox-websocket';
-import { ChevronDown, Plus } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import SymbolSearchModal from './SymbolSearchModal';
-import TradingWindow from './TradingWindow';
+import { Button } from "@/components/ui/button";
+import binanceWebSocketService from "@/lib/binance-websocket";
+import { upstoxWebSocket } from "@/lib/upstox-websocket";
+import { ChevronDown, Plus } from "lucide-react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import SymbolSearchModal from "./SymbolSearchModal";
+import TradingWindow from "./TradingWindow";
 
 export interface WatchlistItem {
   symbol: string;
@@ -22,34 +20,37 @@ interface WatchlistProps {
   accounts: Array<{
     _id: string;
     accountName: string;
-    accountType: 'binance' | 'kite' | 'upstox';
+    accountType: "binance" | "kite" | "upstox";
     isActive: boolean;
   }>;
   selectedAccount?: {
     _id: string;
     accountName: string;
-    accountType: 'binance' | 'kite' | 'upstox';
+    accountType: "binance" | "kite" | "upstox";
     isActive: boolean;
   } | null;
   marketType?: string;
 }
 
 const Watchlist = memo(function Watchlist({
-  accounts,
+  accounts = [],
   selectedAccount,
-  marketType = 'binance-futures',
+  marketType = "binance-futures",
 }: WatchlistProps) {
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
   const [watchlistItemsData, setWatchlistItemsData] = useState<any[]>([]);
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
+  const [selectedSymbol, setSelectedSymbol] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([]);
   const [watchlists, setWatchlists] = useState<
     Array<{ id: string; name: string; isDefault: boolean }>
   >([]);
-  const [currentWatchlistId, setCurrentWatchlistId] = useState<string | null>(null);
-  const [currentWatchlistName, setCurrentWatchlistName] = useState<string>('Default Watchlist');
+  const [currentWatchlistId, setCurrentWatchlistId] = useState<string | null>(
+    null
+  );
+  const [currentWatchlistName, setCurrentWatchlistName] =
+    useState<string>("Default Watchlist");
   const [showWatchlistDropdown, setShowWatchlistDropdown] = useState(false);
   const [showSymbolSearchModal, setShowSymbolSearchModal] = useState(false);
   const [addAnchorRect, setAddAnchorRect] = useState<{
@@ -61,11 +62,13 @@ const Watchlist = memo(function Watchlist({
     height: number;
   } | null>(null);
 
-  const currentPrice = watchlistItems.find(item => item.symbol === selectedSymbol)?.lastPrice || 0;
+  const currentPrice =
+    watchlistItems.find((item) => item.symbol === selectedSymbol)?.lastPrice ||
+    0;
 
   // Track previous account to avoid unnecessary disconnects on watchlist changes
   const prevAccountIdRef = useRef<string | null>(null);
-  const prevAccountTypeRef = useRef<'binance' | 'kite' | 'upstox' | null>(null);
+  const prevAccountTypeRef = useRef<"binance" | "kite" | "upstox" | null>(null);
   const shouldDisconnectRef = useRef<boolean>(false);
 
   // Fetch watchlist symbols from database when account changes
@@ -117,15 +120,17 @@ const Watchlist = memo(function Watchlist({
             setWatchlistItemsData(items); // Store full item data
 
             // Initialize watchlist items
-            const initialData: WatchlistItem[] = symbols.map((symbol: string) => ({
-              symbol,
-              lastPrice: 0,
-              priceChange: 0,
-              priceChangePercent: 0,
-              volume: 0,
-              high24h: 0,
-              low24h: 0,
-            }));
+            const initialData: WatchlistItem[] = symbols.map(
+              (symbol: string) => ({
+                symbol,
+                lastPrice: 0,
+                priceChange: 0,
+                priceChangePercent: 0,
+                volume: 0,
+                high24h: 0,
+                low24h: 0,
+              })
+            );
 
             setWatchlistItems(initialData);
             if (symbols.length > 0 && !selectedSymbol) {
@@ -133,34 +138,53 @@ const Watchlist = memo(function Watchlist({
             }
 
             // Start WebSocket connection for real-time updates
-            if (selectedAccount?.accountType === 'binance') {
-              binanceWebSocket.connect(symbols, priceUpdate => {
-                setWatchlistItems(prev =>
-                  prev.map(item => {
-                    if (item.symbol === priceUpdate.symbol) {
-                      return {
-                        ...item,
-                        lastPrice: parseFloat(priceUpdate.price),
-                        priceChange:
-                          parseFloat(priceUpdate.price) *
-                          (parseFloat(priceUpdate.priceChangePercent) / 100),
-                        priceChangePercent: parseFloat(priceUpdate.priceChangePercent),
-                        volume: parseFloat(priceUpdate.volume),
-                        high24h: parseFloat(priceUpdate.high),
-                        low24h: parseFloat(priceUpdate.low),
-                      };
-                    }
-                    return item;
-                  })
-                );
-              });
-            } else if (selectedAccount?.accountType === 'upstox') {
+            if (selectedAccount?.accountType === "binance") {
+              // Connect to WebSocket first (don't use testnet for now - it's unstable)
+              binanceWebSocketService
+                .connect("spot", false)
+                .then(() => {
+                  // Subscribe to each symbol
+                  symbols.forEach((symbol: string) => {
+                    binanceWebSocketService.subscribe(
+                      symbol,
+                      (priceUpdate: any) => {
+                        setWatchlistItems((prev) =>
+                          prev.map((item) => {
+                            if (
+                              item.symbol.toLowerCase() ===
+                              priceUpdate.s?.toLowerCase()
+                            ) {
+                              return {
+                                ...item,
+                                lastPrice: parseFloat(
+                                  priceUpdate.c || priceUpdate.lastPrice || "0"
+                                ),
+                                priceChange: parseFloat(priceUpdate.p || "0"),
+                                priceChangePercent: parseFloat(
+                                  priceUpdate.P || "0"
+                                ),
+                                volume: parseFloat(priceUpdate.v || "0"),
+                                high24h: parseFloat(priceUpdate.h || "0"),
+                                low24h: parseFloat(priceUpdate.l || "0"),
+                              };
+                            }
+                            return item;
+                          })
+                        );
+                      }
+                    );
+                  });
+                })
+                .catch((err) => {
+                  console.error("Failed to connect to Binance WebSocket:", err);
+                });
+            } else if (selectedAccount?.accountType === "upstox") {
               // Upstox: connect via v3 websocket using accountId and 'ltpc' for light feed in watchlist
               upstoxWebSocket.connect(
                 symbols,
-                priceUpdate => {
-                  setWatchlistItems(prev =>
-                    prev.map(item => {
+                (priceUpdate) => {
+                  setWatchlistItems((prev) =>
+                    prev.map((item) => {
                       if (item.symbol === priceUpdate.symbol) {
                         return {
                           ...item,
@@ -176,7 +200,7 @@ const Watchlist = memo(function Watchlist({
                     })
                   );
                 },
-                { accountId: selectedAccount._id, mode: 'ltpc' }
+                { accountId: selectedAccount._id, mode: "ltpc" }
               );
             }
           } else {
@@ -188,8 +212,8 @@ const Watchlist = memo(function Watchlist({
 
         setLoading(false);
       } catch (err) {
-        console.error('Failed to fetch watchlist symbols:', err);
-        setError('Failed to load watchlist data');
+        console.error("Failed to fetch watchlist symbols:", err);
+        setError("Failed to load watchlist data");
         setWatchlistItems([]);
         setLoading(false);
       }
@@ -200,9 +224,9 @@ const Watchlist = memo(function Watchlist({
     // Cleanup WebSocket on component unmount or account change
     return () => {
       if (!shouldDisconnectRef.current) return;
-      if (prevAccountTypeRef.current === 'binance') {
-        binanceWebSocket.disconnect();
-      } else if (prevAccountTypeRef.current === 'upstox') {
+      if (prevAccountTypeRef.current === "binance") {
+        binanceWebSocketService.disconnect();
+      } else if (prevAccountTypeRef.current === "upstox") {
         upstoxWebSocket.disconnect();
       }
     };
@@ -216,7 +240,15 @@ const Watchlist = memo(function Watchlist({
     prevAccountTypeRef.current = selectedAccount?.accountType || null;
   }, [selectedAccount]);
 
-  const addSymbol = async (item: { symbol: string; name?: string; exchange?: string; token?: string; segment?: string; instrument_type?: string; isin?: string }) => {
+  const addSymbol = async (item: {
+    symbol: string;
+    name?: string;
+    exchange?: string;
+    token?: string;
+    segment?: string;
+    instrument_type?: string;
+    isin?: string;
+  }) => {
     // Check if symbol already exists
     if (watchlistSymbols.includes(item.symbol)) {
       setError(`${item.symbol} is already in your watchlist`);
@@ -229,7 +261,7 @@ const Watchlist = memo(function Watchlist({
     setWatchlistSymbols(newSymbols);
 
     // Add to watchlist items with initial values
-    setWatchlistItems(prev => [
+    setWatchlistItems((prev) => [
       ...prev,
       {
         symbol: item.symbol,
@@ -251,11 +283,12 @@ const Watchlist = memo(function Watchlist({
     if (selectedAccount) {
       try {
         // Use existing items data if available, or create minimal items
-        const currentItems = watchlistItemsData.length > 0
-          ? watchlistItemsData
-          : watchlistItems.map(wi => ({
-              symbol: wi.symbol,
-            }));
+        const currentItems =
+          watchlistItemsData.length > 0
+            ? watchlistItemsData
+            : watchlistItems.map((wi) => ({
+                symbol: wi.symbol,
+              }));
 
         // Add new item with full details
         const newItems = [
@@ -274,56 +307,67 @@ const Watchlist = memo(function Watchlist({
         // Update local state with new items data
         setWatchlistItemsData(newItems);
 
+        // Save to backend - backend expects 'symbol' not 'items'
         const body: any = {
           accountId: selectedAccount._id,
           marketType,
-          items: newItems, // Changed from symbols to items
+          symbol: item.symbol, // Backend expects single symbol
         };
 
         if (currentWatchlistId) {
           body.watchlistId = currentWatchlistId;
         }
 
-        await fetch('/api/watchlist/symbols', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const response = await fetch("/api/watchlist/symbols", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
 
+        if (!response.ok) {
+          throw new Error("Failed to save symbol to watchlist");
+        }
+
         // Add to WebSocket subscription
-        if (selectedAccount.accountType === 'binance') {
-          binanceWebSocket.addSymbol(item.symbol);
-        } else if (selectedAccount.accountType === 'upstox') {
+        if (selectedAccount.accountType === "binance") {
+          binanceWebSocketService.addSymbol(item.symbol);
+        } else if (selectedAccount.accountType === "upstox") {
           upstoxWebSocket.addSymbol(item.symbol);
         }
       } catch (err) {
-        console.error('Failed to add symbol to watchlist:', err);
-        setError('Failed to add symbol to watchlist');
+        console.error("Failed to add symbol to watchlist:", err);
+        setError("Failed to add symbol to watchlist");
         // Revert on error
-        setWatchlistSymbols(prev => prev.filter(s => s !== item.symbol));
-        setWatchlistItems(prev => prev.filter(wi => wi.symbol !== item.symbol));
+        setWatchlistSymbols((prev) => prev.filter((s) => s !== item.symbol));
+        setWatchlistItems((prev) =>
+          prev.filter((wi) => wi.symbol !== item.symbol)
+        );
       }
     }
   };
 
   const removeSymbol = async (symbol: string) => {
-    setWatchlistItems(prev => prev.filter(item => item.symbol !== symbol));
-    setWatchlistSymbols(prev => prev.filter(s => s !== symbol));
+    setWatchlistItems((prev) => prev.filter((item) => item.symbol !== symbol));
+    setWatchlistSymbols((prev) => prev.filter((s) => s !== symbol));
     // Remove from WebSocket subscription
-    if (selectedAccount?.accountType === 'binance') {
-      binanceWebSocket.removeSymbol(symbol);
-    } else if (selectedAccount?.accountType === 'upstox') {
+    if (selectedAccount?.accountType === "binance") {
+      binanceWebSocketService.removeSymbol(symbol);
+    } else if (selectedAccount?.accountType === "upstox") {
       upstoxWebSocket.removeSymbol(symbol);
     }
     if (selectedSymbol === symbol && watchlistItems.length > 1) {
-      setSelectedSymbol(watchlistItems.find(item => item.symbol !== symbol)?.symbol || '');
+      setSelectedSymbol(
+        watchlistItems.find((item) => item.symbol !== symbol)?.symbol || ""
+      );
     }
 
     // Save to database with items
     if (selectedAccount) {
       try {
         // Filter out the removed symbol from items data
-        const remainingItems = watchlistItemsData.filter(item => item.symbol !== symbol);
+        const remainingItems = watchlistItemsData.filter(
+          (item) => item.symbol !== symbol
+        );
 
         // Update local state
         setWatchlistItemsData(remainingItems);
@@ -338,26 +382,29 @@ const Watchlist = memo(function Watchlist({
           body.watchlistId = currentWatchlistId;
         }
 
-        await fetch('/api/watchlist/symbols', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        await fetch("/api/watchlist/symbols", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       } catch (err) {
-        console.error('Failed to remove symbol from watchlist:', err);
+        console.error("Failed to remove symbol from watchlist:", err);
       }
     }
   };
 
-  const switchWatchlist = useCallback((watchlistId: string, watchlistName: string) => {
-    setCurrentWatchlistId(watchlistId);
-    setCurrentWatchlistName(watchlistName);
-    setShowWatchlistDropdown(false);
-  }, []);
+  const switchWatchlist = useCallback(
+    (watchlistId: string, watchlistName: string) => {
+      setCurrentWatchlistId(watchlistId);
+      setCurrentWatchlistName(watchlistName);
+      setShowWatchlistDropdown(false);
+    },
+    []
+  );
 
   const handleOrderPlaced = useCallback(() => {
     // Handle order placed event - could refresh data, show notification, etc.
-    console.log('Order placed successfully');
+    console.log("Order placed successfully");
   }, []);
 
   if (loading) {
@@ -378,7 +425,7 @@ const Watchlist = memo(function Watchlist({
             <Button
               variant="trading"
               size="sm"
-              onClick={() => (window.location.href = '/accounts')}
+              onClick={() => (window.location.href = "/accounts")}
             >
               Add Trading Account
             </Button>
@@ -402,14 +449,18 @@ const Watchlist = memo(function Watchlist({
             </div>
             {showWatchlistDropdown && (
               <div className="watchlist-dropdown">
-                {watchlists.map(wl => (
+                {watchlists.map((wl) => (
                   <div
                     key={wl.id}
-                    className={`dropdown-item ${wl.id === currentWatchlistId ? 'active' : ''}`}
+                    className={`dropdown-item ${
+                      wl.id === currentWatchlistId ? "active" : ""
+                    }`}
                     onClick={() => switchWatchlist(wl.id, wl.name)}
                   >
                     {wl.name}
-                    {wl.isDefault && <span className="default-badge">Default</span>}
+                    {wl.isDefault && (
+                      <span className="default-badge">Default</span>
+                    )}
                   </div>
                 ))}
                 <div className="dropdown-divider"></div>
@@ -419,8 +470,10 @@ const Watchlist = memo(function Watchlist({
           <Button
             variant="ghost"
             size="icon"
-            onClick={e => {
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            onClick={(e) => {
+              const rect = (
+                e.currentTarget as HTMLElement
+              ).getBoundingClientRect();
               setAddAnchorRect({
                 top: rect.top,
                 left: rect.left,
@@ -447,10 +500,12 @@ const Watchlist = memo(function Watchlist({
         )}
 
         <div className="watchlist-items">
-          {watchlistItems.map(item => (
+          {watchlistItems.map((item) => (
             <div
               key={item.symbol}
-              className={`watchlist-item ${selectedSymbol === item.symbol ? 'selected' : ''}`}
+              className={`watchlist-item ${
+                selectedSymbol === item.symbol ? "selected" : ""
+              }`}
               onClick={() => setSelectedSymbol(item.symbol)}
             >
               <div className="symbol-row">
@@ -459,7 +514,7 @@ const Watchlist = memo(function Watchlist({
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={e => {
+                    onClick={(e) => {
                       e.stopPropagation();
                       removeSymbol(item.symbol);
                     }}
@@ -469,22 +524,26 @@ const Watchlist = memo(function Watchlist({
                 </div>
                 <div className="price-info">
                   <span className="last-price">
-                    {selectedAccount?.accountType === 'binance'
+                    {selectedAccount?.accountType === "binance"
                       ? `$${item.lastPrice.toFixed(2)}`
-                      : selectedAccount?.accountType === 'upstox' ||
-                          selectedAccount?.accountType === 'kite'
-                        ? `₹${item.lastPrice.toFixed(2)}`
-                        : item.lastPrice.toFixed(2)}
+                      : selectedAccount?.accountType === "upstox" ||
+                        selectedAccount?.accountType === "kite"
+                      ? `₹${item.lastPrice.toFixed(2)}`
+                      : item.lastPrice.toFixed(2)}
                   </span>
                   <span
-                    className={`price-change ${item.priceChange >= 0 ? 'positive' : 'negative'}`}
+                    className={`price-change ${
+                      item.priceChange >= 0 ? "positive" : "negative"
+                    }`}
                   >
-                    {item.priceChange >= 0 ? '+' : ''}
+                    {item.priceChange >= 0 ? "+" : ""}
                     {item.priceChangePercent.toFixed(2)}%
                   </span>
                 </div>
               </div>
-              <div className="volume-info">Vol: {(item.volume / 1000000).toFixed(2)}M</div>
+              <div className="volume-info">
+                Vol: {(item.volume / 1000000).toFixed(2)}M
+              </div>
             </div>
           ))}
         </div>
@@ -495,6 +554,7 @@ const Watchlist = memo(function Watchlist({
           symbol={selectedSymbol}
           currentPrice={currentPrice}
           accounts={accounts}
+          selectedAccount={selectedAccount}
           onOrderPlaced={handleOrderPlaced}
         />
       </div>

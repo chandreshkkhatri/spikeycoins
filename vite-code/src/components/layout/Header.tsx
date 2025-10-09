@@ -60,19 +60,16 @@ export function Header() {
               )}
             </svg>
           </button>
-          <Link href="/dashboard" className="flex items-center gap-2">
-            {/* Logo with name for desktop */}
-            <img
-              src="/flip-safe-logo-with-name.png"
-              alt="Flip Safe"
-              className="hidden md:block h-8"
-            />
-            {/* Logo without name for mobile */}
-            <img
-              src="/flip-safe-logo-without-name.png"
-              alt="Flip Safe"
-              className="block md:hidden h-8 w-8"
-            />
+          <Link to="/dashboard" className="flex items-center gap-2">
+            {/* Text-based logo - replace with actual logo when available */}
+            <div className="flex items-center gap-2 px-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-lg">
+                F
+              </div>
+              <span className="hidden md:block font-bold text-lg">
+                Flip Safe
+              </span>
+            </div>
           </Link>
         </div>
 
@@ -80,7 +77,7 @@ export function Header() {
           {navItems.map((item) => (
             <Link
               key={item.href}
-              href={item.href}
+              to={item.href}
               className={`px-3 py-2 rounded-md transition-colors hover:bg-muted/60 hover:text-foreground ${
                 pathname === item.href
                   ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
@@ -179,7 +176,7 @@ export function Header() {
           {navItems.map((item) => (
             <Link
               key={item.href}
-              href={item.href}
+              to={item.href}
               onClick={() => setOpen(false)}
               className={`rounded-md px-3 py-2 transition-colors hover:bg-muted/60 hover:text-foreground ${
                 pathname === item.href
