@@ -4,6 +4,10 @@
     "module": "commonjs",
     "lib": ["ES2020", "DOM"],
     "types": ["node"],
+    "typeRoots": [
+      "./node_modules/@types",
+      "../node_modules/@types"
+    ],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
