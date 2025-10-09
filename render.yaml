@@ -3,11 +3,11 @@ services:
     name: flip-safe-express-backend
     runtime: node
     rootDir: express-code
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm start
+    plan: free
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 8000
-
