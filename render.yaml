@@ -3,7 +3,7 @@ services:
     name: flip-safe-express-backend
     runtime: node
     rootDir: express-code
-    buildCommand: npm ci && npm run build
+    buildCommand: npm install && npm run build
     startCommand: npm start
     plan: free
     envVars:
