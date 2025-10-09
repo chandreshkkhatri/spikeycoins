@@ -89,8 +89,8 @@ router.get("/test", async (req: Request, res: Response) => {
     }
 
     return res.json({
-      success: true,
       ...result,
+      success: true,
       segment: tradingSegment,
     });
   } catch (error: any) {

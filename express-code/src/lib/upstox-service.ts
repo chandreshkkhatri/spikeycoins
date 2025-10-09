@@ -132,22 +132,22 @@ class UpstoxService {
         body: new URLSearchParams(requestData).toString(),
       });
 
-      const responseData = await response.json();
+    const responseData = (await response.json()) as any;
 
-      if (!response.ok) {
-        throw new Error(
-          responseData.message ||
-            responseData.error ||
-            "Failed to exchange authorization code for token"
-        );
-      }
+    if (!response.ok) {
+      throw new Error(
+        responseData.message ||
+          responseData.error ||
+          "Failed to exchange authorization code for token"
+      );
+    }
 
-      if (responseData && responseData.access_token) {
-        this.setAccessToken(responseData.access_token);
-        return responseData;
-      } else {
-        throw new Error("Invalid response from token endpoint");
-      }
+    if (responseData && responseData.access_token) {
+      this.setAccessToken(responseData.access_token);
+      return responseData;
+    } else {
+      throw new Error("Invalid response from token endpoint");
+    }
     } catch (error: any) {
       throw error;
     }
@@ -431,7 +431,7 @@ class UpstoxService {
       },
     });
 
-    const data = await resp.json().catch(() => ({}));
+    const data: any = await resp.json().catch(() => ({}));
 
     if (!resp.ok) {
       let message = "Failed to fetch historical data";
@@ -475,6 +475,7 @@ class UpstoxService {
 
 const upstoxService = UpstoxService.getInstance();
 export default upstoxService;
+
 
 
 
