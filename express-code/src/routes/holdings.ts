@@ -81,11 +81,43 @@ router.get("/", async (req: Request, res: Response) => {
 
     // Map holdings to unified format
     const unifiedHoldings = Array.isArray(holdings)
-      ? holdings.map((holding: any) => ({
-          ...holding,
-          accountId: account._id,
-          vendor: account.accountType,
-        }))
+      ? holdings.map((holding: any) => {
+          // Transform Binance balance format to unified holding format
+          if (account.accountType === "binance") {
+            const free = parseFloat(holding.free || 0);
+            const locked = parseFloat(holding.locked || 0);
+            const quantity = free + locked;
+            
+            return {
+              id: `${account._id}-${holding.asset}`,
+              symbol: holding.asset, // BTC, ETH, USDT, etc.
+              exchange: "SPOT",
+              quantity: quantity,
+              averagePrice: 0, // Binance doesn't provide avg price in balance endpoint
+              lastPrice: 0, // Would need to fetch from ticker
+              currentValue: 0,
+              pnl: 0,
+              pnlPercentage: 0,
+              vendor: account.accountType,
+              accountId: account._id,
+              accountName: account.accountName,
+              timestamp: new Date().toISOString(),
+              details: {
+                free: free,
+                locked: locked,
+                asset: holding.asset,
+              },
+            };
+          }
+          
+          // For other vendors, pass through with vendor info
+          return {
+            ...holding,
+            accountId: account._id,
+            accountName: account.accountName,
+            vendor: account.accountType,
+          };
+        })
       : [];
 
     return res.json({

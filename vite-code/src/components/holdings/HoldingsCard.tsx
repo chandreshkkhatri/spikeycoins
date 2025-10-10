@@ -333,18 +333,29 @@ export default function HoldingsCard({
           {holdingsData.map((holding, index) => {
             const isRefreshing = refreshing === holding.accountId;
             // Create a unique key using id if available, otherwise use a combination of fields with index as fallback
-            const uniqueKey = holding.id || `${holding.accountId}-${holding.symbol || 'unknown'}-${holding.exchange || 'unknown'}-${index}`;
+            const uniqueKey =
+              holding.id ||
+              `${holding.accountId}-${holding.symbol || "unknown"}-${
+                holding.exchange || "unknown"
+              }-${index}`;
+
+            // Try to extract symbol from various possible locations in the data
+            const displaySymbol = holding.symbol || 
+                                  holding.details?.symbol || 
+                                  holding.details?.tradingSymbol ||
+                                  holding.details?.asset ||
+                                  holding.companyName ||
+                                  (holding.isin ? `ISIN: ${holding.isin}` : null);
 
             return (
-              <div
-                key={uniqueKey}
-                className="holding-card"
-              >
+              <div key={uniqueKey} className="holding-card">
                 <div className="holding-header">
                   <div className="holding-info">
                     <div className="holding-title-section">
                       <div className="holding-symbol-main">
-                        {holding.symbol || <span className="text-muted">Unknown Symbol</span>}
+                        {displaySymbol || (
+                          <span className="text-muted">Unknown Symbol</span>
+                        )}
                       </div>
                       <div className="holding-meta-row">
                         <Badge
@@ -370,7 +381,8 @@ export default function HoldingsCard({
                       </div>
                     )}
                     <div className="holding-account">
-                      <span className="account-label">Account:</span> {holding.accountName}
+                      <span className="account-label">Account:</span>{" "}
+                      {holding.accountName}
                     </div>
                   </div>
                   <Button
