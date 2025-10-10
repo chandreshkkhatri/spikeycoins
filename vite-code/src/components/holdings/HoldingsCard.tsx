@@ -340,27 +340,34 @@ export default function HoldingsCard({
               >
                 <div className="holding-header">
                   <div className="holding-info">
-                    <div className="holding-symbol-row">
-                      <span className="holding-symbol">{holding.symbol}</span>
-                      <Badge
-                        variant="default"
-                        style={{
-                          borderColor: getVendorColor(holding.vendor),
-                          color: getVendorColor(holding.vendor),
-                        }}
-                      >
-                        {holding.vendor.toUpperCase()}
-                      </Badge>
-                      <span className="holding-exchange">
-                        {holding.exchange}
-                      </span>
+                    <div className="holding-title-section">
+                      <div className="holding-symbol-main">
+                        {holding.symbol || 'N/A'}
+                      </div>
+                      <div className="holding-meta-row">
+                        <Badge
+                          variant="default"
+                          className="holding-vendor-badge"
+                          style={{
+                            borderColor: getVendorColor(holding.vendor),
+                            color: getVendorColor(holding.vendor),
+                          }}
+                        >
+                          {holding.vendor.toUpperCase()}
+                        </Badge>
+                        <span className="holding-exchange">
+                          {holding.exchange}
+                        </span>
+                      </div>
                     </div>
                     {holding.companyName && (
                       <div className="holding-company">
                         {holding.companyName}
                       </div>
                     )}
-                    <div className="holding-account">{holding.accountName}</div>
+                    <div className="holding-account">
+                      <span className="account-label">Account:</span> {holding.accountName}
+                    </div>
                   </div>
                   <Button
                     size="sm"
@@ -372,6 +379,7 @@ export default function HoldingsCard({
                       if (account) handleRefresh(account);
                     }}
                     disabled={isRefreshing}
+                    className="holding-refresh-btn"
                   >
                     {isRefreshing ? (
                       <RefreshCw className="animate-spin" size={16} />
