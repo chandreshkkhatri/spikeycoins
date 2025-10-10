@@ -322,129 +322,133 @@ export default function HoldingsCard({
         </div>
       )}
 
-      {/* Holdings List */}
+      {/* Holdings Table */}
       {holdingsData.length === 0 && accountErrors.length === 0 && !error ? (
         <div className="empty-holdings">
           <Briefcase size={32} className="text-muted-foreground mb-2" />
           <p className="text-muted-foreground">No holdings in your portfolio</p>
         </div>
       ) : (
-        <div className="holdings-list">
-          {holdingsData.map((holding, index) => {
-            const isRefreshing = refreshing === holding.accountId;
-            // Create a unique key using id if available, otherwise use a combination of fields with index as fallback
-            const uniqueKey =
-              holding.id ||
-              `${holding.accountId}-${holding.symbol || "unknown"}-${
-                holding.exchange || "unknown"
-              }-${index}`;
+        <div className="holdings-table-container">
+          <table className="holdings-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Vendor</th>
+                <th>Exchange</th>
+                <th>Account</th>
+                <th className="text-right">Quantity</th>
+                <th className="text-right">Avg Price</th>
+                <th className="text-right">LTP</th>
+                <th className="text-right">Value</th>
+                <th className="text-right">P&L</th>
+                <th className="text-right">Returns %</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {holdingsData.map((holding, index) => {
+                const isRefreshing = refreshing === holding.accountId;
+                // Create a unique key using id if available, otherwise use a combination of fields with index as fallback
+                const uniqueKey =
+                  holding.id ||
+                  `${holding.accountId}-${holding.symbol || "unknown"}-${
+                    holding.exchange || "unknown"
+                  }-${index}`;
 
-            // Try to extract symbol from various possible locations in the data
-            const displaySymbol = holding.symbol || 
-                                  holding.details?.symbol || 
-                                  holding.details?.tradingSymbol ||
-                                  holding.details?.asset ||
-                                  holding.companyName ||
-                                  (holding.isin ? `ISIN: ${holding.isin}` : null);
+                // Try to extract symbol from various possible locations in the data
+                const displaySymbol =
+                  holding.symbol ||
+                  holding.details?.symbol ||
+                  holding.details?.tradingSymbol ||
+                  holding.details?.asset ||
+                  holding.companyName ||
+                  (holding.isin ? `ISIN: ${holding.isin}` : null);
 
-            return (
-              <div key={uniqueKey} className="holding-card">
-                <div className="holding-header">
-                  <div className="holding-info">
-                    <div className="holding-title-section">
-                      <div className="holding-symbol-main">
-                        {displaySymbol || (
-                          <span className="text-muted">Unknown Symbol</span>
-                        )}
-                      </div>
-                      <div className="holding-meta-row">
-                        <Badge
-                          variant="default"
-                          className="holding-vendor-badge"
-                          style={{
-                            borderColor: getVendorColor(holding.vendor),
-                            color: getVendorColor(holding.vendor),
-                          }}
-                        >
-                          {holding.vendor.toUpperCase()}
-                        </Badge>
-                        {holding.exchange && (
-                          <span className="holding-exchange">
-                            {holding.exchange}
+                return (
+                  <tr key={uniqueKey} className="holding-row">
+                    <td className="symbol-cell">
+                      <div className="symbol-content">
+                        <span className="symbol-name">
+                          {displaySymbol || (
+                            <span className="text-muted">Unknown</span>
+                          )}
+                        </span>
+                        {holding.companyName && holding.symbol && (
+                          <span className="company-name">
+                            {holding.companyName}
                           </span>
                         )}
                       </div>
-                    </div>
-                    {holding.companyName && (
-                      <div className="holding-company">
-                        {holding.companyName}
-                      </div>
-                    )}
-                    <div className="holding-account">
-                      <span className="account-label">Account:</span>{" "}
-                      {holding.accountName}
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      const account = accountsToShow.find(
-                        (a) => a._id === holding.accountId
-                      );
-                      if (account) handleRefresh(account);
-                    }}
-                    disabled={isRefreshing}
-                    className="holding-refresh-btn"
-                  >
-                    {isRefreshing ? (
-                      <RefreshCw className="animate-spin" size={16} />
-                    ) : (
-                      <RefreshCw size={16} />
-                    )}
-                  </Button>
-                </div>
-
-                <div className="holding-details">
-                  <div className="detail-row">
-                    <span className="detail-label">Qty:</span>
-                    <span className="detail-value">{holding.quantity}</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-label">Avg:</span>
-                    <span className="detail-value">
+                    </td>
+                    <td>
+                      <Badge
+                        variant="default"
+                        className="vendor-badge"
+                        style={{
+                          borderColor: getVendorColor(holding.vendor),
+                          color: getVendorColor(holding.vendor),
+                        }}
+                      >
+                        {holding.vendor.toUpperCase()}
+                      </Badge>
+                    </td>
+                    <td>
+                      {holding.exchange && (
+                        <span className="exchange-badge">
+                          {holding.exchange}
+                        </span>
+                      )}
+                    </td>
+                    <td className="account-cell">{holding.accountName}</td>
+                    <td className="text-right">{holding.quantity}</td>
+                    <td className="text-right">
                       {formatCurrency(holding.averagePrice)}
-                    </span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-label">LTP:</span>
-                    <span className="detail-value">
+                    </td>
+                    <td className="text-right">
                       {formatCurrency(holding.lastPrice)}
-                    </span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-label">Value:</span>
-                    <span className="detail-value">
+                    </td>
+                    <td className="text-right">
                       {formatCurrency(holding.currentValue)}
-                    </span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-label">P&L:</span>
-                    <span
-                      className={`detail-value pnl ${
+                    </td>
+                    <td
+                      className={`text-right ${
                         holding.pnl >= 0 ? "positive" : "negative"
                       }`}
                     >
                       {formatCurrency(holding.pnl)}
-                      <span className="pnl-percentage">
-                        ({holding.pnlPercentage?.toFixed(2) ?? "0.00"}%)
-                      </span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+                    </td>
+                    <td
+                      className={`text-right ${
+                        holding.pnlPercentage >= 0 ? "positive" : "negative"
+                      }`}
+                    >
+                      {holding.pnlPercentage?.toFixed(2) ?? "0.00"}%
+                    </td>
+                    <td className="action-cell">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          const account = accountsToShow.find(
+                            (a) => a._id === holding.accountId
+                          );
+                          if (account) handleRefresh(account);
+                        }}
+                        disabled={isRefreshing}
+                      >
+                        {isRefreshing ? (
+                          <RefreshCw className="animate-spin" size={14} />
+                        ) : (
+                          <RefreshCw size={14} />
+                        )}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </EnhancedCard>
