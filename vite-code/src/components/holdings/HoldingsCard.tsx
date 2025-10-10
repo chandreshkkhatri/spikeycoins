@@ -1,3 +1,4 @@
+import "./HoldingsCard.css";
 import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
