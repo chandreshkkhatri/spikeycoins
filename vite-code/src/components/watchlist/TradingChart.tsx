@@ -1,7 +1,10 @@
-
-
-import { CandlestickSeries, ColorType, createChart, UTCTimestamp } from 'lightweight-charts';
-import React, { useEffect, useRef, useState } from 'react';
+import {
+  CandlestickSeries,
+  ColorType,
+  createChart,
+  UTCTimestamp,
+} from "lightweight-charts";
+import React, { useEffect, useRef, useState } from "react";
 
 interface TradingChartProps {
   symbol: string;
@@ -10,7 +13,7 @@ interface TradingChartProps {
 const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<{ chart: any; series: any } | null>(null);
-  const [timeframe, setTimeframe] = useState('1h');
+  const [timeframe, setTimeframe] = useState("1h");
   const [autoScale, setAutoScale] = useState(false);
   const [isLogScale, setIsLogScale] = useState(false);
 
@@ -30,25 +33,28 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
       chartHeight = isMobile ? 135 : 188;
     }
 
-    const isDarkMode = document.documentElement.classList.contains('dark');
+    const isDarkMode = document.documentElement.classList.contains("dark");
 
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
       height: chartHeight,
       autoSize: autoScale,
       layout: {
-        background: { type: ColorType.Solid, color: isDarkMode ? '#18181b' : '#ffffff' },
-        textColor: isDarkMode ? '#e4e4e7' : '#333',
+        background: {
+          type: ColorType.Solid,
+          color: isDarkMode ? "#18181b" : "#ffffff",
+        },
+        textColor: isDarkMode ? "#e4e4e7" : "#333",
       },
       grid: {
-        vertLines: { color: isDarkMode ? '#27272a' : '#f0f0f0' },
-        horzLines: { color: isDarkMode ? '#27272a' : '#f0f0f0' },
+        vertLines: { color: isDarkMode ? "#27272a" : "#f0f0f0" },
+        horzLines: { color: isDarkMode ? "#27272a" : "#f0f0f0" },
       },
       crosshair: {
         mode: 1, // Magnet
       },
       rightPriceScale: {
-        borderColor: isDarkMode ? '#3f3f46' : '#e0e0e0',
+        borderColor: isDarkMode ? "#3f3f46" : "#e0e0e0",
         mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal
         scaleMargins: {
           top: isMobile ? 0.15 : 0.1,
@@ -56,19 +62,19 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
         },
       },
       timeScale: {
-        borderColor: isDarkMode ? '#3f3f46' : '#e0e0e0',
+        borderColor: isDarkMode ? "#3f3f46" : "#e0e0e0",
         rightOffset: isMobile ? 5 : 12,
         barSpacing: isMobile ? 3 : 6,
       },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      borderDownColor: '#ef5350',
-      borderUpColor: '#26a69a',
-      wickDownColor: '#ef5350',
-      wickUpColor: '#26a69a',
+      upColor: "#26a69a",
+      downColor: "#ef5350",
+      borderDownColor: "#ef5350",
+      borderUpColor: "#26a69a",
+      wickDownColor: "#ef5350",
+      wickUpColor: "#26a69a",
     });
 
     chartRef.current = { chart, series };
@@ -85,14 +91,17 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
         } else {
           chartHeight = isMobile ? 135 : 188;
         }
-        chartRef.current.chart.resize(chartContainerRef.current.clientWidth, chartHeight);
+        chartRef.current.chart.resize(
+          chartContainerRef.current.clientWidth,
+          chartHeight
+        );
       }
     };
 
-    window.addEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener("resize", handleResize);
       if (chartRef.current) {
         chartRef.current.chart.remove();
       }
@@ -105,17 +114,17 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
 
       try {
         // Determine vendor based on symbol (USDT = Binance, others = Kite)
-        const vendor = symbol.endsWith('USDT') ? 'binance' : 'kite';
+        const vendor = symbol.endsWith("USDT") ? "binance" : "kite";
         const response = await fetch(
           `/api/historical-data?vendor=${vendor}&symbol=${symbol}&interval=${timeframe}`
         );
         if (!response.ok) {
-          throw new Error('Failed to fetch historical data');
+          throw new Error("Failed to fetch historical data");
         }
         const data = await response.json();
 
         if (!Array.isArray(data)) {
-          throw new Error('Historical data is not in expected format');
+          throw new Error("Historical data is not in expected format");
         }
 
         const formattedData = data.map((d: any) => ({
@@ -129,7 +138,7 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
         chartRef.current.series.setData(formattedData);
       } catch (error) {
         // eslint-disable-next-line no-console -- error is surfaced for debugging
-        console.error('Error fetching historical data:', error);
+        console.error("Error fetching historical data:", error);
       }
     };
 
@@ -144,7 +153,7 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
       const chart = chartRef.current.chart;
 
       // Update scale mode
-      const priceScale = chart.priceScale('right');
+      const priceScale = chart.priceScale("right");
       if (priceScale) {
         priceScale.applyOptions({
           mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal
@@ -169,7 +178,7 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
         `Updated trading chart: autoScale=${autoScale}, logScale=${isLogScale}, height=${chartHeight}`
       );
     } catch (error) {
-      console.error('Error updating trading chart settings:', error);
+      console.error("Error updating trading chart settings:", error);
     }
   }, [autoScale, isLogScale]);
 
@@ -177,7 +186,10 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
     <div className="trading-chart">
       <div className="chart-controls">
         <div className="controls-left">
-          <select value={timeframe} onChange={e => setTimeframe(e.target.value)}>
+          <select
+            value={timeframe}
+            onChange={(e) => setTimeframe(e.target.value)}
+          >
             <option value="1m">1m</option>
             <option value="5m">5m</option>
             <option value="15m">15m</option>
@@ -188,14 +200,14 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
         </div>
         <div className="controls-right">
           <button
-            className={`control-btn ${autoScale ? 'active' : ''}`}
+            className={`control-btn ${autoScale ? "active" : ""}`}
             onClick={() => setAutoScale(!autoScale)}
             title="Auto-scale height to fit container"
           >
             A
           </button>
           <button
-            className={`control-btn ${isLogScale ? 'active' : ''}`}
+            className={`control-btn ${isLogScale ? "active" : ""}`}
             onClick={() => setIsLogScale(!isLogScale)}
             title="Toggle logarithmic scale"
           >
@@ -204,7 +216,7 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
         </div>
       </div>
       <div ref={chartContainerRef} className="chart-container" />
-      <style jsx>{`
+      <style>{`
         .chart-controls {
           padding: 8px;
           background: var(--muted);
@@ -258,22 +270,22 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
 
         .chart-container {
           width: 100%;
-          height: ${autoScale ? '100%' : '188px'};
-          flex: ${autoScale ? '1' : 'none'};
-          min-height: ${autoScale ? '150px' : '188px'};
+          height: ${autoScale ? "100%" : "188px"};
+          flex: ${autoScale ? "1" : "none"};
+          min-height: ${autoScale ? "150px" : "188px"};
         }
 
         .trading-chart {
           width: 100%;
           display: flex;
           flex-direction: column;
-          height: ${autoScale ? '100%' : 'auto'};
+          height: ${autoScale ? "100%" : "auto"};
         }
 
         @media (max-width: 768px) {
           .chart-container {
-            height: ${autoScale ? '100%' : '135px'};
-            min-height: ${autoScale ? '120px' : '135px'};
+            height: ${autoScale ? "100%" : "135px"};
+            min-height: ${autoScale ? "120px" : "135px"};
           }
 
           .chart-controls {
@@ -301,8 +313,8 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
 
         @media (max-width: 480px) {
           .chart-container {
-            height: ${autoScale ? '100%' : '120px'};
-            min-height: ${autoScale ? '100px' : '120px'};
+            height: ${autoScale ? "100%" : "120px"};
+            min-height: ${autoScale ? "100px" : "120px"};
           }
         }
       `}</style>

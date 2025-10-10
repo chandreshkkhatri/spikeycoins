@@ -6,18 +6,7 @@ import EnhancedCard from "@/components/enhanced-card";
 import PageLayout from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-
-interface IAccount {
-  _id: string;
-  accountName: string;
-  accountType: "binance" | "kite" | "upstox";
-  isActive: boolean;
-  accessToken?: string;
-  apiKey?: string;
-  apiSecret?: string;
-  redirectUri?: string;
-  metadata?: any;
-}
+import { IAccount } from "@/models/account";
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<IAccount[]>([]);
@@ -295,9 +284,9 @@ export default function AccountsPage() {
             marginBottom: "32px",
           }}
         >
-          {accounts.map((account) => (
+          {accounts.map((account, index) => (
             <AccountCard
-              key={account._id}
+              key={account._id || `account-${index}`}
               account={account}
               onEdit={handleEditAccount}
               onDelete={handleDeleteAccount}

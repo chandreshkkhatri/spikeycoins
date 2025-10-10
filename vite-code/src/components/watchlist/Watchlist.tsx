@@ -570,7 +570,7 @@ const Watchlist = memo(function Watchlist({
         />
       )}
 
-      <style jsx>{`
+      <style>{`
         .watchlist-container {
           display: grid;
           grid-template-columns: 300px 1fr;

@@ -377,7 +377,7 @@ const TradingWindow = memo(function TradingWindow({
         </Button>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .trading-window {
           display: flex;
           flex-direction: column;

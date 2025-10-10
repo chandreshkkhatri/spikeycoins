@@ -125,7 +125,6 @@ class BinanceWebSocketService {
       // Handle different message types
       if (message.e) {
         // Event-based message (ticker, trade, etc.)
-        const eventType = message.e;
         const symbol = message.s;
 
         // Invoke callbacks for this symbol

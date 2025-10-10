@@ -292,7 +292,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
           <div className="hint">Type at least 2 characters to search</div>
         )}
 
-        <style jsx>{`
+        <style>{`
           .modal-overlay {
             position: fixed;
             inset: 0;

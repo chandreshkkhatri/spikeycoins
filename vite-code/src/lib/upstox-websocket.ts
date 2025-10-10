@@ -75,7 +75,6 @@ export class UpstoxWebSocket implements WebSocketManager {
   private protoLoaded = false;
   private root: protobuf.Root | null = null;
   private FeedResponseType: protobuf.Type | null = null;
-  private debugDecodeCount = 0;
 
   // Normalize a possibly vendor-specific or legacy instrument key prefix to Upstox v3 expectations
   private normalizeInstrumentKey(key: string): string {
