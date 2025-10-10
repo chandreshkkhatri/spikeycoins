@@ -330,19 +330,21 @@ export default function HoldingsCard({
         </div>
       ) : (
         <div className="holdings-list">
-          {holdingsData.map((holding) => {
+          {holdingsData.map((holding, index) => {
             const isRefreshing = refreshing === holding.accountId;
+            // Create a unique key using id if available, otherwise use a combination of fields with index as fallback
+            const uniqueKey = holding.id || `${holding.accountId}-${holding.symbol || 'unknown'}-${holding.exchange || 'unknown'}-${index}`;
 
             return (
               <div
-                key={`${holding.accountId}-${holding.symbol}-${holding.exchange}`}
+                key={uniqueKey}
                 className="holding-card"
               >
                 <div className="holding-header">
                   <div className="holding-info">
                     <div className="holding-title-section">
                       <div className="holding-symbol-main">
-                        {holding.symbol || 'N/A'}
+                        {holding.symbol || <span className="text-muted">Unknown Symbol</span>}
                       </div>
                       <div className="holding-meta-row">
                         <Badge
@@ -355,9 +357,11 @@ export default function HoldingsCard({
                         >
                           {holding.vendor.toUpperCase()}
                         </Badge>
-                        <span className="holding-exchange">
-                          {holding.exchange}
-                        </span>
+                        {holding.exchange && (
+                          <span className="holding-exchange">
+                            {holding.exchange}
+                          </span>
+                        )}
                       </div>
                     </div>
                     {holding.companyName && (

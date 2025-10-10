@@ -179,6 +179,12 @@
   line-height: 1.2;
 }
 
+.holding-symbol-main .text-muted {
+  color: var(--muted-foreground);
+  font-style: italic;
+  font-weight: 500;
+}
+
 .holding-meta-row {
   display: flex;
   align-items: center;
