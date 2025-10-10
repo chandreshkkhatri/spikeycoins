@@ -18,7 +18,7 @@ export default function NavBar({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { pathname } = useLocation();
   const { isLoggedIn, logout } = useAuth();
-  const { isDark, toggleTheme } = useTheme();
+  const { isDark } = useTheme();
 
   const handleLogout = async () => {
     try {
@@ -53,7 +53,7 @@ export default function NavBar({
             >
               <span className="hamburger" />
             </button>
-            <Link href="/dashboard" className="brand" aria-label="Home">
+            <Link to="/dashboard" className="brand" aria-label="Home">
               <span className="brand-accent">⚡</span> {title}
             </Link>
           </div>
@@ -61,7 +61,7 @@ export default function NavBar({
             {navItems.map((item) => (
               <Link
                 key={item.href}
-                href={item.href}
+                to={item.href}
                 className={`nav-item ${
                   isActiveRoute(item.href) ? "active" : ""
                 }`}
@@ -116,7 +116,7 @@ export default function NavBar({
             key={item.href}
             className={isActiveRoute(item.href) ? "active" : ""}
           >
-            <Link href={item.href} onClick={() => setIsMenuOpen(false)}>
+            <Link to={item.href} onClick={() => setIsMenuOpen(false)}>
               {item.label}
             </Link>
           </li>

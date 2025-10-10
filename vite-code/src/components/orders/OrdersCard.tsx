@@ -323,9 +323,7 @@ export default function OrdersCard({
 
             return (
               <div
-                key={`${order.accountId}-${
-                  order.orderId || order.orderReference
-                }`}
+                key={`${order.accountId}-${order.id}`}
                 className="order-card"
               >
                 <div className="order-header">

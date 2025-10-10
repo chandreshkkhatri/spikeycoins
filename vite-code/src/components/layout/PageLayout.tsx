@@ -14,9 +14,6 @@ interface PageLayoutProps {
 
 export default function PageLayout({
   children,
-  title,
-  showApiConfig = false,
-  onShowApiPanel,
   className = "",
 }: PageLayoutProps) {
   const { isDark } = useTheme();
