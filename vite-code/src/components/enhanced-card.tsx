@@ -28,8 +28,6 @@ export default function EnhancedCard({
   imageAlt = "Card media",
   clickable = false,
   href,
-  customBackground,
-  customTextColor,
 }: EnhancedCardProps) {
   // Only make the whole card clickable if there's no conflicting action area.
   const isOverlayLink = clickable && href && !action;
@@ -40,7 +38,7 @@ export default function EnhancedCard({
     >
       {isOverlayLink && (
         <Link
-          href={href!}
+          to={href!}
           aria-label={typeof title === "string" ? title : "Open card"}
           className="card-overlay-link"
         />
@@ -48,13 +46,10 @@ export default function EnhancedCard({
 
       {imageUrl && (
         <div className="card-image">
-          <Image
+          <img
             src={imageUrl}
             alt={imageAlt}
-            width={1200}
-            height={630}
             className="card-img"
-            priority={false}
           />
           <div className="card-image-overlay" />
         </div>
