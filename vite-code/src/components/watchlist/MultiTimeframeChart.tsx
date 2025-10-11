@@ -35,6 +35,10 @@ const AVAILABLE_TIMEFRAMES = [
 
 const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
   ({ symbol, accountId, accountType }) => {
+    // Use default symbol (BTCUSDT) if none provided
+    const displaySymbol = symbol || "BTCUSDT";
+    const isDefaultSymbol = !symbol;
+    
     const [selectedTimeframes, setSelectedTimeframes] =
       useState(DEFAULT_TIMEFRAMES);
     const [showTimeframeSelector, setShowTimeframeSelector] = useState(false);
@@ -189,22 +193,17 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     const fetchChartData = useCallback(
       async (interval: string): Promise<CandlestickData[]> => {
         try {
-          // Safety check for symbol
-          if (!symbol) {
-            throw new Error("Symbol is required");
-          }
-
           // Use accountType if provided, otherwise try to detect from symbol
           const vendor =
             accountType ||
-            (symbol.endsWith("USDT") ||
-            symbol.endsWith("BUSD") ||
-            symbol.endsWith("BTC")
+            (displaySymbol.endsWith("USDT") ||
+            displaySymbol.endsWith("BUSD") ||
+            displaySymbol.endsWith("BTC")
               ? "binance"
               : "upstox");
 
           // Build URL with required parameters - accountId is ALWAYS required
-          let url = `/api/historical-data?vendor=${vendor}&symbol=${symbol}&interval=${interval}&accountId=${accountId}`;
+          let url = `/api/historical-data?vendor=${vendor}&symbol=${displaySymbol}&interval=${interval}&accountId=${accountId}`;
 
           const response = await fetch(url);
 
@@ -247,7 +246,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           throw error;
         }
       },
-      [symbol, accountId]
+      [displaySymbol, accountId]
     );
 
     useEffect(() => {
@@ -347,7 +346,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         });
       };
     }, [
-      symbol,
+      displaySymbol,
       selectedTimeframes,
       chartTimeframes,
       createSingleChart,
@@ -439,6 +438,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
     return (
       <div className="multi-timeframe-charts">
+        {/* Default Symbol Notice */}
+        {isDefaultSymbol && (
+          <div className="default-symbol-notice">
+            <span>📊 No symbol selected. Showing default chart for <strong>BTC/USDT</strong></span>
+          </div>
+        )}
+        
         {/* Timeframe Controls */}
         <div className="timeframe-controls">
           <div className="controls-header">
@@ -499,7 +505,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               <div className="chart-header">
                 <h4>{timeframe.label}</h4>
                 <div className="header-controls">
-                  <span className="symbol-name">{symbol}</span>
+                  <span className="symbol-name">{displaySymbol}</span>
                   <select
                     value={
                       chartTimeframes[timeframe.index] || timeframe.interval
@@ -553,6 +559,23 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           gap: 20px;
           width: 100%;
           overflow-y: auto;
+        }
+
+        .default-symbol-notice {
+          background: #fef3c7;
+          border: 1px solid #fde68a;
+          border-radius: 8px;
+          padding: 12px 16px;
+          color: #92400e;
+          font-size: 14px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .default-symbol-notice strong {
+          color: #78350f;
+          font-weight: 600;
         }
 
         .timeframe-controls {
