@@ -498,7 +498,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             color: #6b7280;
             font-size: 0.85rem;
           }
-          :global(.dark) .loading-state {
+          .dark .loading-state {
             color: #9ca3af;
           }
 
@@ -509,7 +509,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             scrollbar-width: thin;
             scrollbar-color: #e5e7eb transparent;
           }
-          :global(.dark) .search-results {
+          .dark .search-results {
             scrollbar-color: #3f3f46 transparent;
           }
           .search-results::-webkit-scrollbar {
@@ -522,7 +522,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             background: #e5e7eb;
             border-radius: 3px;
           }
-          :global(.dark) .search-results::-webkit-scrollbar-thumb {
+          .dark .search-results::-webkit-scrollbar-thumb {
             background: #3f3f46;
           }
 
@@ -532,14 +532,14 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             cursor: pointer;
             transition: all 0.15s;
           }
-          :global(.dark) .search-result-item {
+          .dark .search-result-item {
             border-bottom-color: #27272a;
           }
           .search-result-item:hover {
             background: #f9fafb;
             padding-left: 22px;
           }
-          :global(.dark) .search-result-item:hover {
+          .dark .search-result-item:hover {
             background: #27272a;
           }
 
@@ -553,7 +553,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             color: #111827;
             font-size: 0.9rem;
           }
-          :global(.dark) .symbol-name {
+          .dark .symbol-name {
             color: #f9fafb;
           }
           .symbol-details {
@@ -561,7 +561,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             color: #4b5563;
             line-height: 1.3;
           }
-          :global(.dark) .symbol-details {
+          .dark .symbol-details {
             color: #9ca3af;
           }
           .symbol-meta {
@@ -571,7 +571,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             text-transform: uppercase;
             letter-spacing: 0.03em;
           }
-          :global(.dark) .symbol-meta {
+          .dark .symbol-meta {
             color: #6b7280;
           }
 
@@ -582,8 +582,8 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             color: #666;
             font-size: 0.8rem;
           }
-          :global(.dark) .no-results,
-          :global(.dark) .hint {
+          .dark .no-results,
+          .dark .hint {
             color: #a1a1aa;
           }
 

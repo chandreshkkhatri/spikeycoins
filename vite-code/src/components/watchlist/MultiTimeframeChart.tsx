@@ -573,9 +573,19 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           gap: 8px;
         }
 
+        .dark .default-symbol-notice {
+          background: #451a03;
+          border-color: #78350f;
+          color: #fcd34d;
+        }
+
         .default-symbol-notice strong {
           color: #78350f;
           font-weight: 600;
+        }
+
+        .dark .default-symbol-notice strong {
+          color: #fbbf24;
         }
 
         .timeframe-controls {

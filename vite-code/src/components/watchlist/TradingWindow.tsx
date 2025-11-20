@@ -404,7 +404,7 @@ const TradingWindow = memo(function TradingWindow({
           color: #333;
         }
 
-        :global(.dark) .trading-header {
+        .dark .trading-header {
           border-bottom: 1px solid #27272a !important;
           background: #18181b !important;
           color: #ffffff !important;
@@ -430,7 +430,7 @@ const TradingWindow = memo(function TradingWindow({
           background: #ffffff;
         }
 
-        :global(.dark) .trading-form {
+        .dark .trading-form {
           background: #09090b !important;
         }
 
@@ -457,8 +457,8 @@ const TradingWindow = memo(function TradingWindow({
           color: #333;
         }
 
-        :global(.dark) .form-input,
-        :global(.dark) .form-select {
+        .dark .form-input,
+        .dark .form-select {
           border: 1px solid #27272a !important;
           background: #18181b !important;
           color: #ffffff !important;
@@ -515,7 +515,7 @@ const TradingWindow = memo(function TradingWindow({
           margin-bottom: 12px;
         }
 
-        :global(.dark) .order-summary {
+        .dark .order-summary {
           background: #27272a !important;
           color: #ffffff !important;
         }
@@ -541,6 +541,11 @@ const TradingWindow = memo(function TradingWindow({
           margin-bottom: 8px;
         }
 
+        .dark .error-message {
+          background: #450a0a;
+          color: #fca5a5;
+        }
+
         .success-message {
           background: #e8f5e8;
           color: #2e7d32;
@@ -548,6 +553,11 @@ const TradingWindow = memo(function TradingWindow({
           border-radius: 4px;
           font-size: 0.8rem;
           margin-bottom: 8px;
+        }
+
+        .dark .success-message {
+          background: #052e16;
+          color: #86efac;
         }
 
         /* Mobile Responsive Styles */

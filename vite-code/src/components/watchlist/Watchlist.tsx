@@ -584,10 +584,10 @@ const Watchlist = memo(function Watchlist({
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
 
-        :global(.dark) .watchlist-container {
-          background: #18181b !important;
-          color: #ffffff !important;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        .dark .watchlist-container {
+          background: #05050a !important;
+          color: #e4e4e7 !important;
+          box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
         }
 
         .loading-state {
@@ -628,9 +628,9 @@ const Watchlist = memo(function Watchlist({
           background: #ffffff;
         }
 
-        :global(.dark) .watchlist-panel {
+        .dark .watchlist-panel {
           border-right: 1px solid #27272a !important;
-          background: #18181b !important;
+          background: #0f0f12 !important;
         }
 
         .watchlist-header {
@@ -644,10 +644,10 @@ const Watchlist = memo(function Watchlist({
           gap: 8px;
         }
 
-        :global(.dark) .watchlist-header {
+        .dark .watchlist-header {
           border-bottom: 1px solid #27272a !important;
-          background: #09090b !important;
-          color: #ffffff !important;
+          background: #15151a !important;
+          color: #f4f4f5 !important;
         }
 
         .watchlist-title-row {
@@ -669,7 +669,7 @@ const Watchlist = memo(function Watchlist({
           background: rgba(0, 0, 0, 0.05);
         }
 
-        :global(.dark) .watchlist-selector:hover {
+        .dark .watchlist-selector:hover {
           background: rgba(255, 255, 255, 0.05);
         }
 
@@ -692,7 +692,7 @@ const Watchlist = memo(function Watchlist({
           z-index: 100;
         }
 
-        :global(.dark) .watchlist-dropdown {
+        .dark .watchlist-dropdown {
           background: #27272a;
           border-color: #3f3f46;
         }
@@ -711,7 +711,7 @@ const Watchlist = memo(function Watchlist({
           background: #f3f4f6;
         }
 
-        :global(.dark) .dropdown-item:hover {
+        .dark .dropdown-item:hover {
           background: #3f3f46;
         }
 
@@ -720,7 +720,7 @@ const Watchlist = memo(function Watchlist({
           font-weight: 500;
         }
 
-        :global(.dark) .dropdown-item.active {
+        .dark .dropdown-item.active {
           background: #1e3a8a;
         }
 
@@ -730,7 +730,7 @@ const Watchlist = memo(function Watchlist({
           margin: 4px 0;
         }
 
-        :global(.dark) .dropdown-divider {
+        .dark .dropdown-divider {
           background: #3f3f46;
         }
 
@@ -758,7 +758,7 @@ const Watchlist = memo(function Watchlist({
           font-size: 0.9rem;
         }
 
-        :global(.dark) .empty-watchlist {
+        .dark .empty-watchlist {
           color: #a1a1aa;
         }
 
@@ -768,13 +768,17 @@ const Watchlist = memo(function Watchlist({
           color: #999;
         }
 
-        :global(.dark) .empty-watchlist .hint {
+        .dark .empty-watchlist .hint {
           color: #71717a;
         }
 
         .watchlist-items {
           flex: 1;
           overflow-y: auto;
+        }
+
+        .dark .watchlist-items {
+          background: #05050a;
         }
 
         .watchlist-item {
@@ -784,13 +788,28 @@ const Watchlist = memo(function Watchlist({
           transition: background-color 0.2s ease;
         }
 
+        .dark .watchlist-item {
+          border-bottom: 1px solid #1f1f24;
+          background: #0f0f12;
+          color: #e4e4e7;
+        }
+
         .watchlist-item:hover {
           background: #f8f9fa;
+        }
+
+        .dark .watchlist-item:hover {
+          background: #1c1c21;
         }
 
         .watchlist-item.selected {
           background: #e3f2fd;
           border-left: 3px solid #2196f3;
+        }
+
+        .dark .watchlist-item.selected {
+          background: #1b2b5b;
+          border-left: 3px solid #3b82f6;
         }
 
         .symbol-row {
@@ -851,7 +870,7 @@ const Watchlist = memo(function Watchlist({
           height: 100%;
         }
 
-        :global(.dark) .trading-panel {
+        .dark .trading-panel {
           background: #09090b !important;
           color: #ffffff !important;
         }
