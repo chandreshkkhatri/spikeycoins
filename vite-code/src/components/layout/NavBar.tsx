@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/theme-context";
 import { Link, useLocation } from "react-router-dom";
 import { useState } from "react";
+import { PAGE_ROUTES } from "@/lib/constants";
 
 interface NavBarProps {
   title?: string;
@@ -30,13 +31,13 @@ export default function NavBar({
   };
 
   const navItems = [
-    { href: "/dashboard", label: "Dashboard" },
-    { href: "/market-watch", label: "Market Watch" },
-    { href: "/funds", label: "Funds" },
-    { href: "/orders", label: "Orders" },
-    { href: "/positions", label: "Positions" },
-    { href: "/holdings", label: "Holdings" },
-    { href: "/accounts", label: "Accounts" },
+    { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
+    { href: PAGE_ROUTES.TRADING_PANEL, label: "Trading Panel" },
+    { href: PAGE_ROUTES.FUNDS, label: "Funds" },
+    { href: PAGE_ROUTES.ORDERS, label: "Orders" },
+    { href: PAGE_ROUTES.POSITIONS, label: "Positions" },
+    { href: PAGE_ROUTES.HOLDINGS, label: "Holdings" },
+    { href: PAGE_ROUTES.ACCOUNTS, label: "Accounts" },
   ];
 
   const isActiveRoute = (href: string) => pathname === href;

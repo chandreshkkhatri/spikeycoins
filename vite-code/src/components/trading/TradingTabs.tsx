@@ -266,7 +266,7 @@ export default function TradingTabs({
 
         <TabsContent value="watchlist" className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Market Watchlist</h3>
+            <h3 className="text-lg font-semibold">Trading Panel Watchlist</h3>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm">
                 Add Symbol

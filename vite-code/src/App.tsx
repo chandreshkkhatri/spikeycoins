@@ -5,7 +5,7 @@ import AccountsPage from "@/pages/Accounts";
 import HoldingsPage from "@/pages/Holdings";
 import OrdersPage from "@/pages/Orders";
 import PositionsPage from "@/pages/Positions";
-import MarketWatchPage from "@/pages/MarketWatch";
+import TradingPanelPage from "@/pages/TradingPanel";
 import TradingPage from "@/pages/Trading";
 import FundsPage from "@/pages/Funds";
 
@@ -22,7 +22,10 @@ function App() {
       <Route path={PAGE_ROUTES.HOLDINGS} element={<HoldingsPage />} />
       <Route path={PAGE_ROUTES.ORDERS} element={<OrdersPage />} />
       <Route path={PAGE_ROUTES.POSITIONS} element={<PositionsPage />} />
-      <Route path={PAGE_ROUTES.MARKET_WATCH} element={<MarketWatchPage />} />
+      <Route
+        path={PAGE_ROUTES.TRADING_PANEL}
+        element={<TradingPanelPage />}
+      />
       <Route path={PAGE_ROUTES.TRADING} element={<TradingPage />} />
       <Route
         path="*"

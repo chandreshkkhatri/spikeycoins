@@ -97,6 +97,14 @@ const Watchlist = memo(function Watchlist({
           : `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}`;
 
         const response = await fetch(url);
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(
+            `Watchlist API ${response.status}: ${
+              errorBody || response.statusText || "Unknown error"
+            }`
+          );
+        }
         const data = await response.json();
 
         if (data.success) {
@@ -213,7 +221,11 @@ const Watchlist = memo(function Watchlist({
         setLoading(false);
       } catch (err) {
         console.error("Failed to fetch watchlist symbols:", err);
-        setError("Failed to load watchlist data");
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load watchlist data"
+        );
         setWatchlistItems([]);
         setLoading(false);
       }
@@ -418,8 +430,8 @@ const Watchlist = memo(function Watchlist({
   if (accounts.length === 0 || !selectedAccount) {
     return (
       <div className="watchlist-container">
-        <div className="no-accounts">
-          <h3>Market Watch</h3>
+          <div className="no-accounts">
+            <h3>Trading Panel</h3>
           <p>Select an account to view your watchlist</p>
           {accounts.length === 0 && (
             <Button

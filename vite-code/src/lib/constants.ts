@@ -63,7 +63,7 @@ const PAGE_ROUTES = {
   ALERTS: '/alerts',
   SIMULATOR: '/simulator',
   ACCOUNTS: '/accounts',
-  MARKET_WATCH: '/market-watch',
+  TRADING_PANEL: '/trading-panel',
   TRADING: '/trading',
   FUNDS: '/funds',
 } as const;

@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import axios from "axios";
 import { memo, useEffect, useState } from "react";
+import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
 
 interface TradingWindowProps {
@@ -31,6 +32,8 @@ interface OrderForm {
   stopPrice: string;
   leverage: string;
   reduceOnly: boolean;
+  stopLoss: string;
+  takeProfit: string;
 }
 
 const TradingWindow = memo(function TradingWindow({
@@ -49,12 +52,15 @@ const TradingWindow = memo(function TradingWindow({
     stopPrice: "",
     leverage: "1",
     reduceOnly: false,
+    stopLoss: "",
+    takeProfit: "",
   });
 
   const [positionSizePercentage, setPositionSizePercentage] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [availableBalance, setAvailableBalance] = useState<number>(0);
 
   // Update price when current price changes
   useEffect(() => {
@@ -62,6 +68,31 @@ const TradingWindow = memo(function TradingWindow({
       setOrderForm((prev) => ({ ...prev, price: currentPrice.toFixed(2) }));
     }
   }, [currentPrice, orderForm.type]);
+
+  // Fetch account balance when account changes
+  useEffect(() => {
+    const fetchBalance = async () => {
+      if (!selectedAccount) return;
+      try {
+        const response = await axios.get(
+          `/api/funds?accountId=${selectedAccount._id}`
+        );
+        if (response.data && response.data.available) {
+          // Assuming response structure has available balance
+          // Adjust based on actual API response structure
+          setAvailableBalance(parseFloat(response.data.available) || 0);
+        } else if (response.data && response.data.data) {
+           // Handle different response structures
+           const balance = response.data.data.availableCash || response.data.data.net || 0;
+           setAvailableBalance(parseFloat(balance));
+        }
+      } catch (err) {
+        console.error("Failed to fetch balance:", err);
+      }
+    };
+
+    fetchBalance();
+  }, [selectedAccount]);
 
   const handleInputChange = (
     field: keyof OrderForm,
@@ -102,13 +133,23 @@ const TradingWindow = memo(function TradingWindow({
   };
 
   const setQuickQuantity = (percentage: number) => {
-    // This would normally calculate based on available balance
-    // For now, we'll use sample quantities
-    const baseAmount = orderForm.side === "BUY" ? 100 : 0.1; // $100 for BUY, 0.1 for SELL
-    const quantity = ((baseAmount / currentPrice) * (percentage / 100)).toFixed(
-      6
-    );
-    handleInputChange("quantity", quantity);
+    if (availableBalance > 0 && currentPrice > 0) {
+      const leverage = parseFloat(orderForm.leverage) || 1;
+      const maxPositionValue = availableBalance * leverage;
+      const quantity = (
+        (maxPositionValue / currentPrice) *
+        (percentage / 100)
+      ).toFixed(6);
+      handleInputChange("quantity", quantity);
+    } else {
+      // Fallback if balance not available
+      const baseAmount = 1000;
+      const quantity = (
+        (baseAmount / currentPrice) *
+        (percentage / 100)
+      ).toFixed(6);
+      handleInputChange("quantity", quantity);
+    }
   };
 
   const submitOrder = async () => {
@@ -119,6 +160,12 @@ const TradingWindow = memo(function TradingWindow({
 
     if (!orderForm.quantity || parseFloat(orderForm.quantity) <= 0) {
       setError("Please enter a valid quantity");
+      return;
+    }
+
+    // Mandatory Stop Loss check
+    if (!orderForm.stopLoss || parseFloat(orderForm.stopLoss) <= 0) {
+      setError("Stop Loss is mandatory for risk management");
       return;
     }
 
@@ -148,6 +195,10 @@ const TradingWindow = memo(function TradingWindow({
         }),
         reduceOnly: orderForm.reduceOnly,
         leverage: parseFloat(orderForm.leverage),
+        stopLoss: parseFloat(orderForm.stopLoss),
+        takeProfit: orderForm.takeProfit
+          ? parseFloat(orderForm.takeProfit)
+          : undefined,
       };
 
       const response = await axios.post(
@@ -170,6 +221,8 @@ const TradingWindow = memo(function TradingWindow({
         quantity: "0.001",
         price: currentPrice.toFixed(2),
         stopPrice: "",
+        stopLoss: "",
+        takeProfit: "",
       }));
       setPositionSizePercentage(0);
     } catch (err: any) {
@@ -203,178 +256,194 @@ const TradingWindow = memo(function TradingWindow({
         <div className="current-price">${currentPrice.toFixed(2)}</div>
       </div>
 
-      <div className="trading-form">
-        {/* Account Selection */}
-        <div className="form-group">
-          <label>Account</label>
-          <select
-            value={orderForm.accountId}
-            onChange={(e) => handleInputChange("accountId", e.target.value)}
-            className="form-select"
-          >
-            {accounts.map((account: any) => (
-              <option key={account._id} value={account._id}>
-                {account.accountName}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="trading-content">
+        <MarketDepth
+          symbol={symbol}
+          currentPrice={currentPrice}
+          onPriceSelect={(price) => handleInputChange("price", price)}
+        />
 
-        {/* Order Side */}
-        <div className="form-group">
-          <label>Side</label>
-          <div className="button-group">
-            <Button
-              type="button"
-              variant={orderForm.side === "BUY" ? "success" : "outline"}
-              size="sm"
-              onClick={() => handleInputChange("side", "BUY")}
-            >
-              Buy
-            </Button>
-            <Button
-              type="button"
-              variant={orderForm.side === "SELL" ? "danger" : "outline"}
-              size="sm"
-              onClick={() => handleInputChange("side", "SELL")}
-            >
-              Sell
-            </Button>
-          </div>
-        </div>
-
-        {/* Order Type */}
-        <div className="form-group">
-          <label>Type</label>
-          <select
-            value={orderForm.type}
-            onChange={(e) => handleInputChange("type", e.target.value as any)}
-            className="form-select"
-          >
-            <option value="MARKET">Market</option>
-            <option value="LIMIT">Limit</option>
-            <option value="STOP_MARKET">Stop Market</option>
-            <option value="TAKE_PROFIT_MARKET">Take Profit Mkt</option>
-          </select>
-        </div>
-
-        {/* Quantity */}
-        <div className="form-group">
-          <label>Quantity (Contracts)</label>
-          <input
-            type="number"
-            value={orderForm.quantity}
-            onChange={(e) => handleInputChange("quantity", e.target.value)}
-            className="form-input"
-            placeholder="0.001"
-            step="0.000001"
-          />
-        </div>
-
-        {/* Position Sizing Slider */}
-        <div className="form-group">
-          <label>Position Size</label>
-          <div className="slider-container">
-            <Slider
-              value={[positionSizePercentage]}
-              onValueChange={handleSliderChange}
-              max={100}
-              step={10}
-              className="w-full"
-            />
-            <div className="slider-labels">
-              <span>0%</span>
-              <span>10%</span>
-              <span>20%</span>
-              <span>30%</span>
-              <span>40%</span>
-              <span>50%</span>
-              <span>60%</span>
-              <span>70%</span>
-              <span>80%</span>
-              <span>90%</span>
-              <span>100%</span>
+        <div className="trading-form">
+          {/* Order Side */}
+          <div className="form-group">
+            <label>Side</label>
+            <div className="button-group">
+              <Button
+                type="button"
+                variant={orderForm.side === "BUY" ? "success" : "outline"}
+                size="sm"
+                onClick={() => handleInputChange("side", "BUY")}
+              >
+                Buy
+              </Button>
+              <Button
+                type="button"
+                variant={orderForm.side === "SELL" ? "danger" : "outline"}
+                size="sm"
+                onClick={() => handleInputChange("side", "SELL")}
+              >
+                Sell
+              </Button>
             </div>
           </div>
-        </div>
 
-        {/* Price (for limit orders) */}
-        {orderForm.type === "LIMIT" && (
+          {/* Order Type */}
           <div className="form-group">
-            <label>Price (USDT)</label>
+            <label>Type</label>
+            <select
+              value={orderForm.type}
+              onChange={(e) => handleInputChange("type", e.target.value as any)}
+              className="form-select"
+            >
+              <option value="MARKET">Market</option>
+              <option value="LIMIT">Limit</option>
+              <option value="STOP_MARKET">Stop Market</option>
+              <option value="TAKE_PROFIT_MARKET">Take Profit Mkt</option>
+            </select>
+          </div>
+
+          {/* Quantity */}
+          <div className="form-group">
+            <label>Quantity (Contracts)</label>
             <input
               type="number"
-              value={orderForm.price}
-              onChange={(e) => handleInputChange("price", e.target.value)}
+              value={orderForm.quantity}
+              onChange={(e) => handleInputChange("quantity", e.target.value)}
               className="form-input"
-              placeholder={currentPrice.toFixed(2)}
+              placeholder="0.001"
+              step="0.000001"
+            />
+          </div>
+
+          {/* Position Sizing Slider */}
+          <div className="form-group">
+            <label>Position Size</label>
+            <div className="slider-container">
+              <Slider
+                value={[positionSizePercentage]}
+                onValueChange={handleSliderChange}
+                max={100}
+                step={10}
+                className="w-full"
+              />
+              <div className="slider-labels">
+                <span>0%</span>
+                <span>50%</span>
+                <span>100%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Price (for limit orders) */}
+          {orderForm.type === "LIMIT" && (
+            <div className="form-group">
+              <label>Price (USDT)</label>
+              <input
+                type="number"
+                value={orderForm.price}
+                onChange={(e) => handleInputChange("price", e.target.value)}
+                className="form-input"
+                placeholder={currentPrice.toFixed(2)}
+                step="0.01"
+              />
+            </div>
+          )}
+
+          {/* Stop Loss */}
+          <div className="form-group">
+            <label>Stop Loss (Mandatory)</label>
+            <input
+              type="number"
+              value={orderForm.stopLoss}
+              onChange={(e) => handleInputChange("stopLoss", e.target.value)}
+              className="form-input"
+              placeholder="Stop Loss Price"
+              step="0.01"
+              required
+            />
+          </div>
+
+          {/* Take Profit */}
+          <div className="form-group">
+            <label>Take Profit</label>
+            <input
+              type="number"
+              value={orderForm.takeProfit}
+              onChange={(e) => handleInputChange("takeProfit", e.target.value)}
+              className="form-input"
+              placeholder="Take Profit Price"
               step="0.01"
             />
           </div>
-        )}
 
-        {/* Leverage */}
-        <div className="form-group">
-          <label>Leverage</label>
-          <select
-            value={orderForm.leverage}
-            onChange={(e) => handleInputChange("leverage", e.target.value)}
-            className="form-select"
+          {/* Leverage */}
+          <div className="form-group">
+            <label>Leverage</label>
+            <select
+              value={orderForm.leverage}
+              onChange={(e) => handleInputChange("leverage", e.target.value)}
+              className="form-select"
+            >
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+              <option value="3">3x</option>
+              <option value="5">5x</option>
+              <option value="10">10x</option>
+              <option value="20">20x</option>
+              <option value="50">50x</option>
+              <option value="100">100x</option>
+            </select>
+          </div>
+
+          {/* Reduce Only */}
+          <div className="form-group">
+            <div className="checkbox-group">
+              <input
+                type="checkbox"
+                id="reduceOnly"
+                checked={orderForm.reduceOnly}
+                onChange={(e) =>
+                  handleInputChange("reduceOnly", e.target.checked)
+                }
+                className="form-checkbox"
+              />
+              <label htmlFor="reduceOnly" className="checkbox-label">
+                Reduce Only
+              </label>
+            </div>
+          </div>
+
+          {/* Order Summary */}
+          <div className="order-summary">
+            <div className="summary-row">
+              <span>Order Value:</span>
+              <span>${calculateOrderValue()}</span>
+            </div>
+            <div className="summary-row">
+              <span>Liquidation Price:</span>
+              <span>${calculateLiquidationPrice()}</span>
+            </div>
+            <div className="summary-row">
+              <span>Available:</span>
+              <span>${availableBalance.toFixed(2)}</span>
+            </div>
+          </div>
+
+          {/* Error/Success Messages */}
+          {error && <div className="error-message">{error}</div>}
+          {success && <div className="success-message">{success}</div>}
+
+          {/* Submit Button */}
+          <Button
+            variant={orderForm.side === "BUY" ? "success" : "danger"}
+            size="sm"
+            disabled={isSubmitting}
+            onClick={submitOrder}
+            className="w-full"
           >
-            <option value="1">1x</option>
-            <option value="2">2x</option>
-            <option value="3">3x</option>
-            <option value="5">5x</option>
-            <option value="10">10x</option>
-            <option value="20">20x</option>
-            <option value="50">50x</option>
-            <option value="100">100x</option>
-          </select>
+            {isSubmitting ? "Placing Order..." : `${orderForm.side} ${symbol}`}
+          </Button>
         </div>
-
-        {/* Reduce Only */}
-        <div className="form-group">
-          <div className="checkbox-group">
-            <input
-              type="checkbox"
-              id="reduceOnly"
-              checked={orderForm.reduceOnly}
-              onChange={(e) =>
-                handleInputChange("reduceOnly", e.target.checked)
-              }
-              className="form-checkbox"
-            />
-            <label htmlFor="reduceOnly" className="checkbox-label">
-              Reduce Only
-            </label>
-          </div>
-        </div>
-
-        {/* Order Summary */}
-        <div className="order-summary">
-          <div className="summary-row">
-            <span>Order Value:</span>
-            <span>${calculateOrderValue()}</span>
-          </div>
-          <div className="summary-row">
-            <span>Liquidation Price:</span>
-            <span>${calculateLiquidationPrice()}</span>
-          </div>
-        </div>
-
-        {/* Error/Success Messages */}
-        {error && <div className="error-message">{error}</div>}
-        {success && <div className="success-message">{success}</div>}
-
-        {/* Submit Button */}
-        <Button
-          variant={orderForm.side === "BUY" ? "success" : "danger"}
-          size="sm"
-          disabled={isSubmitting}
-          onClick={submitOrder}
-        >
-          {isSubmitting ? "Placing Order..." : `${orderForm.side} ${symbol}`}
-        </Button>
       </div>
 
       <style>{`
@@ -420,6 +489,12 @@ const TradingWindow = memo(function TradingWindow({
           font-weight: 600;
           font-size: 1rem;
           color: #2196f3;
+        }
+
+        .trading-content {
+          display: flex;
+          flex: 1;
+          overflow: hidden;
         }
 
         .trading-form {
@@ -561,7 +636,11 @@ const TradingWindow = memo(function TradingWindow({
         }
 
         /* Mobile Responsive Styles */
-        @media (max-width: 640px) {
+        @media (max-width: 768px) {
+          .trading-content {
+            flex-direction: column;
+          }
+          
           .trading-header {
             padding: 8px 12px;
           }
@@ -576,51 +655,6 @@ const TradingWindow = memo(function TradingWindow({
 
           .trading-form {
             padding: 12px;
-          }
-
-          .form-group {
-            margin-bottom: 10px;
-          }
-
-          .form-group label {
-            font-size: 0.75rem;
-          }
-
-          .form-input,
-          .form-select {
-            padding: 8px;
-            font-size: 0.9rem;
-          }
-
-          .button-group {
-            gap: 8px;
-          }
-
-          .slider-labels {
-            display: none;
-          }
-
-          .slider-container {
-            padding: 12px 0;
-          }
-
-          .order-summary {
-            padding: 10px;
-          }
-
-          .summary-row {
-            font-size: 0.85rem;
-          }
-        }
-
-        @media (max-width: 480px) {
-          .trading-form {
-            padding: 8px;
-          }
-
-          .form-input,
-          .form-select {
-            font-size: 16px; /* Prevents zoom on iOS */
           }
         }
       `}</style>

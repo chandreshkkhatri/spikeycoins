@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useAuth } from "@/lib/auth-context";
+import { PAGE_ROUTES } from "@/lib/constants";
 
 export default function DashboardPage() {
   const { isLoggedIn, allowOfflineAccess, loading: authLoading } = useAuth();
@@ -43,12 +44,12 @@ export default function DashboardPage() {
         }}
       >
         <EnhancedCard
-          title="Market Watch"
-          description="Monitor your favorite instruments in real-time"
+          title="Trading Panel"
+          description="Monitor your favorite instruments and trade from one screen"
           hoverable
           action={
             <Button asChild size="sm" variant="trading">
-              <Link to="/market-watch">View Market</Link>
+              <Link to={PAGE_ROUTES.TRADING_PANEL}>Go to Trading Panel</Link>
             </Button>
           }
         />

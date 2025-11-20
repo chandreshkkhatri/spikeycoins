@@ -71,7 +71,7 @@ vite-code/
 │   │   ├── holdings/      # Holdings components
 │   │   ├── orders/        # Orders components
 │   │   ├── positions/     # Positions components
-│   │   ├── watchlist/     # Market watch components
+│   │   ├── watchlist/     # Trading panel components
 │   │   └── trading/       # Trading components
 │   ├── lib/               # Utilities and contexts
 │   │   ├── account-context.tsx
@@ -85,7 +85,7 @@ vite-code/
 │   │   ├── Holdings.tsx
 │   │   ├── Orders.tsx
 │   │   ├── Positions.tsx
-│   │   ├── MarketWatch.tsx
+│   │   ├── TradingPanel.tsx
 │   │   └── Trading.tsx
 │   ├── App.tsx            # Main app component with routing
 │   ├── main.tsx           # Application entry point
@@ -151,7 +151,7 @@ The frontend communicates with the Express backend API running on port 8000. All
 - Switch between accounts seamlessly
 - OAuth 2.0 authentication flow
 
-### Real-time Market Watch
+### Real-time Trading Panel
 - Live price updates
 - Multi-timeframe charts
 - Watchlist management

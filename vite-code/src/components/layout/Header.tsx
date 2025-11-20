@@ -5,14 +5,15 @@ import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/theme-context";
 import { Link, useLocation } from "react-router-dom";
 import { useState } from "react";
+import { PAGE_ROUTES } from "@/lib/constants";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/market-watch", label: "Market Watch" },
-  { href: "/orders", label: "Orders" },
-  { href: "/positions", label: "Positions" },
-  { href: "/holdings", label: "Holdings" },
-  { href: "/accounts", label: "Accounts" },
+  { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
+  { href: PAGE_ROUTES.TRADING_PANEL, label: "Trading Panel" },
+  { href: PAGE_ROUTES.ORDERS, label: "Orders" },
+  { href: PAGE_ROUTES.POSITIONS, label: "Positions" },
+  { href: PAGE_ROUTES.HOLDINGS, label: "Holdings" },
+  { href: PAGE_ROUTES.ACCOUNTS, label: "Accounts" },
 ];
 
 export function Header() {
@@ -91,12 +92,12 @@ export function Header() {
 
         <div className="ml-auto flex items-center gap-2">
           {/* Account Selector - Show on dashboard and trading pages */}
-          {(pathname.startsWith("/dashboard") ||
-            pathname.startsWith("/market-watch") ||
-            pathname.startsWith("/holdings") ||
-            pathname.startsWith("/trading") ||
-            pathname.startsWith("/positions") ||
-            pathname.startsWith("/orders")) && (
+          {(pathname.startsWith(PAGE_ROUTES.DASHBOARD) ||
+            pathname.startsWith(PAGE_ROUTES.TRADING_PANEL) ||
+            pathname.startsWith(PAGE_ROUTES.HOLDINGS) ||
+            pathname.startsWith(PAGE_ROUTES.TRADING) ||
+            pathname.startsWith(PAGE_ROUTES.POSITIONS) ||
+            pathname.startsWith(PAGE_ROUTES.ORDERS)) && (
             <div className="hidden md:block mr-2">
               <AccountSelector
                 accounts={tradingAccounts}
@@ -154,12 +155,12 @@ export function Header() {
       >
         <div className="flex flex-col gap-0.5 text-sm">
           {/* Mobile Account Selector */}
-          {(pathname.startsWith("/dashboard") ||
-            pathname.startsWith("/market-watch") ||
-            pathname.startsWith("/holdings") ||
-            pathname.startsWith("/trading") ||
-            pathname.startsWith("/positions") ||
-            pathname.startsWith("/orders")) && (
+          {(pathname.startsWith(PAGE_ROUTES.DASHBOARD) ||
+            pathname.startsWith(PAGE_ROUTES.TRADING_PANEL) ||
+            pathname.startsWith(PAGE_ROUTES.HOLDINGS) ||
+            pathname.startsWith(PAGE_ROUTES.TRADING) ||
+            pathname.startsWith(PAGE_ROUTES.POSITIONS) ||
+            pathname.startsWith(PAGE_ROUTES.ORDERS)) && (
             <div className="mb-3 px-3">
               <div className="text-xs font-medium text-muted-foreground mb-2">
                 Selected Account:
