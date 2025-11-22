@@ -1,6 +1,6 @@
-import "./enhanced-card.css";
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 export type EnhancedCardProps = {
   title?: ReactNode;
@@ -34,39 +34,49 @@ export default function EnhancedCard({
 
   return (
     <div
-      className={`enhanced-card ${hoverable ? "hoverable" : ""} ${className}`}
+      className={cn(
+        "relative flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card text-card-foreground shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-bottom-4",
+        hoverable && "hover:-translate-y-1 hover:shadow-xl hover:border-primary/20",
+        className
+      )}
     >
       {isOverlayLink && (
         <Link
           to={href!}
           aria-label={typeof title === "string" ? title : "Open card"}
-          className="card-overlay-link"
+          className="absolute inset-0 z-10"
         />
       )}
 
       {imageUrl && (
-        <div className="card-image">
+        <div className="relative h-48 w-full overflow-hidden">
           <img
             src={imageUrl}
             alt={imageAlt}
-            className="card-img"
+            className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
           />
-          <div className="card-image-overlay" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/10 to-transparent pointer-events-none" />
         </div>
       )}
 
       {(title || description) && (
-        <div className="card-header">
-          {title && <div className="card-title">{title}</div>}
-          {description && <div className="card-description">{description}</div>}
+        <div className="p-6 pb-2">
+          {title && <div className="mb-2 text-xl font-semibold leading-tight tracking-tight">{title}</div>}
+          {description && (
+            <div className="line-clamp-2 min-h-[2.5rem] text-sm text-muted-foreground">
+              {description}
+            </div>
+          )}
         </div>
       )}
 
-      {children && <div className="card-content">{children}</div>}
+      {children && <div className="flex-1 p-6 pt-2">{children}</div>}
 
       {action && (
-        <div className="card-footer">
-          <div className="card-action-container">{action}</div>
+        <div className="mt-auto border-t border-border bg-muted/30 p-4">
+          <div className="flex items-center justify-between gap-3">
+            {action}
+          </div>
         </div>
       )}
     </div>

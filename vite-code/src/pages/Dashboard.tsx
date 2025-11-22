@@ -16,33 +16,16 @@ export default function DashboardPage() {
 
   return (
     <PageLayout title="Flip Safe">
-      <div style={{ textAlign: "center", marginBottom: "48px" }}>
-        <h1
-          style={{
-            fontSize: "2.5rem",
-            fontWeight: 700,
-            marginBottom: "8px",
-            background: "linear-gradient(135deg, #2196f3, #1976d2)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-          }}
-        >
+      <div className="mb-12 text-center">
+        <h1 className="mb-2 bg-gradient-to-br from-blue-500 to-blue-700 bg-clip-text text-4xl font-bold text-transparent">
           Trading Dashboard
         </h1>
-        <p style={{ fontSize: "1.1rem", color: "#666" }}>
+        <p className="text-lg text-muted-foreground">
           Welcome to Flip Safe - Your Unified Trading Platform
         </p>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-          gap: "24px",
-          marginBottom: "32px",
-          paddingTop: "32px",
-        }}
-      >
+      <div className="mb-8 grid grid-cols-1 gap-6 pt-8 md:grid-cols-2 lg:grid-cols-3">
         <EnhancedCard
           title="Trading Panel"
           description="Monitor your favorite instruments and trade from one screen"
@@ -111,23 +94,15 @@ export default function DashboardPage() {
       </div>
 
       <EnhancedCard title="Connection Status">
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
             <strong>Mode:</strong>
             <Badge variant={isLoggedIn ? "success" : "warning"} tone="soft">
               {isLoggedIn ? "Live Trading" : "Offline Mode"}
             </Badge>
           </div>
           {!isLoggedIn && allowOfflineAccess && (
-            <div
-              style={{
-                padding: "12px",
-                background: "#fff3cd",
-                border: "1px solid #ffeaa7",
-                borderRadius: "6px",
-                color: "#856404",
-              }}
-            >
+            <div className="rounded-md border border-yellow-200 bg-yellow-100 p-3 text-yellow-800 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200">
               ⚠️ You are in offline mode. Some features may be limited.
             </div>
           )}

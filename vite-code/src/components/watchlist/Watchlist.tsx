@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import binanceWebSocketService from "@/lib/binance-websocket";
 import { upstoxWebSocket } from "@/lib/upstox-websocket";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import SymbolSearchModal from "./SymbolSearchModal";
 import TradingWindow from "./TradingWindow";
@@ -53,6 +53,7 @@ const Watchlist = memo(function Watchlist({
     useState<string>("Default Watchlist");
   const [showWatchlistDropdown, setShowWatchlistDropdown] = useState(false);
   const [showSymbolSearchModal, setShowSymbolSearchModal] = useState(false);
+  const [isMobileWatchlistOpen, setIsMobileWatchlistOpen] = useState(false);
   const [addAnchorRect, setAddAnchorRect] = useState<{
     top: number;
     left: number;
@@ -429,13 +430,15 @@ const Watchlist = memo(function Watchlist({
 
   if (accounts.length === 0 || !selectedAccount) {
     return (
-      <div className="watchlist-container">
-          <div className="no-accounts">
-            <h3>Trading Panel</h3>
-          <p>Select an account to view your watchlist</p>
+      <div className="flex h-full flex-col items-center justify-center rounded-lg border border-border bg-card p-8 text-center shadow-sm">
+        <div className="flex flex-col items-center gap-4">
+          <h3 className="text-xl font-semibold text-foreground">Trading Panel</h3>
+          <p className="text-muted-foreground">
+            Select an account to view your watchlist
+          </p>
           {accounts.length === 0 && (
             <Button
-              variant="trading"
+              variant="default"
               size="sm"
               onClick={() => (window.location.href = "/accounts")}
             >
@@ -447,128 +450,209 @@ const Watchlist = memo(function Watchlist({
     );
   }
 
-  return (
-    <div className="watchlist-container">
-      <div className="watchlist-panel">
-        <div className="watchlist-header">
-          <div className="watchlist-title-row">
-            <div
-              className="watchlist-selector"
-              onClick={() => setShowWatchlistDropdown(!showWatchlistDropdown)}
-            >
-              <span className="watchlist-name">{currentWatchlistName}</span>
-              <ChevronDown size={16} />
-            </div>
-            {showWatchlistDropdown && (
-              <div className="watchlist-dropdown">
-                {watchlists.map((wl) => (
-                  <div
-                    key={wl.id}
-                    className={`dropdown-item ${
-                      wl.id === currentWatchlistId ? "active" : ""
-                    }`}
-                    onClick={() => switchWatchlist(wl.id, wl.name)}
-                  >
-                    {wl.name}
-                    {wl.isDefault && (
-                      <span className="default-badge">Default</span>
-                    )}
-                  </div>
-                ))}
-                <div className="dropdown-divider"></div>
-              </div>
-            )}
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              const rect = (
-                e.currentTarget as HTMLElement
-              ).getBoundingClientRect();
-              setAddAnchorRect({
-                top: rect.top,
-                left: rect.left,
-                bottom: rect.bottom,
-                right: rect.right,
-                width: rect.width,
-                height: rect.height,
-              });
-              setShowSymbolSearchModal(true);
-            }}
-            title="Add Symbol"
+  const WatchlistContent = () => (
+    <div className="flex h-full flex-col border-r border-border bg-card">
+      <div className="flex items-center justify-between border-b border-border bg-muted/30 p-3">
+        <div className="relative flex-1">
+          <div
+            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent hover:text-accent-foreground"
+            onClick={() => setShowWatchlistDropdown(!showWatchlistDropdown)}
           >
-            <Plus size={18} />
+            <span className="text-sm font-semibold text-foreground">
+              {currentWatchlistName}
+            </span>
+            <ChevronDown size={14} className="text-muted-foreground" />
+          </div>
+          {showWatchlistDropdown && (
+            <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in zoom-in-95">
+              {watchlists.map((wl) => (
+                <div
+                  key={wl.id}
+                  className={`flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${
+                    wl.id === currentWatchlistId
+                      ? "bg-accent text-accent-foreground font-medium"
+                      : "text-popover-foreground"
+                  }`}
+                  onClick={() => switchWatchlist(wl.id, wl.name)}
+                >
+                  {wl.name}
+                  {wl.isDefault && (
+                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      Default
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          onClick={(e) => {
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            setAddAnchorRect({
+              top: rect.top,
+              left: rect.left,
+              bottom: rect.bottom,
+              right: rect.right,
+              width: rect.width,
+              height: rect.height,
+            });
+            setShowSymbolSearchModal(true);
+          }}
+          title="Add Symbol"
+        >
+          <Plus size={18} />
+        </Button>
+      </div>
+
+      {error && (
+        <div className="border-b border-yellow-200 bg-yellow-50 px-4 py-2 text-xs text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-200">
+          {error}
+        </div>
+      )}
+
+      {watchlistItems.length === 0 && !loading && (
+        <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-muted-foreground">
+          <p className="mb-2 text-sm">No symbols in your watchlist</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowSymbolSearchModal(true)}
+            className="gap-2"
+          >
+            <Plus size={14} /> Add Symbol
           </Button>
         </div>
+      )}
 
-        {error && <div className="error-message">{error}</div>}
-
-        {watchlistItems.length === 0 && !loading && (
-          <div className="empty-watchlist">
-            <p>No symbols in your watchlist</p>
-            <p className="hint">Click "+ Add" to add symbols</p>
-          </div>
-        )}
-
-        <div className="watchlist-items">
-          {watchlistItems.map((item) => (
-            <div
-              key={item.symbol}
-              className={`watchlist-item ${
-                selectedSymbol === item.symbol ? "selected" : ""
-              }`}
-              onClick={() => setSelectedSymbol(item.symbol)}
-            >
-              <div className="symbol-row">
-                <div className="symbol-info">
-                  <span className="symbol-name">{item.symbol}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeSymbol(item.symbol);
-                    }}
-                  >
-                    ×
-                  </Button>
-                </div>
-                <div className="price-info">
-                  <span className="last-price">
-                    {selectedAccount?.accountType === "binance"
-                      ? `$${item.lastPrice.toFixed(2)}`
-                      : selectedAccount?.accountType === "upstox" ||
-                        selectedAccount?.accountType === "kite"
-                      ? `₹${item.lastPrice.toFixed(2)}`
-                      : item.lastPrice.toFixed(2)}
-                  </span>
-                  <span
-                    className={`price-change ${
-                      item.priceChange >= 0 ? "positive" : "negative"
-                    }`}
-                  >
-                    {item.priceChange >= 0 ? "+" : ""}
-                    {item.priceChangePercent.toFixed(2)}%
-                  </span>
-                </div>
+      <div className="flex-1 overflow-y-auto">
+        {watchlistItems.map((item) => (
+          <div
+            key={item.symbol}
+            className={`group flex cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 transition-colors hover:bg-accent/50 ${
+              selectedSymbol === item.symbol
+                ? "bg-accent/50 border-l-4 border-l-primary pl-3"
+                : "border-l-4 border-l-transparent"
+            }`}
+            onClick={() => {
+              setSelectedSymbol(item.symbol);
+              setIsMobileWatchlistOpen(false);
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-foreground">
+                  {item.symbol}
+                </span>
               </div>
-              <div className="volume-info">
-                Vol: {(item.volume / 1000000).toFixed(2)}M
+              <div className="flex flex-col items-end">
+                <span className="font-mono text-sm font-medium text-foreground">
+                  {selectedAccount?.accountType === "binance"
+                    ? `$${item.lastPrice.toFixed(2)}`
+                    : selectedAccount?.accountType === "upstox" ||
+                      selectedAccount?.accountType === "kite"
+                    ? `₹${item.lastPrice.toFixed(2)}`
+                    : item.lastPrice.toFixed(2)}
+                </span>
               </div>
             </div>
-          ))}
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                Vol: {(item.volume / 1000000).toFixed(2)}M
+              </span>
+              <span
+                className={`font-medium ${
+                  item.priceChange >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                }`}
+              >
+                {item.priceChange >= 0 ? "+" : ""}
+                {item.priceChangePercent.toFixed(2)}%
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 h-6 w-6 text-muted-foreground hover:text-destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                removeSymbol(item.symbol);
+              }}
+            >
+              <Trash2 size={14} />
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="h-full w-full overflow-hidden rounded-lg border border-border bg-background shadow-sm">
+      {/* Desktop View */}
+      <div className="hidden h-full md:grid md:grid-cols-[320px_1fr]">
+        <WatchlistContent />
+        <div className="flex h-full flex-col overflow-hidden bg-background">
+          <TradingWindow
+            symbol={selectedSymbol}
+            currentPrice={currentPrice}
+            accounts={accounts}
+            selectedAccount={selectedAccount}
+            onOrderPlaced={handleOrderPlaced}
+          />
         </div>
       </div>
 
-      <div className="trading-panel">
-        <TradingWindow
-          symbol={selectedSymbol}
-          currentPrice={currentPrice}
-          accounts={accounts}
-          selectedAccount={selectedAccount}
-          onOrderPlaced={handleOrderPlaced}
-        />
+      {/* Mobile View */}
+      <div className="flex h-full flex-col md:hidden relative">
+        <div
+          className="flex items-center justify-between border-b border-border bg-card p-4 shadow-sm z-20 relative cursor-pointer hover:bg-accent/50 transition-colors"
+          onClick={() => setIsMobileWatchlistOpen(!isMobileWatchlistOpen)}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-bold">
+              {selectedSymbol || "Select Symbol"}
+            </span>
+            <ChevronDown
+              size={20}
+              className={`transition-transform duration-200 text-muted-foreground ${
+                isMobileWatchlistOpen ? "rotate-180" : ""
+              }`}
+            />
+          </div>
+          {selectedSymbol && (
+            <div className="flex flex-col items-end">
+              <span className="font-mono font-medium text-foreground">
+                {selectedAccount?.accountType === "binance"
+                  ? `$${currentPrice.toFixed(2)}`
+                  : selectedAccount?.accountType === "upstox" ||
+                    selectedAccount?.accountType === "kite"
+                  ? `₹${currentPrice.toFixed(2)}`
+                  : currentPrice.toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Watchlist Dropdown Overlay */}
+        {isMobileWatchlistOpen && (
+          <div className="absolute top-[61px] left-0 right-0 bottom-0 z-10 bg-background animate-in slide-in-from-top-5 fade-in duration-200 shadow-lg">
+            <WatchlistContent />
+          </div>
+        )}
+
+        {/* Trading Window */}
+        <div className="flex-1 overflow-hidden bg-background">
+          <TradingWindow
+            symbol={selectedSymbol}
+            currentPrice={currentPrice}
+            accounts={accounts}
+            selectedAccount={selectedAccount}
+            onOrderPlaced={handleOrderPlaced}
+          />
+        </div>
       </div>
 
       {/* Symbol Search Modal */}
@@ -581,413 +665,6 @@ const Watchlist = memo(function Watchlist({
           anchorRect={addAnchorRect || undefined}
         />
       )}
-
-      <style>{`
-        .watchlist-container {
-          display: grid;
-          grid-template-columns: 300px 1fr;
-          gap: 16px;
-          height: 100%;
-          min-height: 0;
-          background: #ffffff;
-          color: #000000;
-          border-radius: 8px;
-          overflow: hidden;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        .dark .watchlist-container {
-          background: #05050a !important;
-          color: #e4e4e7 !important;
-          box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
-        }
-
-        .loading-state {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 200px;
-          color: #666;
-          font-size: 0.9rem;
-        }
-
-        .no-accounts {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 100%;
-          padding: 32px;
-          text-align: center;
-        }
-
-        .no-accounts h3 {
-          margin: 0 0 8px 0;
-          color: #333;
-          font-size: 1.2rem;
-        }
-
-        .no-accounts p {
-          margin: 0 0 16px 0;
-          color: #666;
-          font-size: 0.9rem;
-        }
-
-        .watchlist-panel {
-          border-right: 1px solid #e9ecef;
-          display: flex;
-          flex-direction: column;
-          background: #ffffff;
-        }
-
-        .dark .watchlist-panel {
-          border-right: 1px solid #27272a !important;
-          background: #0f0f12 !important;
-        }
-
-        .watchlist-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 12px 16px;
-          border-bottom: 1px solid #e9ecef;
-          background: #f8f9fa;
-          color: #333;
-          gap: 8px;
-        }
-
-        .dark .watchlist-header {
-          border-bottom: 1px solid #27272a !important;
-          background: #15151a !important;
-          color: #f4f4f5 !important;
-        }
-
-        .watchlist-title-row {
-          position: relative;
-          flex: 1;
-        }
-
-        .watchlist-selector {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          cursor: pointer;
-          padding: 4px 8px;
-          border-radius: 4px;
-          transition: background-color 0.2s;
-        }
-
-        .watchlist-selector:hover {
-          background: rgba(0, 0, 0, 0.05);
-        }
-
-        .dark .watchlist-selector:hover {
-          background: rgba(255, 255, 255, 0.05);
-        }
-
-        .watchlist-name {
-          font-weight: 600;
-          font-size: 0.95rem;
-          color: var(--foreground);
-        }
-
-        .watchlist-dropdown {
-          position: absolute;
-          top: 100%;
-          left: 0;
-          margin-top: 4px;
-          background: white;
-          border: 1px solid #e5e5e5;
-          border-radius: 8px;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          min-width: 200px;
-          z-index: 100;
-        }
-
-        .dark .watchlist-dropdown {
-          background: #27272a;
-          border-color: #3f3f46;
-        }
-
-        .dropdown-item {
-          padding: 10px 16px;
-          cursor: pointer;
-          transition: background-color 0.2s;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 0.9rem;
-        }
-
-        .dropdown-item:hover {
-          background: #f3f4f6;
-        }
-
-        .dark .dropdown-item:hover {
-          background: #3f3f46;
-        }
-
-        .dropdown-item.active {
-          background: #e0f2fe;
-          font-weight: 500;
-        }
-
-        .dark .dropdown-item.active {
-          background: #1e3a8a;
-        }
-
-        .dropdown-divider {
-          height: 1px;
-          background: #e5e5e5;
-          margin: 4px 0;
-        }
-
-        .dark .dropdown-divider {
-          background: #3f3f46;
-        }
-
-        .default-badge {
-          font-size: 0.7rem;
-          padding: 2px 6px;
-          background: #3b82f6;
-          color: white;
-          border-radius: 4px;
-          margin-left: auto;
-        }
-
-        .error-message {
-          background: #fff3cd;
-          color: #856404;
-          padding: 8px 16px;
-          border-bottom: 1px solid #ffeaa7;
-          font-size: 0.8rem;
-        }
-
-        .empty-watchlist {
-          padding: 32px 16px;
-          text-align: center;
-          color: #666;
-          font-size: 0.9rem;
-        }
-
-        .dark .empty-watchlist {
-          color: #a1a1aa;
-        }
-
-        .empty-watchlist .hint {
-          margin-top: 8px;
-          font-size: 0.85rem;
-          color: #999;
-        }
-
-        .dark .empty-watchlist .hint {
-          color: #71717a;
-        }
-
-        .watchlist-items {
-          flex: 1;
-          overflow-y: auto;
-        }
-
-        .dark .watchlist-items {
-          background: #05050a;
-        }
-
-        .watchlist-item {
-          padding: 8px 16px;
-          border-bottom: 1px solid #f1f3f4;
-          cursor: pointer;
-          transition: background-color 0.2s ease;
-        }
-
-        .dark .watchlist-item {
-          border-bottom: 1px solid #1f1f24;
-          background: #0f0f12;
-          color: #e4e4e7;
-        }
-
-        .watchlist-item:hover {
-          background: #f8f9fa;
-        }
-
-        .dark .watchlist-item:hover {
-          background: #1c1c21;
-        }
-
-        .watchlist-item.selected {
-          background: #e3f2fd;
-          border-left: 3px solid #2196f3;
-        }
-
-        .dark .watchlist-item.selected {
-          background: #1b2b5b;
-          border-left: 3px solid #3b82f6;
-        }
-
-        .symbol-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 4px;
-        }
-
-        .symbol-info {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .symbol-name {
-          font-weight: 600;
-          font-size: 0.85rem;
-          color: var(--foreground);
-        }
-
-        .price-info {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-end;
-        }
-
-        .last-price {
-          font-weight: 600;
-          font-size: 0.8rem;
-          color: var(--foreground);
-        }
-
-        .price-change {
-          font-size: 0.7rem;
-          font-weight: 500;
-        }
-
-        .price-change.positive {
-          color: #4caf50;
-        }
-
-        .price-change.negative {
-          color: #f44336;
-        }
-
-        .volume-info {
-          font-size: 0.7rem;
-          color: var(--muted-foreground);
-        }
-
-        .trading-panel {
-          background: #fafafa;
-          color: #333;
-          display: flex;
-          flex-direction: column;
-          overflow-y: auto;
-          height: 100%;
-        }
-
-        .dark .trading-panel {
-          background: #09090b !important;
-          color: #ffffff !important;
-        }
-
-        /* Tablet view */
-        @media (max-width: 1024px) {
-          .watchlist-container {
-            grid-template-columns: 250px 1fr;
-          }
-        }
-
-        /* Mobile view */
-        @media (max-width: 768px) {
-          .watchlist-container {
-            grid-template-columns: 1fr;
-            grid-template-rows: auto;
-            height: 100%;
-            min-height: 0;
-            border-radius: 0;
-            box-shadow: none;
-          }
-
-          .watchlist-panel {
-            border-right: none;
-            border-bottom: 2px solid #e9ecef;
-            max-height: 40vh;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            background: white;
-          }
-
-          .watchlist-items {
-            max-height: 30vh;
-            overflow-y: auto;
-          }
-
-          .trading-panel {
-            min-height: 0;
-            max-height: none;
-          }
-
-          .watchlist-header {
-            padding: 10px 12px;
-            position: sticky;
-            top: 0;
-            z-index: 1;
-          }
-
-          .watchlist-header h3 {
-            font-size: 0.95rem;
-          }
-
-          .watchlist-item {
-            padding: 10px 12px;
-          }
-
-          .symbol-name {
-            font-size: 0.9rem;
-          }
-
-          .last-price {
-            font-size: 0.85rem;
-          }
-
-          .price-change {
-            font-size: 0.75rem;
-          }
-
-          .volume-info {
-            font-size: 0.75rem;
-          }
-        }
-
-        /* Small mobile view */
-        @media (max-width: 480px) {
-          .watchlist-container {
-            gap: 0;
-          }
-
-          .watchlist-panel {
-            max-height: 35vh;
-          }
-
-          .watchlist-items {
-            max-height: 25vh;
-          }
-
-          .watchlist-header {
-            padding: 8px 10px;
-          }
-
-          .watchlist-item {
-            padding: 8px 10px;
-          }
-
-          .symbol-info {
-            gap: 4px;
-          }
-
-          .price-info {
-            gap: 2px;
-          }
-        }
-      `}</style>
     </div>
   );
 });

@@ -1,11 +1,27 @@
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   CandlestickData,
   CandlestickSeries,
   ColorType,
   createChart,
   IChartApi,
+  ISeriesApi,
   UTCTimestamp,
 } from "lightweight-charts";
+import {
+  AlertCircle,
+  Maximize2,
+  Minimize2,
+  Plus,
+  X,
+} from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 interface MultiTimeframeChartProps {
@@ -38,14 +54,17 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     // Use default symbol (BTCUSDT) if none provided
     const displaySymbol = symbol || "BTCUSDT";
     const isDefaultSymbol = !symbol;
-    
+
     const [selectedTimeframes, setSelectedTimeframes] =
       useState(DEFAULT_TIMEFRAMES);
     const [showTimeframeSelector, setShowTimeframeSelector] = useState(false);
     const containerRefs = useRef<(HTMLDivElement | null)[]>(
       new Array(selectedTimeframes.length).fill(null)
     );
-    const chartRefs = useRef<{ chart: IChartApi; series: any | null }[]>([]);
+    const chartRefs = useRef<{
+      chart: IChartApi;
+      series: ISeriesApi<"Candlestick"> | null;
+    }[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [chartTimeframes, setChartTimeframes] = useState<{
@@ -203,7 +222,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               : "upstox");
 
           // Build URL with required parameters - accountId is ALWAYS required
-          let url = `/api/historical-data?vendor=${vendor}&symbol=${displaySymbol}&interval=${interval}&accountId=${accountId}`;
+          const url = `/api/historical-data?vendor=${vendor}&symbol=${displaySymbol}&interval=${interval}&accountId=${accountId}`;
 
           const response = await fetch(url);
 
@@ -234,19 +253,27 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             return [];
           }
 
-          return data.map((d: any) => ({
-            time: (new Date(d.date).getTime() / 1000) as UTCTimestamp,
-            open: d.open,
-            high: d.high,
-            low: d.low,
-            close: d.close,
-          }));
+          return data.map(
+            (d: {
+              date: string | number;
+              open: number;
+              high: number;
+              low: number;
+              close: number;
+            }) => ({
+              time: (new Date(d.date).getTime() / 1000) as UTCTimestamp,
+              open: d.open,
+              high: d.high,
+              low: d.low,
+              close: d.close,
+            })
+          );
         } catch (error) {
           console.error(`Error fetching chart data for ${interval}:`, error);
           throw error;
         }
       },
-      [displaySymbol, accountId]
+      [displaySymbol, accountId, accountType]
     );
 
     useEffect(() => {
@@ -437,508 +464,164 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     }, [autoScale, isLogScale]);
 
     return (
-      <div className="multi-timeframe-charts">
+      <div className="flex w-full flex-col gap-4 overflow-y-auto p-1">
         {/* Default Symbol Notice */}
         {isDefaultSymbol && (
-          <div className="default-symbol-notice">
-            <span>📊 No symbol selected. Showing default chart for <strong>BTC/USDT</strong></span>
+          <div className="flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-200">
+            <AlertCircle size={16} />
+            <span>
+              No symbol selected. Showing default chart for{" "}
+              <strong>BTC/USDT</strong>
+            </span>
           </div>
         )}
-        
+
         {/* Timeframe Controls */}
-        <div className="timeframe-controls">
-          <div className="controls-header">
-            <h3>Chart Timeframes</h3>
-            <div className="control-buttons">
-              <button
-                className={`control-btn ${autoScale ? "active" : ""}`}
-                onClick={() => setAutoScale(!autoScale)}
-                title="Auto-scale height to fit container"
-              >
-                A
-              </button>
-              <button
-                className={`control-btn ${isLogScale ? "active" : ""}`}
-                onClick={() => setIsLogScale(!isLogScale)}
-                title="Toggle logarithmic scale"
-              >
-                L
-              </button>
-              <button
-                className="add-timeframe-btn"
+        <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-semibold text-foreground">
+                Chart Timeframes
+              </h3>
+              <div className="flex items-center gap-1 rounded-md border border-border bg-muted/50 p-1">
+                <Button
+                  variant={autoScale ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setAutoScale(!autoScale)}
+                  title="Auto-scale height"
+                >
+                  {autoScale ? (
+                    <Minimize2 size={14} />
+                  ) : (
+                    <Maximize2 size={14} />
+                  )}
+                </Button>
+                <Button
+                  variant={isLogScale ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7 font-mono text-xs font-bold"
+                  onClick={() => setIsLogScale(!isLogScale)}
+                  title="Toggle logarithmic scale"
+                >
+                  L
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setShowTimeframeSelector(!showTimeframeSelector)}
+                className="gap-1"
               >
-                + Add Timeframe
-              </button>
+                <Plus size={14} /> Add Timeframe
+              </Button>
             </div>
           </div>
 
           {showTimeframeSelector && (
-            <div className="timeframe-selector">
-              <div className="available-timeframes">
+            <div className="mt-4 border-t border-border pt-4 animate-in slide-in-from-top-2 fade-in duration-200">
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
                 {AVAILABLE_TIMEFRAMES.filter(
                   (tf) =>
                     !selectedTimeframes.find(
                       (selected) => selected.interval === tf.interval
                     )
                 ).map((timeframe) => (
-                  <button
+                  <Button
                     key={timeframe.interval}
-                    className="timeframe-option"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-center"
                     onClick={() => {
                       addTimeframe(timeframe.interval);
                       setShowTimeframeSelector(false);
                     }}
                   >
                     {timeframe.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
           )}
         </div>
 
-        {/* Charts */}
-        {selectedTimeframes.map((timeframe) => {
-          return (
-            <div key={timeframe.interval} className="chart-section">
-              <div className="chart-header">
-                <h4>{timeframe.label}</h4>
-                <div className="header-controls">
-                  <span className="symbol-name">{displaySymbol}</span>
-                  <select
-                    value={
-                      chartTimeframes[timeframe.index] || timeframe.interval
-                    }
-                    onChange={(e) =>
-                      changeChartTimeframe(timeframe.index, e.target.value)
-                    }
-                    className="timeframe-select"
-                  >
-                    {AVAILABLE_TIMEFRAMES.map((tf) => (
-                      <option key={tf.interval} value={tf.interval}>
-                        {tf.label}
-                      </option>
-                    ))}
-                  </select>
+        {/* Charts Grid */}
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {selectedTimeframes.map((timeframe) => {
+            return (
+              <div
+                key={timeframe.interval}
+                className={`flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-all ${
+                  autoScale ? "h-[400px]" : "h-auto"
+                }`}
+              >
+                <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2">
+                  <div className="flex items-center gap-3">
+                    <span className="rounded bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground border border-border">
+                      {displaySymbol}
+                    </span>
+                    <Select
+                      value={
+                        chartTimeframes[timeframe.index] || timeframe.interval
+                      }
+                      onValueChange={(value) =>
+                        changeChartTimeframe(timeframe.index, value)
+                      }
+                    >
+                      <SelectTrigger className="h-7 w-[110px] text-xs">
+                        <SelectValue placeholder="Timeframe" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AVAILABLE_TIMEFRAMES.map((tf) => (
+                          <SelectItem key={tf.interval} value={tf.interval}>
+                            {tf.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
                   {selectedTimeframes.length > 1 && (
-                    <button
-                      className="remove-chart-btn"
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
                       onClick={() => removeTimeframe(timeframe.index)}
                     >
-                      ✕
-                    </button>
+                      <X size={14} />
+                    </Button>
+                  )}
+                </div>
+                
+                <div className="relative flex-1 min-h-[300px] w-full bg-background">
+                  <div
+                    ref={setContainerRef(timeframe.index)}
+                    className="absolute inset-0 h-full w-full"
+                  />
+                  
+                  {loading && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                      <p className="mt-2 text-xs text-muted-foreground">Loading data...</p>
+                    </div>
+                  )}
+                  
+                  {error && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/90 p-4">
+                      <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                        <AlertCircle size={16} />
+                        <p>{error}</p>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
-              <div className="chart-container-wrapper">
-                <div
-                  ref={setContainerRef(timeframe.index)}
-                  className="chart-container"
-                />
-                {loading && (
-                  <div className="chart-loading-overlay">
-                    <div className="loading-spinner"></div>
-                    <p>Loading {timeframe.label}...</p>
-                  </div>
-                )}
-                {error && (
-                  <div className="chart-error-overlay">
-                    <p>⚠️ {error}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        <style>{`
-        .multi-timeframe-charts {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-          width: 100%;
-          overflow-y: auto;
-        }
-
-        .default-symbol-notice {
-          background: #fef3c7;
-          border: 1px solid #fde68a;
-          border-radius: 8px;
-          padding: 12px 16px;
-          color: #92400e;
-          font-size: 14px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .dark .default-symbol-notice {
-          background: #451a03;
-          border-color: #78350f;
-          color: #fcd34d;
-        }
-
-        .default-symbol-notice strong {
-          color: #78350f;
-          font-weight: 600;
-        }
-
-        .dark .default-symbol-notice strong {
-          color: #fbbf24;
-        }
-
-        .timeframe-controls {
-          background: var(--card);
-          border-radius: 8px;
-          padding: 16px;
-          border: 1px solid var(--border);
-        }
-
-        .controls-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 12px;
-        }
-
-        .control-buttons {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .control-btn {
-          background: var(--background);
-          border: 1px solid var(--border);
-          border-radius: 4px;
-          padding: 6px 10px;
-          font-size: 0.85rem;
-          font-weight: 600;
-          color: var(--foreground);
-          cursor: pointer;
-          transition: all 0.2s ease;
-          min-width: 32px;
-        }
-
-        .control-btn:hover {
-          background: var(--muted);
-          border-color: var(--primary);
-        }
-
-        .control-btn.active {
-          background: var(--primary);
-          color: var(--primary-foreground);
-          border-color: var(--primary);
-        }
-
-        .controls-header h3 {
-          margin: 0;
-          font-size: 1rem;
-          font-weight: 600;
-          color: var(--foreground);
-        }
-
-        .add-timeframe-btn {
-          background: var(--primary);
-          color: var(--primary-foreground);
-          border: none;
-          border-radius: 6px;
-          padding: 6px 12px;
-          font-size: 0.85rem;
-          font-weight: 500;
-          cursor: pointer;
-          transition: background-color 0.2s ease;
-        }
-
-        .add-timeframe-btn:hover {
-          background: var(--primary-dark);
-        }
-
-        .timeframe-selector {
-          border-top: 1px solid var(--border);
-          padding-top: 12px;
-        }
-
-        .available-timeframes {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-          gap: 8px;
-        }
-
-        .timeframe-option {
-          background: var(--background);
-          border: 1px solid var(--border);
-          border-radius: 4px;
-          padding: 8px 12px;
-          font-size: 0.8rem;
-          color: var(--foreground);
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .timeframe-option:hover {
-          background: var(--muted);
-          border-color: var(--primary);
-        }
-
-        .header-controls {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .timeframe-select {
-          background: var(--background);
-          border: 1px solid var(--border);
-          border-radius: 4px;
-          padding: 4px 8px;
-          font-size: 0.8rem;
-          color: var(--foreground);
-          cursor: pointer;
-          min-width: 100px;
-        }
-
-        .timeframe-select:hover {
-          border-color: var(--primary);
-        }
-
-        .timeframe-select:focus {
-          outline: none;
-          border-color: var(--primary);
-          box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.1);
-        }
-
-        .remove-chart-btn {
-          background: none;
-          border: none;
-          color: var(--muted-foreground);
-          font-size: 1rem;
-          cursor: pointer;
-          padding: 4px 6px;
-          border-radius: 4px;
-          transition: all 0.2s ease;
-        }
-
-        .remove-chart-btn:hover {
-          background: var(--destructive);
-          color: var(--destructive-foreground);
-        }
-
-        .chart-section {
-          background: var(--card);
-          border-radius: 8px;
-          overflow: hidden;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-          display: ${autoScale ? "flex" : "block"};
-          flex-direction: ${autoScale ? "column" : "initial"};
-          height: ${autoScale ? "400px" : "auto"};
-        }
-
-        :global(.dark) .chart-section {
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        .chart-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 12px 16px;
-          background: var(--muted);
-          border-bottom: 1px solid var(--border);
-        }
-
-        .chart-header h4 {
-          margin: 0;
-          font-size: 1rem;
-          font-weight: 600;
-          color: var(--foreground);
-        }
-
-        .symbol-name {
-          font-size: 0.9rem;
-          font-weight: 500;
-          color: var(--muted-foreground);
-          background: var(--background);
-          padding: 4px 8px;
-          border-radius: 4px;
-          border: 1px solid var(--border);
-        }
-
-        .chart-container-wrapper {
-          position: relative;
-          width: 100%;
-          height: ${autoScale ? "auto" : "300px"} !important;
-          min-height: ${autoScale ? "200px" : "300px"} !important;
-          max-height: ${autoScale ? "none" : "none"} !important;
-          flex: ${autoScale ? "1" : "none"};
-        }
-
-        .chart-container {
-          width: 100%;
-          height: ${autoScale ? "100%" : "300px"} !important;
-          position: relative;
-          min-height: ${autoScale ? "200px" : "300px"} !important;
-          max-height: none !important;
-          min-width: 300px;
-          background: var(--background);
-          display: block;
-        }
-
-        .chart-loading-overlay {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(255, 255, 255, 0.9);
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          z-index: 10;
-          border-radius: 4px;
-        }
-
-        :global(.dark) .chart-loading-overlay {
-          background: rgba(24, 24, 27, 0.9);
-        }
-
-        .loading-spinner {
-          width: 24px;
-          height: 24px;
-          border: 2px solid #e0e0e0;
-          border-top: 2px solid #2196f3;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-          margin-bottom: 8px;
-        }
-
-        .chart-loading-overlay p {
-          margin: 0;
-          font-size: 0.8rem;
-          color: var(--foreground);
-        }
-
-        .chart-error-overlay {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(255, 243, 205, 0.95);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 10;
-          border-radius: 4px;
-        }
-
-        .chart-error-overlay p {
-          margin: 0;
-          font-size: 0.8rem;
-          color: #856404;
-        }
-
-        @keyframes spin {
-          0% {
-            transform: rotate(0deg);
-          }
-          100% {
-            transform: rotate(360deg);
-          }
-        }
-
-        @media (max-width: 768px) {
-          .multi-timeframe-charts {
-            gap: 16px;
-          }
-
-          .chart-container-wrapper {
-            height: ${autoScale ? "auto" : "225px"} !important;
-            min-height: ${autoScale ? "180px" : "225px"} !important;
-            max-height: none !important;
-          }
-
-          .chart-container {
-            height: ${autoScale ? "100%" : "225px"} !important;
-            min-height: ${autoScale ? "180px" : "225px"} !important;
-            max-height: none !important;
-          }
-
-          .chart-section {
-            height: ${autoScale ? "300px" : "auto"};
-          }
-
-          .control-buttons {
-            flex-wrap: wrap;
-            gap: 4px;
-          }
-
-          .control-btn {
-            padding: 4px 8px;
-            font-size: 0.8rem;
-            min-width: 28px;
-          }
-
-          .controls-header {
-            flex-direction: column;
-            gap: 8px;
-            align-items: stretch;
-          }
-
-          .available-timeframes {
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-            gap: 6px;
-          }
-
-          .timeframe-option {
-            padding: 6px 8px;
-            font-size: 0.75rem;
-          }
-
-          .header-controls {
-            flex-direction: column;
-            gap: 6px;
-            align-items: stretch;
-          }
-
-          .timeframe-select {
-            font-size: 0.75rem;
-            padding: 3px 6px;
-            min-width: 80px;
-          }
-
-          .symbol-name {
-            text-align: center;
-          }
-
-          .chart-header {
-            padding: 10px 12px;
-          }
-
-          .chart-header h4 {
-            font-size: 0.9rem;
-          }
-
-          .symbol-name {
-            font-size: 0.8rem;
-            padding: 3px 6px;
-          }
-        }
-
-        @media (max-width: 480px) {
-          .chart-header {
-            flex-direction: column;
-            gap: 8px;
-            align-items: stretch;
-          }
-
-          .symbol-name {
-            text-align: center;
-          }
-        }
-      `}</style>
+            );
+          })}
+        </div>
       </div>
     );
   }

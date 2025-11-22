@@ -111,16 +111,9 @@ export function Header() {
           <button
             aria-label="Toggle theme"
             onClick={toggleTheme}
-            className="flex h-10 w-10 items-center justify-center rounded-md transition-all text-lg shadow-md"
-            style={{
-              backgroundColor: isDark ? "#fbbf24" : "#1e40af",
-              border: "2px solid",
-              borderColor: isDark ? "#f59e0b" : "#1e3a8a",
-            }}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors"
           >
-            <span
-              style={{ filter: isDark ? "none" : "brightness(0) invert(1)" }}
-            >
+            <span className="text-lg leading-none">
               {isDark ? "☀️" : "🌙"}
             </span>
           </button>
@@ -150,9 +143,6 @@ export function Header() {
         className={`md:hidden fixed left-0 top-14 h-[calc(100vh-56px)] w-64 transform border-r border-border bg-background px-3 py-4 transition-transform duration-300 ease-out z-50 shadow-xl ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
-        style={{
-          backgroundColor: isDark ? "rgb(9, 9, 11)" : "rgb(255, 255, 255)",
-        }}
       >
         <div className="flex flex-col gap-0.5 text-sm">
           {/* Mobile Account Selector */}
@@ -192,13 +182,7 @@ export function Header() {
           <div className="mt-2 flex gap-2">
             <button
               onClick={toggleTheme}
-              className="flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors"
-              style={{
-                backgroundColor: isDark ? "#fbbf24" : "#1e40af",
-                color: isDark ? "#000000" : "#ffffff",
-                border: "1px solid",
-                borderColor: isDark ? "#f59e0b" : "#1e3a8a",
-              }}
+              className="flex-1 rounded-md border border-blue-900 bg-blue-800 px-3 py-2 text-sm font-medium text-white transition-colors dark:border-amber-500 dark:bg-amber-400 dark:text-black"
             >
               {isDark ? "☀️ Light" : "🌙 Dark"} Mode
             </button>
