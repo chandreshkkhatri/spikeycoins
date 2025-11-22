@@ -8,6 +8,7 @@ import PositionsPage from "@/pages/Positions";
 import TradingPanelPage from "@/pages/TradingPanel";
 import TradingPage from "@/pages/Trading";
 import FundsPage from "@/pages/Funds";
+import TradingGymPage from "@/pages/TradingGym";
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
         path={PAGE_ROUTES.TRADING_PANEL}
         element={<TradingPanelPage />}
       />
+      <Route path={PAGE_ROUTES.TRADING_GYM} element={<TradingGymPage />} />
       <Route path={PAGE_ROUTES.TRADING} element={<TradingPage />} />
       <Route
         path="*"

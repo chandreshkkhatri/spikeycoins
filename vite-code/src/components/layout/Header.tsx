@@ -10,6 +10,7 @@ import { PAGE_ROUTES } from "@/lib/constants";
 const navItems = [
   { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
   { href: PAGE_ROUTES.TRADING_PANEL, label: "Trading Panel" },
+  { href: PAGE_ROUTES.TRADING_GYM, label: "Trading Gym" },
   { href: PAGE_ROUTES.ORDERS, label: "Orders" },
   { href: PAGE_ROUTES.POSITIONS, label: "Positions" },
   { href: PAGE_ROUTES.HOLDINGS, label: "Holdings" },
