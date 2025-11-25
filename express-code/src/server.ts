@@ -21,6 +21,7 @@ import historicalDataRouter from "./routes/historical-data";
 import holdingsRouter from "./routes/holdings";
 import ordersRouter from "./routes/orders";
 import positionsRouter from "./routes/positions";
+import pricesRouter from "./routes/prices";
 import searchRouter from "./routes/search";
 import tradingRouter from "./routes/trading";
 import upstoxRouter from "./routes/upstox";
@@ -28,6 +29,9 @@ import watchlistRouter from "./routes/watchlist";
 
 // Import database connection
 import connectDB from "./lib/mongodb";
+
+// Import price service for server-side WebSocket
+import binancePriceService from "./lib/binance-price-service";
 
 const app: Application = express();
 const PORT = process.env.PORT || 8000;
@@ -121,6 +125,7 @@ app.use("/api/historical-data", historicalDataRouter);
 app.use("/api/holdings", holdingsRouter);
 app.use("/api/orders", ordersRouter);
 app.use("/api/positions", positionsRouter);
+app.use("/api/prices", pricesRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/trading", tradingRouter);
 app.use("/api/upstox", upstoxRouter);
@@ -152,6 +157,10 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`   Environment: ${process.env.NODE_ENV || "development"}`);
   console.log(`   API URL: http://localhost:${PORT}`);
+  
+  // Start Binance price service for caching
+  console.log("📡 Starting Binance price service...");
+  binancePriceService.start();
 });
 
 export default app;

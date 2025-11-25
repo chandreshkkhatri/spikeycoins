@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import binanceWebSocketService from "@/lib/binance-websocket";
+import { formatPrice, formatVolume, formatPercent } from "@/lib/format-utils";
 import { upstoxWebSocket } from "@/lib/upstox-websocket";
 import { ChevronDown, Plus, Trash2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -178,7 +179,7 @@ const Watchlist = memo(function Watchlist({
             setWatchlistSymbols(finalSymbols);
             setWatchlistItemsData(finalItems); // Store full item data
 
-            // Initialize watchlist items
+            // Initialize watchlist items with zeros first
             const initialData: WatchlistItem[] = finalSymbols.map(
               (symbol: string) => ({
                 symbol,
@@ -194,6 +195,36 @@ const Watchlist = memo(function Watchlist({
             setWatchlistItems(initialData);
             if (finalSymbols.length > 0 && !selectedSymbol) {
               setSelectedSymbol(finalSymbols[0]);
+            }
+
+            // Fetch cached prices from server for immediate display
+            if (selectedAccount?.accountType === "binance") {
+              try {
+                const pricesRes = await fetch("/api/prices");
+                const pricesData = await pricesRes.json();
+                if (pricesData.success && pricesData.prices) {
+                  // Update items with cached prices
+                  setWatchlistItems((prev) =>
+                    prev.map((item) => {
+                      const cached = pricesData.prices[item.symbol];
+                      if (cached) {
+                        return {
+                          ...item,
+                          lastPrice: cached.lastPrice || 0,
+                          priceChange: cached.priceChange || 0,
+                          priceChangePercent: cached.priceChangePercent || 0,
+                          volume: cached.volume || 0,
+                          high24h: cached.high || 0,
+                          low24h: cached.low || 0,
+                        };
+                      }
+                      return item;
+                    })
+                  );
+                }
+              } catch (priceErr) {
+                console.warn("Failed to fetch cached prices:", priceErr);
+              }
             }
 
             // Start WebSocket connection for real-time updates
@@ -760,17 +791,17 @@ const Watchlist = memo(function Watchlist({
               <div className="flex flex-col items-end">
                 <span className="font-mono text-sm font-medium text-foreground">
                   {selectedAccount?.accountType === "binance"
-                    ? `$${item.lastPrice.toFixed(2)}`
+                    ? formatPrice(item.lastPrice, "$")
                     : selectedAccount?.accountType === "upstox" ||
                       selectedAccount?.accountType === "kite"
-                    ? `₹${item.lastPrice.toFixed(2)}`
-                    : item.lastPrice.toFixed(2)}
+                    ? formatPrice(item.lastPrice, "₹")
+                    : formatPrice(item.lastPrice)}
                 </span>
               </div>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">
-                Vol: {(item.volume / 1000000).toFixed(2)}M
+                Vol: {formatVolume(item.volume)}
               </span>
               <span
                 className={`font-medium ${
@@ -779,8 +810,7 @@ const Watchlist = memo(function Watchlist({
                     : "text-red-600 dark:text-red-400"
                 }`}
               >
-                {item.priceChange >= 0 ? "+" : ""}
-                {item.priceChangePercent.toFixed(2)}%
+                {formatPercent(item.priceChangePercent)}
               </span>
             </div>
             {!isDefaultBinance && (
@@ -839,11 +869,11 @@ const Watchlist = memo(function Watchlist({
             <div className="flex flex-col items-end">
               <span className="font-mono font-medium text-foreground">
                 {selectedAccount?.accountType === "binance"
-                  ? `$${currentPrice.toFixed(2)}`
+                  ? formatPrice(currentPrice, "$")
                   : selectedAccount?.accountType === "upstox" ||
                     selectedAccount?.accountType === "kite"
-                  ? `₹${currentPrice.toFixed(2)}`
-                  : currentPrice.toFixed(2)}
+                  ? formatPrice(currentPrice, "₹")
+                  : formatPrice(currentPrice)}
               </span>
             </div>
           )}

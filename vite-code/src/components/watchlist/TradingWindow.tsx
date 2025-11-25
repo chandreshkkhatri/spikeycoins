@@ -454,6 +454,8 @@ const TradingWindow = memo(function TradingWindow({
           flex-direction: column;
           height: 100%;
           min-width: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
         }
 
         .trading-window-empty {
@@ -473,6 +475,9 @@ const TradingWindow = memo(function TradingWindow({
           border-bottom: 1px solid #e9ecef;
           background: #ffffff;
           color: #333;
+          position: sticky;
+          top: 0;
+          z-index: 10;
         }
 
         .dark .trading-header {
@@ -495,13 +500,12 @@ const TradingWindow = memo(function TradingWindow({
 
         .trading-content {
           display: flex;
-          overflow: hidden;
+          flex-shrink: 0;
         }
 
         .trading-form {
           flex: 1;
           padding: 16px;
-          overflow-y: auto;
           max-width: 100%;
           background: #ffffff;
         }

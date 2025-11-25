@@ -164,26 +164,63 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           layout: {
             background: {
               type: ColorType.Solid,
-              color: isDarkMode ? "#18181b" : "#ffffff",
+              color: isDarkMode ? "#0a0a0b" : "#ffffff",
             },
-            textColor: isDarkMode ? "#e4e4e7" : "#333",
+            textColor: isDarkMode ? "#a1a1aa" : "#52525b",
+            fontSize: 11,
           },
           grid: {
-            vertLines: { color: isDarkMode ? "#27272a" : "#f0f0f0" },
-            horzLines: { color: isDarkMode ? "#27272a" : "#f0f0f0" },
+            vertLines: { 
+              color: isDarkMode ? "#1f1f23" : "#f4f4f5", 
+              style: 1,
+            },
+            horzLines: { 
+              color: isDarkMode ? "#1f1f23" : "#f4f4f5",
+              style: 1,
+            },
           },
           crosshair: {
             mode: 1,
+            vertLine: {
+              color: isDarkMode ? "#3f3f46" : "#d4d4d8",
+              width: 1,
+              style: 2,
+              labelBackgroundColor: isDarkMode ? "#27272a" : "#f4f4f5",
+            },
+            horzLine: {
+              color: isDarkMode ? "#3f3f46" : "#d4d4d8",
+              width: 1,
+              style: 2,
+              labelBackgroundColor: isDarkMode ? "#27272a" : "#f4f4f5",
+            },
           },
           rightPriceScale: {
-            borderColor: isDarkMode ? "#3f3f46" : "#e0e0e0",
-            scaleMargins: { top: 0.1, bottom: 0.1 },
+            borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
+            scaleMargins: { top: 0.08, bottom: 0.08 },
             mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal
+            borderVisible: false,
           },
           timeScale: {
-            borderColor: isDarkMode ? "#3f3f46" : "#e0e0e0",
+            borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
             rightOffset: isMobile ? 3 : 8,
-            barSpacing: isMobile ? 2 : 4,
+            barSpacing: isMobile ? 3 : 5,
+            borderVisible: false,
+            timeVisible: true,
+            secondsVisible: false,
+          },
+          handleScroll: {
+            mouseWheel: true,
+            pressedMouseMove: true,
+            horzTouchDrag: true,
+            vertTouchDrag: false,
+          },
+          handleScale: {
+            mouseWheel: true,
+            pinch: true,
+            axisPressedMouseMove: {
+              time: true,
+              price: true,
+            },
           },
         });
 
@@ -194,12 +231,12 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
         // Use the correct v5 API: addSeries(CandlestickSeries, options)
         const candlestickOptions = {
-          upColor: "#26a69a",
-          downColor: "#ef5350",
-          borderDownColor: "#ef5350",
-          borderUpColor: "#26a69a",
-          wickDownColor: "#ef5350",
-          wickUpColor: "#26a69a",
+          upColor: "#22c55e",
+          downColor: "#ef4444",
+          borderDownColor: "#ef4444",
+          borderUpColor: "#22c55e",
+          wickDownColor: "#ef4444",
+          wickUpColor: "#22c55e",
         };
 
         const series = chart.addSeries(CandlestickSeries, candlestickOptions);
@@ -464,43 +501,43 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     }, [autoScale, isLogScale]);
 
     return (
-      <div className="flex w-full flex-col gap-4 overflow-y-auto p-1">
+      <div className="flex w-full flex-col gap-3 p-3">
         {/* Default Symbol Notice */}
         {isDefaultSymbol && (
-          <div className="flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-200">
-            <AlertCircle size={16} />
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200/50 bg-amber-50/80 px-4 py-2.5 text-sm text-amber-700 dark:border-amber-900/30 dark:bg-amber-950/30 dark:text-amber-200">
+            <AlertCircle size={16} className="flex-shrink-0" />
             <span>
               No symbol selected. Showing default chart for{" "}
-              <strong>BTC/USDT</strong>
+              <strong className="font-semibold">BTC/USDT</strong>
             </span>
           </div>
         )}
 
         {/* Timeframe Controls */}
-        <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-semibold text-foreground">
-                Chart Timeframes
+        <div className="rounded-xl border border-border/50 bg-card/80 p-3 shadow-sm backdrop-blur-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <h3 className="text-sm font-semibold text-foreground">
+                Charts
               </h3>
-              <div className="flex items-center gap-1 rounded-md border border-border bg-muted/50 p-1">
+              <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/30 p-0.5">
                 <Button
                   variant={autoScale ? "secondary" : "ghost"}
                   size="icon"
-                  className="h-7 w-7"
+                  className="h-6 w-6"
                   onClick={() => setAutoScale(!autoScale)}
                   title="Auto-scale height"
                 >
                   {autoScale ? (
-                    <Minimize2 size={14} />
+                    <Minimize2 size={12} />
                   ) : (
-                    <Maximize2 size={14} />
+                    <Maximize2 size={12} />
                   )}
                 </Button>
                 <Button
                   variant={isLogScale ? "secondary" : "ghost"}
                   size="icon"
-                  className="h-7 w-7 font-mono text-xs font-bold"
+                  className="h-6 w-6 font-mono text-[10px] font-bold"
                   onClick={() => setIsLogScale(!isLogScale)}
                   title="Toggle logarithmic scale"
                 >
@@ -514,16 +551,16 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 variant="outline"
                 size="sm"
                 onClick={() => setShowTimeframeSelector(!showTimeframeSelector)}
-                className="gap-1"
+                className="h-7 gap-1.5 text-xs"
               >
-                <Plus size={14} /> Add Timeframe
+                <Plus size={12} /> Add Chart
               </Button>
             </div>
           </div>
 
           {showTimeframeSelector && (
-            <div className="mt-4 border-t border-border pt-4 animate-in slide-in-from-top-2 fade-in duration-200">
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+            <div className="mt-3 border-t border-border/50 pt-3 animate-in slide-in-from-top-2 fade-in duration-200">
+              <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10">
                 {AVAILABLE_TIMEFRAMES.filter(
                   (tf) =>
                     !selectedTimeframes.find(
@@ -534,7 +571,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                     key={timeframe.interval}
                     variant="outline"
                     size="sm"
-                    className="w-full justify-center"
+                    className="h-7 w-full justify-center text-xs"
                     onClick={() => {
                       addTimeframe(timeframe.interval);
                       setShowTimeframeSelector(false);
@@ -549,18 +586,18 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         </div>
 
         {/* Charts Grid */}
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           {selectedTimeframes.map((timeframe) => {
             return (
               <div
                 key={timeframe.interval}
-                className={`flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-all ${
-                  autoScale ? "h-[400px]" : "h-auto"
+                className={`flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm transition-all hover:border-border hover:shadow-md ${
+                  autoScale ? "h-[350px]" : "h-auto"
                 }`}
               >
-                <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2">
-                  <div className="flex items-center gap-3">
-                    <span className="rounded bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground border border-border">
+                <div className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-3 py-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
                       {displaySymbol}
                     </span>
                     <Select
@@ -571,12 +608,12 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                         changeChartTimeframe(timeframe.index, value)
                       }
                     >
-                      <SelectTrigger className="h-7 w-[110px] text-xs">
+                      <SelectTrigger className="h-6 w-[90px] text-[11px] border-border/50">
                         <SelectValue placeholder="Timeframe" />
                       </SelectTrigger>
                       <SelectContent>
                         {AVAILABLE_TIMEFRAMES.map((tf) => (
-                          <SelectItem key={tf.interval} value={tf.interval}>
+                          <SelectItem key={tf.interval} value={tf.interval} className="text-xs">
                             {tf.label}
                           </SelectItem>
                         ))}
@@ -588,32 +625,32 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      className="h-6 w-6 text-muted-foreground hover:text-destructive"
                       onClick={() => removeTimeframe(timeframe.index)}
                     >
-                      <X size={14} />
+                      <X size={12} />
                     </Button>
                   )}
                 </div>
                 
-                <div className="relative flex-1 min-h-[300px] w-full bg-background">
+                <div className="relative flex-1 min-h-[250px] w-full bg-background">
                   <div
                     ref={setContainerRef(timeframe.index)}
                     className="absolute inset-0 h-full w-full"
                   />
                   
                   {loading && (
-                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
-                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
-                      <p className="mt-2 text-xs text-muted-foreground">Loading data...</p>
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/90 backdrop-blur-sm">
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                      <p className="mt-2 text-[10px] font-medium text-muted-foreground">Loading...</p>
                     </div>
                   )}
                   
                   {error && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/90 p-4">
-                      <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                        <AlertCircle size={16} />
-                        <p>{error}</p>
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/95 p-3">
+                      <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        <AlertCircle size={14} />
+                        <p className="line-clamp-2">{error}</p>
                       </div>
                     </div>
                   )}

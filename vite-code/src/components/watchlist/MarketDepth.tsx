@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from "react";
+import { formatPrice, formatQuantity, calculatePriceDecimals } from "@/lib/format-utils";
 
 interface MarketDepthProps {
   symbol: string;
@@ -114,6 +115,9 @@ const MarketDepth = memo(function MarketDepth({
           total: Math.random() * 1000,
         }));
 
+  // Calculate decimal places based on current price
+  const priceDecimals = calculatePriceDecimals(currentPrice);
+
   return (
     <div className="market-depth">
       <div className="depth-header">
@@ -126,16 +130,16 @@ const MarketDepth = memo(function MarketDepth({
           <div
             key={`ask-${i}`}
             className="depth-row ask"
-            onClick={() => onPriceSelect(item.price.toFixed(2))}
+            onClick={() => onPriceSelect(item.price.toFixed(priceDecimals))}
           >
-            <span className="price">{item.price.toFixed(2)}</span>
-            <span className="qty">{item.quantity.toFixed(4)}</span>
-            <span className="total">{item.total.toFixed(2)}</span>
+            <span className="price">{item.price.toFixed(priceDecimals)}</span>
+            <span className="qty">{formatQuantity(item.quantity)}</span>
+            <span className="total">{formatQuantity(item.total)}</span>
           </div>
         ))}
       </div>
       <div className="current-price-display">
-        <span>{currentPrice.toFixed(2)}</span>
+        <span>{formatPrice(currentPrice)}</span>
         {!wsConnected && <span className="text-xs ml-2 text-muted-foreground">(mock)</span>}
       </div>
       <div className="bids">
@@ -143,11 +147,11 @@ const MarketDepth = memo(function MarketDepth({
           <div
             key={`bid-${i}`}
             className="depth-row bid"
-            onClick={() => onPriceSelect(item.price.toFixed(2))}
+            onClick={() => onPriceSelect(item.price.toFixed(priceDecimals))}
           >
-            <span className="price">{item.price.toFixed(2)}</span>
-            <span className="qty">{item.quantity.toFixed(4)}</span>
-            <span className="total">{item.total.toFixed(2)}</span>
+            <span className="price">{item.price.toFixed(priceDecimals)}</span>
+            <span className="qty">{formatQuantity(item.quantity)}</span>
+            <span className="total">{formatQuantity(item.total)}</span>
           </div>
         ))}
       </div>
