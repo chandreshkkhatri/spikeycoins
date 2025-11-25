@@ -1,6 +1,8 @@
 import { Router, Request, Response } from "express";
 import Watchlist from "../models/watchlist";
 import connectDB from "../lib/mongodb";
+import binanceService from "../lib/binance-service";
+import { getInstrumentModel } from "../models/instrument";
 
 const router = Router();
 
@@ -96,7 +98,52 @@ router.get("/symbols", async (req: Request, res: Response) => {
           symbols: [],
           isDefault: true,
         });
+        
+        // If it's a Binance Futures default watchlist, populate it with all symbols
+        if (marketType === "binance-futures") {
+          try {
+            const exchangeInfo = await binanceService.getFuturesExchangeInfo();
+            if (exchangeInfo && exchangeInfo.symbols) {
+              const allSymbols = exchangeInfo.symbols
+                .filter((s: any) => s.status === "TRADING")
+                .map((s: any) => ({
+                  symbol: s.symbol,
+                  name: s.pair,
+                  exchange: "BINANCE",
+                  instrument_type: "FUTURES",
+                  addedAt: new Date()
+                }));
+              
+              watchlist.symbols = allSymbols;
+            }
+          } catch (err) {
+            console.error("Failed to populate default Binance watchlist:", err);
+            // Continue with empty watchlist if fetch fails
+          }
+        }
+        
         await watchlist.save();
+      } else if (marketType === "binance-futures" && watchlist.isDefault && watchlist.symbols.length === 0) {
+        // If existing default Binance watchlist is empty, populate it
+        try {
+          const exchangeInfo = await binanceService.getFuturesExchangeInfo();
+          if (exchangeInfo && exchangeInfo.symbols) {
+            const allSymbols = exchangeInfo.symbols
+              .filter((s: any) => s.status === "TRADING")
+              .map((s: any) => ({
+                symbol: s.symbol,
+                name: s.pair,
+                exchange: "BINANCE",
+                instrument_type: "FUTURES",
+                addedAt: new Date()
+              }));
+            
+            watchlist.symbols = allSymbols;
+            await watchlist.save();
+          }
+        } catch (err) {
+          console.error("Failed to populate default Binance watchlist:", err);
+        }
       }
     } else {
       return res.status(400).json({
@@ -113,12 +160,25 @@ router.get("/symbols", async (req: Request, res: Response) => {
       .map((s: any) => (typeof s === "string" ? s : s?.symbol))
       .filter((s: any) => !!s);
 
+    // Also fetch all watchlists for this user/account to populate the dropdown
+    const watchlists = await Watchlist.find({
+      userId: watchlist.userId,
+      accountId: watchlist.accountId,
+    }).select("_id name isDefault");
+
+    const formattedWatchlists = watchlists.map((w) => ({
+      id: w._id,
+      name: w.name,
+      isDefault: w.isDefault,
+    }));
+
     return res.json({
       success: true,
       items,
       symbols: symbolsOnly,
       watchlistId: watchlist._id,
       watchlistName: watchlist.name,
+      watchlists: formattedWatchlists,
     });
   } catch (error) {
     console.error("Error fetching watchlist symbols:", error);
@@ -254,6 +314,133 @@ router.delete("/symbols", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error removing symbol from watchlist:", error);
     return res.status(500).json({ error: "Failed to remove symbol" });
+  }
+});
+
+// DELETE /api/watchlist/:id - Delete a watchlist
+router.delete("/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ error: "Watchlist ID is required" });
+    }
+
+    await connectDB();
+
+    const watchlist = await Watchlist.findById(id);
+
+    if (!watchlist) {
+      return res.status(404).json({ error: "Watchlist not found" });
+    }
+
+    if (watchlist.isDefault) {
+      return res.status(403).json({ error: "Cannot delete default watchlist" });
+    }
+
+    await Watchlist.findByIdAndDelete(id);
+
+    return res.json({
+      success: true,
+      message: "Watchlist deleted successfully",
+    });
+  } catch (error) {
+    console.error("Error deleting watchlist:", error);
+    return res.status(500).json({ error: "Failed to delete watchlist" });
+  }
+});
+
+// GET /api/watchlist/system/:type - Get system watchlist (e.g. all binance futures)
+router.get("/system/:type", async (req: Request, res: Response) => {
+  try {
+    const { type } = req.params;
+
+    if (type !== "binance-futures") {
+      return res.status(400).json({ error: "Unsupported system watchlist type" });
+    }
+
+    await connectDB();
+
+    // Get the Binance instrument model
+    const Instrument = getInstrumentModel("binance");
+
+    // Check if we have instruments in DB
+    const count = await Instrument.countDocuments({
+      exchange: "BINANCE",
+      instrument_type: "FUTURES",
+    });
+
+    console.log(`[System Watchlist] Current instrument count: ${count}`);
+
+    // If no instruments or very few (likely test data), sync from Binance
+    if (count < 10) {
+      console.log("[System Watchlist] Count < 10, initiating sync from Binance...");
+      try {
+        // If we have some but few, clear them first to avoid duplicates/stale data
+        if (count > 0) {
+          console.log("[System Watchlist] Clearing existing instruments...");
+          await Instrument.deleteMany({
+            exchange: "BINANCE",
+            instrument_type: "FUTURES",
+          });
+        }
+
+        console.log("[System Watchlist] Fetching exchange info from Binance...");
+        const exchangeInfo = await binanceService.getFuturesExchangeInfo();
+        console.log(`[System Watchlist] Fetched ${exchangeInfo?.symbols?.length} symbols from Binance`);
+        
+        if (exchangeInfo && exchangeInfo.symbols) {
+          const instruments = exchangeInfo.symbols
+            .filter((s: { status: string }) => s.status === "TRADING")
+            .map((s: any) => ({
+              instrument_token: s.symbol, // Use symbol as token for Binance
+              tradingsymbol: s.symbol,
+              name: s.pair || s.symbol,
+              exchange: "BINANCE",
+              instrument_type: "FUTURES",
+              segment: "FUTURES",
+              tick_size: s.filters.find((f: any) => f.filterType === "PRICE_FILTER")?.tickSize,
+              lot_size: s.filters.find((f: any) => f.filterType === "LOT_SIZE")?.stepSize,
+              last_price: 0, // Will be updated by websocket
+            }));
+
+          console.log(`[System Watchlist] Inserting ${instruments.length} trading instruments...`);
+          if (instruments.length > 0) {
+            await Instrument.insertMany(instruments);
+            console.log("[System Watchlist] Insert successful");
+          }
+        }
+      } catch (err) {
+        console.error("Failed to sync Binance instruments:", err);
+        return res.status(500).json({ error: "Failed to sync instruments" });
+      }
+    }
+
+    // Fetch all instruments
+    const instruments = await Instrument.find({
+      exchange: "BINANCE",
+      instrument_type: "FUTURES",
+    }).sort({ tradingsymbol: 1 });
+
+    const items = instruments.map((i) => ({
+      symbol: i.tradingsymbol,
+      name: i.name,
+      exchange: i.exchange,
+      instrument_type: i.instrument_type,
+    }));
+
+    const symbols = items.map((i) => i.symbol);
+
+    return res.json({
+      success: true,
+      items,
+      symbols,
+      watchlistId: "system-binance-futures",
+      watchlistName: "Binance Futures",
+    });
+  } catch (error) {
+    console.error("Error fetching system watchlist:", error);
+    return res.status(500).json({ error: "Failed to fetch system watchlist" });
   }
 });
 

@@ -1,5 +1,8 @@
 .page-layout {
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .page-layout.dark-theme {
@@ -8,13 +11,17 @@
 
 .main-content {
   margin-top: 16px;
-  padding-bottom: 32px;
+  padding-bottom: 0;
+  height: calc(100vh - 80px);
+  overflow: hidden;
 }
 
 .container {
   max-width: 1400px;
   margin: 0 auto;
   padding: 0 1rem;
+  height: 100%;
+  overflow: hidden;
 }
 
 @media (max-width: 960px) {

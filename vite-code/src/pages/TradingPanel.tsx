@@ -7,7 +7,9 @@ export default function TradingPanelPage() {
 
   return (
     <PageLayout title="Trading Panel">
-      <Watchlist accounts={accounts} selectedAccount={selectedAccount} />
+      <div className="h-full w-full overflow-hidden">
+        <Watchlist accounts={accounts} selectedAccount={selectedAccount} />
+      </div>
     </PageLayout>
   );
 }

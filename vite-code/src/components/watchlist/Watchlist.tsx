@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import binanceWebSocketService from "@/lib/binance-websocket";
 import { upstoxWebSocket } from "@/lib/upstox-websocket";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Trash2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import SymbolSearchModal from "./SymbolSearchModal";
 import TradingWindow from "./TradingWindow";
@@ -44,7 +44,12 @@ const Watchlist = memo(function Watchlist({
   const [error, setError] = useState<string | null>(null);
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([]);
   const [watchlists, setWatchlists] = useState<
-    Array<{ id: string; name: string; isDefault: boolean }>
+    Array<{
+      id: string;
+      name: string;
+      isDefault: boolean;
+      isSystem?: boolean;
+    }>
   >([]);
   const [currentWatchlistId, setCurrentWatchlistId] = useState<string | null>(
     null
@@ -62,6 +67,9 @@ const Watchlist = memo(function Watchlist({
     width: number;
     height: number;
   } | null>(null);
+  const [showCreateWatchlistModal, setShowCreateWatchlistModal] =
+    useState(false);
+  const [newWatchlistName, setNewWatchlistName] = useState("");
 
   const currentPrice =
     watchlistItems.find((item) => item.symbol === selectedSymbol)?.lastPrice ||
@@ -92,44 +100,86 @@ const Watchlist = memo(function Watchlist({
         setLoading(true);
         setError(null);
 
-        // Fetch symbols from API based on selected account and market
-        const url = currentWatchlistId
-          ? `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`
-          : `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}`;
+        // Default to system watchlist for Binance if no specific watchlist is selected
+        const isSystemRequest =
+          currentWatchlistId?.startsWith("system-") ||
+          (selectedAccount.accountType === "binance" && !currentWatchlistId);
 
-        const response = await fetch(url);
-        if (!response.ok) {
-          const errorBody = await response.text();
+        // 1. Fetch User Watchlists & Default/Selected User Watchlist Data
+        // If requesting system watchlist, we still fetch user watchlists to populate dropdown
+        // but we don't pass the system ID to the user endpoint
+        const userWlUrl =
+          !isSystemRequest && currentWatchlistId
+            ? `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`
+            : `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}`;
+
+        const userRes = await fetch(userWlUrl);
+        if (!userRes.ok) {
+          const errorBody = await userRes.text();
           throw new Error(
-            `Watchlist API ${response.status}: ${
-              errorBody || response.statusText || "Unknown error"
+            `Watchlist API ${userRes.status}: ${
+              errorBody || userRes.statusText || "Unknown error"
             }`
           );
         }
-        const data = await response.json();
+        const userData = await userRes.json();
 
-        if (data.success) {
-          // Update watchlists
-          if (data.watchlists) {
-            setWatchlists(data.watchlists);
+        let finalWatchlists = userData.watchlists || [];
+        let finalSymbols = userData.symbols || [];
+        let finalItems = userData.items || [];
+        let finalCurrentId = userData.watchlist?.id;
+        let finalCurrentName = userData.watchlist?.name;
+
+        // 2. Handle System Watchlist (Binance Futures)
+        if (selectedAccount.accountType === "binance") {
+          // Add system watchlist to the list
+          const systemWl = {
+            id: "system-binance-futures",
+            name: "Binance Futures",
+            isDefault: false,
+            isSystem: true,
+          };
+          // Prepend system watchlist
+          finalWatchlists = [systemWl, ...finalWatchlists];
+
+          // If we are currently selecting the system watchlist, fetch its symbols
+          if (isSystemRequest) {
+            try {
+              const sysRes = await fetch(
+                "/api/watchlist/system/binance-futures"
+              );
+              const sysData = await sysRes.json();
+              if (sysData.success) {
+                finalSymbols = sysData.symbols;
+                finalItems = sysData.items;
+                finalCurrentId = sysData.watchlistId || "system-binance-futures";
+                finalCurrentName = sysData.watchlistName || "Binance Futures";
+              }
+            } catch (sysErr) {
+              console.error("Failed to fetch system watchlist", sysErr);
+            }
           }
+        }
+
+        if (userData.success) {
+          // Update watchlists
+          setWatchlists(finalWatchlists);
 
           // Update current watchlist info
-          if (data.watchlist) {
-            setCurrentWatchlistId(data.watchlist.id);
-            setCurrentWatchlistName(data.watchlist.name);
+          if (isSystemRequest) {
+            setCurrentWatchlistId(finalCurrentId || "system-binance-futures");
+            setCurrentWatchlistName(finalCurrentName || "Binance Futures");
+          } else if (userData.watchlist) {
+            setCurrentWatchlistId(userData.watchlist.id);
+            setCurrentWatchlistName(userData.watchlist.name);
           }
 
-          // Use items if available (new format), fallback to symbols
-          const items = data.items || [];
-          const symbols = data.symbols || [];
-
-          if (symbols.length > 0) {
-            setWatchlistSymbols(symbols);
-            setWatchlistItemsData(items); // Store full item data
+          if (finalSymbols.length > 0) {
+            setWatchlistSymbols(finalSymbols);
+            setWatchlistItemsData(finalItems); // Store full item data
 
             // Initialize watchlist items
-            const initialData: WatchlistItem[] = symbols.map(
+            const initialData: WatchlistItem[] = finalSymbols.map(
               (symbol: string) => ({
                 symbol,
                 lastPrice: 0,
@@ -142,39 +192,50 @@ const Watchlist = memo(function Watchlist({
             );
 
             setWatchlistItems(initialData);
-            if (symbols.length > 0 && !selectedSymbol) {
-              setSelectedSymbol(symbols[0]);
+            if (finalSymbols.length > 0 && !selectedSymbol) {
+              setSelectedSymbol(finalSymbols[0]);
             }
 
             // Start WebSocket connection for real-time updates
             if (selectedAccount?.accountType === "binance") {
+              // Determine segment type based on market type
+              const segment = marketType === "binance-futures" ? "usdm" : "spot";
+              
               // Connect to WebSocket first (don't use testnet for now - it's unstable)
               binanceWebSocketService
-                .connect("spot", false)
+                .connect(segment, false)
                 .then(() => {
-                  // Subscribe to each symbol
-                  symbols.forEach((symbol: string) => {
+                  // Subscribe to each symbol (ensure lowercase)
+                  finalSymbols.forEach((symbol: string) => {
                     binanceWebSocketService.subscribe(
-                      symbol,
-                      (priceUpdate: any) => {
+                      symbol.toLowerCase(),
+                      (priceUpdate: {
+                        symbol?: string;
+                        lastPrice?: string;
+                        priceChange?: string;
+                        priceChangePercent?: string;
+                        volume?: string;
+                        high?: string;
+                        low?: string;
+                      }) => {
                         setWatchlistItems((prev) =>
                           prev.map((item) => {
                             if (
                               item.symbol.toLowerCase() ===
-                              priceUpdate.s?.toLowerCase()
+                              priceUpdate.symbol?.toLowerCase()
                             ) {
                               return {
                                 ...item,
                                 lastPrice: parseFloat(
-                                  priceUpdate.c || priceUpdate.lastPrice || "0"
+                                  priceUpdate.lastPrice || "0"
                                 ),
-                                priceChange: parseFloat(priceUpdate.p || "0"),
+                                priceChange: parseFloat(priceUpdate.priceChange || "0"),
                                 priceChangePercent: parseFloat(
-                                  priceUpdate.P || "0"
+                                  priceUpdate.priceChangePercent || "0"
                                 ),
-                                volume: parseFloat(priceUpdate.v || "0"),
-                                high24h: parseFloat(priceUpdate.h || "0"),
-                                low24h: parseFloat(priceUpdate.l || "0"),
+                                volume: parseFloat(priceUpdate.volume || "0"),
+                                high24h: parseFloat(priceUpdate.high || "0"),
+                                low24h: parseFloat(priceUpdate.low || "0"),
                               };
                             }
                             return item;
@@ -190,7 +251,7 @@ const Watchlist = memo(function Watchlist({
             } else if (selectedAccount?.accountType === "upstox") {
               // Upstox: connect via v3 websocket using accountId and 'ltpc' for light feed in watchlist
               upstoxWebSocket.connect(
-                symbols,
+                finalSymbols,
                 (priceUpdate) => {
                   setWatchlistItems((prev) =>
                     prev.map((item) => {
@@ -321,7 +382,13 @@ const Watchlist = memo(function Watchlist({
         setWatchlistItemsData(newItems);
 
         // Save to backend - backend expects 'symbol' not 'items'
-        const body: any = {
+        const body: {
+          accountId: string;
+          marketType: string;
+          symbol?: string;
+          watchlistId?: string;
+          items?: unknown[];
+        } = {
           accountId: selectedAccount._id,
           marketType,
           symbol: item.symbol, // Backend expects single symbol
@@ -385,7 +452,12 @@ const Watchlist = memo(function Watchlist({
         // Update local state
         setWatchlistItemsData(remainingItems);
 
-        const body: any = {
+        const body: {
+          accountId: string;
+          marketType: string;
+          items: unknown[];
+          watchlistId?: string;
+        } = {
           accountId: selectedAccount._id,
           marketType,
           items: remainingItems, // Changed from symbols to items
@@ -420,6 +492,80 @@ const Watchlist = memo(function Watchlist({
     console.log("Order placed successfully");
   }, []);
 
+  const createWatchlist = async () => {
+    if (!selectedAccount || !newWatchlistName.trim()) return;
+
+    try {
+      const response = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: "default_user", // Should be dynamic
+          accountId: selectedAccount._id,
+          name: newWatchlistName.trim(),
+          marketType,
+          symbols: [],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Create watchlist failed:", response.status, errorText);
+        throw new Error("Failed to create watchlist");
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setWatchlists((prev) => [
+          ...prev,
+          {
+            id: data.watchlist._id,
+            name: data.watchlist.name,
+            isDefault: false,
+          },
+        ]);
+        switchWatchlist(data.watchlist._id, data.watchlist.name);
+        setShowCreateWatchlistModal(false);
+        setNewWatchlistName("");
+      }
+    } catch (err) {
+      console.error("Failed to create watchlist:", err);
+      setError("Failed to create watchlist");
+    }
+  };
+
+  const deleteWatchlist = async (watchlistId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to delete this watchlist?")) return;
+
+    try {
+      const response = await fetch(`/api/watchlist/${watchlistId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) throw new Error("Failed to delete watchlist");
+
+      setWatchlists((prev) => prev.filter((w) => w.id !== watchlistId));
+
+      // If deleted current watchlist, switch to default
+      if (currentWatchlistId === watchlistId) {
+        const defaultWl = watchlists.find(
+          (w) => w.isDefault && w.id !== watchlistId
+        );
+        if (defaultWl) {
+          switchWatchlist(defaultWl.id, defaultWl.name);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to delete watchlist:", err);
+      setError("Failed to delete watchlist");
+    }
+  };
+
+  const isDefaultBinance =
+    selectedAccount?.accountType === "binance" &&
+    watchlists.find((w) => w.id === currentWatchlistId)?.isSystem;
+
   if (loading) {
     return (
       <div className="watchlist-container">
@@ -450,8 +596,8 @@ const Watchlist = memo(function Watchlist({
     );
   }
 
-  const WatchlistContent = () => (
-    <div className="flex h-full flex-col border-r border-border bg-card">
+  const renderWatchlistContent = () => (
+    <div className="h-full flex flex-col border-r border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between border-b border-border bg-muted/30 p-3">
         <div className="relative flex-1">
           <div
@@ -464,49 +610,110 @@ const Watchlist = memo(function Watchlist({
             <ChevronDown size={14} className="text-muted-foreground" />
           </div>
           {showWatchlistDropdown && (
-            <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in zoom-in-95">
-              {watchlists.map((wl) => (
-                <div
-                  key={wl.id}
-                  className={`flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${
-                    wl.id === currentWatchlistId
-                      ? "bg-accent text-accent-foreground font-medium"
-                      : "text-popover-foreground"
-                  }`}
-                  onClick={() => switchWatchlist(wl.id, wl.name)}
+            <div className="absolute left-0 top-full z-50 mt-1 min-w-[220px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in zoom-in-95">
+              <div className="mb-1 border-b border-border pb-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start gap-2 px-2 text-xs"
+                  onClick={() => {
+                    setShowCreateWatchlistModal(true);
+                    setShowWatchlistDropdown(false);
+                  }}
                 >
-                  {wl.name}
-                  {wl.isDefault && (
-                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                      Default
-                    </span>
-                  )}
-                </div>
-              ))}
+                  <Plus size={12} /> Create New Watchlist
+                </Button>
+              </div>
+              <div className="max-h-[200px] overflow-y-auto">
+                {watchlists.map((wl) => (
+                  <div
+                    key={wl.id}
+                    className={`group flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${
+                      wl.id === currentWatchlistId
+                        ? "bg-accent text-accent-foreground font-medium"
+                        : "text-popover-foreground"
+                    }`}
+                    onClick={() => switchWatchlist(wl.id, wl.name)}
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <span className="truncate">{wl.name}</span>
+                      {wl.isSystem && (
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          System
+                        </span>
+                      )}
+                    </div>
+                    {!wl.isDefault && !wl.isSystem && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                        onClick={(e) => deleteWatchlist(wl.id, e)}
+                      >
+                        <Trash2 size={12} />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground"
-          onClick={(e) => {
-            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            setAddAnchorRect({
-              top: rect.top,
-              left: rect.left,
-              bottom: rect.bottom,
-              right: rect.right,
-              width: rect.width,
-              height: rect.height,
-            });
-            setShowSymbolSearchModal(true);
-          }}
-          title="Add Symbol"
-        >
-          <Plus size={18} />
-        </Button>
+        {!isDefaultBinance && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            onClick={(e) => {
+              const rect = (
+                e.currentTarget as HTMLElement
+              ).getBoundingClientRect();
+              setAddAnchorRect({
+                top: rect.top,
+                left: rect.left,
+                bottom: rect.bottom,
+                right: rect.right,
+                width: rect.width,
+                height: rect.height,
+              });
+              setShowSymbolSearchModal(true);
+            }}
+            title="Add Symbol"
+          >
+            <Plus size={18} />
+          </Button>
+        )}
       </div>
+
+      {showCreateWatchlistModal && (
+        <div className="border-b border-border bg-muted/30 p-3">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={newWatchlistName}
+              onChange={(e) => setNewWatchlistName(e.target.value)}
+              placeholder="Watchlist Name"
+              className="h-8 flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") createWatchlist();
+                if (e.key === "Escape") setShowCreateWatchlistModal(false);
+              }}
+            />
+            <Button size="sm" className="h-8 px-3" onClick={createWatchlist}>
+              Create
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2"
+              onClick={() => setShowCreateWatchlistModal(false)}
+            >
+              <X size={16} />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="border-b border-yellow-200 bg-yellow-50 px-4 py-2 text-xs text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-200">
@@ -517,18 +724,20 @@ const Watchlist = memo(function Watchlist({
       {watchlistItems.length === 0 && !loading && (
         <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-muted-foreground">
           <p className="mb-2 text-sm">No symbols in your watchlist</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowSymbolSearchModal(true)}
-            className="gap-2"
-          >
-            <Plus size={14} /> Add Symbol
-          </Button>
+          {!isDefaultBinance && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSymbolSearchModal(true)}
+              className="gap-2"
+            >
+              <Plus size={14} /> Add Symbol
+            </Button>
+          )}
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {watchlistItems.map((item) => (
           <div
             key={item.symbol}
@@ -565,24 +774,28 @@ const Watchlist = memo(function Watchlist({
               </span>
               <span
                 className={`font-medium ${
-                  item.priceChange >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                  item.priceChange >= 0
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-red-600 dark:text-red-400"
                 }`}
               >
                 {item.priceChange >= 0 ? "+" : ""}
                 {item.priceChangePercent.toFixed(2)}%
               </span>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 h-6 w-6 text-muted-foreground hover:text-destructive"
-              onClick={(e) => {
-                e.stopPropagation();
-                removeSymbol(item.symbol);
-              }}
-            >
-              <Trash2 size={14} />
-            </Button>
+            {!isDefaultBinance && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 h-6 w-6 text-muted-foreground hover:text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeSymbol(item.symbol);
+                }}
+              >
+                <Trash2 size={14} />
+              </Button>
+            )}
           </div>
         ))}
       </div>
@@ -593,8 +806,8 @@ const Watchlist = memo(function Watchlist({
     <div className="h-full w-full overflow-hidden rounded-lg border border-border bg-background shadow-sm">
       {/* Desktop View */}
       <div className="hidden h-full md:grid md:grid-cols-[320px_1fr]">
-        <WatchlistContent />
-        <div className="flex h-full flex-col overflow-hidden bg-background">
+        {renderWatchlistContent()}
+        <div className="h-full overflow-hidden bg-background">
           <TradingWindow
             symbol={selectedSymbol}
             currentPrice={currentPrice}
@@ -639,7 +852,7 @@ const Watchlist = memo(function Watchlist({
         {/* Watchlist Dropdown Overlay */}
         {isMobileWatchlistOpen && (
           <div className="absolute top-[61px] left-0 right-0 bottom-0 z-10 bg-background animate-in slide-in-from-top-5 fade-in duration-200 shadow-lg">
-            <WatchlistContent />
+            {renderWatchlistContent()}
           </div>
         )}
 

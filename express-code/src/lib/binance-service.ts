@@ -438,6 +438,25 @@ class BinanceService {
     }
   }
 
+  /**
+   * Get Futures exchange info (all symbols)
+   */
+  async getFuturesExchangeInfo() {
+    try {
+      const response = await this.futuresClient.get("/fapi/v1/exchangeInfo");
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures getExchangeInfo error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg ||
+          "Failed to fetch Binance Futures exchange info"
+      );
+    }
+  }
+
   // ==================== PUBLIC/MARKET DATA METHODS ====================
 
   /**

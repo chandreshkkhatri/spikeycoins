@@ -261,6 +261,8 @@ const TradingWindow = memo(function TradingWindow({
           symbol={symbol}
           currentPrice={currentPrice}
           onPriceSelect={(price) => handleInputChange("price", price)}
+          accountType={selectedAccount?.accountType}
+          marketType="binance-futures"
         />
 
         <div className="trading-form">
@@ -493,7 +495,6 @@ const TradingWindow = memo(function TradingWindow({
 
         .trading-content {
           display: flex;
-          flex: 1;
           overflow: hidden;
         }
 

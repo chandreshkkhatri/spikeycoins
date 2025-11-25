@@ -1,9 +1,11 @@
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 
 interface MarketDepthProps {
   symbol: string;
   currentPrice: number;
   onPriceSelect: (price: string) => void;
+  accountType?: "binance" | "kite" | "upstox";
+  marketType?: string;
 }
 
 interface OrderBookItem {
@@ -16,19 +18,101 @@ const MarketDepth = memo(function MarketDepth({
   symbol,
   currentPrice,
   onPriceSelect,
+  accountType = "binance",
+  marketType = "binance-futures",
 }: MarketDepthProps) {
-  // Mock data for demonstration - in a real app this would come from WebSocket
-  const asks: OrderBookItem[] = Array.from({ length: 5 }).map((_, i) => ({
-    price: currentPrice + (5 - i) * (currentPrice * 0.0001),
-    quantity: Math.random() * 10,
-    total: Math.random() * 1000,
-  }));
+  const [asks, setAsks] = useState<OrderBookItem[]>([]);
+  const [bids, setBids] = useState<OrderBookItem[]>([]);
+  const [wsConnected, setWsConnected] = useState(false);
 
-  const bids: OrderBookItem[] = Array.from({ length: 5 }).map((_, i) => ({
-    price: currentPrice - (i + 1) * (currentPrice * 0.0001),
-    quantity: Math.random() * 10,
-    total: Math.random() * 1000,
-  }));
+  useEffect(() => {
+    if (!symbol || accountType !== "binance") return;
+
+    // Use Binance WebSocket for real-time order book updates
+    const isFutures = marketType === "binance-futures";
+    const wsBaseUrl = isFutures
+      ? "wss://fstream.binance.com/ws"
+      : "wss://stream.binance.com:9443/ws";
+    const streamName = `${symbol.toLowerCase()}@depth5@100ms`;
+
+    let ws: WebSocket | null = null;
+
+    const connectWebSocket = () => {
+      ws = new WebSocket(`${wsBaseUrl}/${streamName}`);
+
+      ws.onopen = () => {
+        console.log(`Order book WebSocket connected for ${symbol}`);
+        setWsConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          // Binance depth stream format: { bids: [[price, qty], ...], asks: [[price, qty], ...] }
+          if (data.bids && data.asks) {
+            const newAsks: OrderBookItem[] = data.asks
+              .slice(0, 5)
+              .reverse()
+              .map(([price, qty]: [string, string]) => ({
+                price: parseFloat(price),
+                quantity: parseFloat(qty),
+                total: parseFloat(price) * parseFloat(qty),
+              }));
+
+            const newBids: OrderBookItem[] = data.bids
+              .slice(0, 5)
+              .map(([price, qty]: [string, string]) => ({
+                price: parseFloat(price),
+                quantity: parseFloat(qty),
+                total: parseFloat(price) * parseFloat(qty),
+              }));
+
+            setAsks(newAsks);
+            setBids(newBids);
+          }
+        } catch (err) {
+          console.error("Error parsing order book data:", err);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("Order book WebSocket error:", error);
+        setWsConnected(false);
+      };
+
+      ws.onclose = () => {
+        console.log("Order book WebSocket closed");
+        setWsConnected(false);
+      };
+    };
+
+    connectWebSocket();
+
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, [symbol, accountType, marketType]);
+
+  // Fallback to mock data if no real data
+  const displayAsks =
+    asks.length > 0
+      ? asks
+      : Array.from({ length: 5 }).map((_, i) => ({
+          price: currentPrice + (5 - i) * (currentPrice * 0.0001),
+          quantity: Math.random() * 10,
+          total: Math.random() * 1000,
+        }));
+
+  const displayBids =
+    bids.length > 0
+      ? bids
+      : Array.from({ length: 5 }).map((_, i) => ({
+          price: currentPrice - (i + 1) * (currentPrice * 0.0001),
+          quantity: Math.random() * 10,
+          total: Math.random() * 1000,
+        }));
 
   return (
     <div className="market-depth">
@@ -38,7 +122,7 @@ const MarketDepth = memo(function MarketDepth({
         <span>Total</span>
       </div>
       <div className="asks">
-        {asks.map((item, i) => (
+        {displayAsks.map((item, i) => (
           <div
             key={`ask-${i}`}
             className="depth-row ask"
@@ -52,9 +136,10 @@ const MarketDepth = memo(function MarketDepth({
       </div>
       <div className="current-price-display">
         <span>{currentPrice.toFixed(2)}</span>
+        {!wsConnected && <span className="text-xs ml-2 text-muted-foreground">(mock)</span>}
       </div>
       <div className="bids">
-        {bids.map((item, i) => (
+        {displayBids.map((item, i) => (
           <div
             key={`bid-${i}`}
             className="depth-row bid"
