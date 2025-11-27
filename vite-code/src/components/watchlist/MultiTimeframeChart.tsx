@@ -31,6 +31,7 @@ interface MultiTimeframeChartProps {
   symbol: string;
   accountId?: string;
   accountType?: "binance" | "kite" | "upstox";
+  marketType?: "spot" | "futures";
 }
 
 const DEFAULT_TIMEFRAMES = [
@@ -86,7 +87,7 @@ const AVAILABLE_TIMEFRAMES = [
 ];
 
 const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
-  ({ symbol, accountId, accountType }) => {
+  ({ symbol, accountId, accountType, marketType }) => {
     // Use default symbol (BTCUSDT) if none provided
     const displaySymbol = symbol || "BTCUSDT";
     const isDefaultSymbol = !symbol;
@@ -102,7 +103,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       new Array(selectedTimeframes.length).fill(null)
     );
     const chartRefs = useRef<{
-      chart: IChartApi;
+      chart: IChartApi | null;
       series: ISeriesApi<"Candlestick"> | null;
     }[]>([]);
     const [loading, setLoading] = useState(false);
@@ -147,10 +148,36 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     };
 
     const toggleChartCollapse = (interval: string) => {
-      setCollapsedCharts((prev) => ({
-        ...prev,
-        [interval]: !prev[interval],
-      }));
+      setCollapsedCharts((prev) => {
+        const currentlyCollapsed = prev[interval] ?? false;
+        const nextState = !currentlyCollapsed;
+
+        // When collapsing, dispose the existing chart so it can be recreated on expand
+        if (!currentlyCollapsed) {
+          const chartIndex = selectedTimeframes.findIndex(
+            (tf) => tf.interval === interval
+          );
+          if (chartIndex !== -1) {
+            const chartRef = chartRefs.current[chartIndex];
+            if (chartRef?.chart) {
+              try {
+                chartRef.chart.remove();
+              } catch {
+                // Ignore chart removal errors
+              }
+            }
+            chartRefs.current[chartIndex] = {
+              chart: null,
+              series: null,
+            };
+          }
+        }
+
+        return {
+          ...prev,
+          [interval]: nextState,
+        };
+      });
     };
 
     const setContainerRef = useCallback(
@@ -337,8 +364,21 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               ? "binance"
               : "upstox");
 
-          // Build URL with required parameters - accountId is ALWAYS required
-          const url = `/api/historical-data?vendor=${vendor}&symbol=${displaySymbol}&interval=${interval}&accountId=${accountId}`;
+          const params = new URLSearchParams({
+            vendor,
+            symbol: displaySymbol,
+            interval,
+          });
+
+          if (accountId) {
+            params.append("accountId", accountId);
+          }
+
+          if (marketType) {
+            params.append("marketType", marketType);
+          }
+
+          const url = `/api/historical-data?${params.toString()}`;
 
           const response = await fetch(url);
 
@@ -389,7 +429,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           throw error;
         }
       },
-      [displaySymbol, accountId, accountType]
+      [displaySymbol, accountId, accountType, marketType]
     );
 
     useEffect(() => {
@@ -569,7 +609,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 typeof chartRef.series.setData === "function"
               ) {
                 chartRef.series.setData(data);
-                chartRef.chart.timeScale().fitContent();
+                const timeScale = chartRef.chart?.timeScale();
+                timeScale?.fitContent();
               }
             } catch (error) {
               const errorMessage =

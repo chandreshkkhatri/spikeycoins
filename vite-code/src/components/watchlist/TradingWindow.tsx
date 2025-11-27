@@ -252,6 +252,7 @@ const TradingWindow = memo(function TradingWindow({
         accountType={
           accounts.find((a) => a._id === orderForm.accountId)?.accountType
         }
+        marketType={marketType}
       />
       <div className="trading-header">
         <h3>{symbol} Trading</h3>

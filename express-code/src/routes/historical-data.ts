@@ -54,6 +54,7 @@ router.get("/", async (req: Request, res: Response) => {
       fromDate,
       toDate,
       vendor,
+      marketType,
     } = req.query;
 
     let historicalData;
@@ -71,6 +72,19 @@ router.get("/", async (req: Request, res: Response) => {
       let tradingSegment = "spot";
       let isTestnet = false;
 
+      const normalizeSegment = (segment?: string | string[]) => {
+        if (!segment) return null;
+        const value = Array.isArray(segment) ? segment[0] : segment;
+        const normalized = value.toLowerCase();
+        if (normalized.includes("future") || normalized.includes("usdm") || normalized === "futures") {
+          return "usdm";
+        }
+        if (normalized.includes("spot")) {
+          return "spot";
+        }
+        return null;
+      };
+
       if (accountId) {
         try {
           const account = await getAccountById(accountId as string);
@@ -82,6 +96,13 @@ router.get("/", async (req: Request, res: Response) => {
           // Account not found or error - use defaults
           console.log("Using default Binance settings (spot, production)");
         }
+      }
+
+      const requestedSegment = normalizeSegment(
+        marketType as string | string[] | undefined
+      );
+      if (requestedSegment) {
+        tradingSegment = requestedSegment;
       }
 
       // Map interval format (1h -> 1h, 1d -> 1d, etc.)
@@ -106,7 +127,7 @@ router.get("/", async (req: Request, res: Response) => {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const params: any = {
-          symbol: symbol as string,
+          symbol: (symbol as string)?.toUpperCase(),
           interval: binanceInterval,
           limit,
         };
@@ -140,6 +161,21 @@ router.get("/", async (req: Request, res: Response) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         console.error("Error fetching Binance historical data:", error);
+
+        const binanceCode = error?.response?.data?.code;
+        const binanceMessage = error?.response?.data?.msg;
+        const isInvalidSymbol =
+          binanceCode === -1121 ||
+          (typeof binanceMessage === "string" &&
+            binanceMessage.toLowerCase().includes("invalid symbol"));
+
+        if (isInvalidSymbol) {
+          return res.status(400).json({
+            error: "Symbol not supported on Binance",
+            details: binanceMessage || "Invalid symbol",
+          });
+        }
+
         return res.status(500).json({
           error: "Failed to fetch historical data from Binance",
           details: error.message,

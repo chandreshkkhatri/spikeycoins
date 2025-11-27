@@ -12,6 +12,7 @@ const WATCHLIST_SETTINGS_KEY = "flipSafe_watchlistSettings";
 interface WatchlistSettings {
   sortKey: keyof WatchlistItem;
   sortDirection: "asc" | "desc";
+  lastSelectedSymbol?: string;
 }
 
 const getStoredWatchlistSettings = (): WatchlistSettings | null => {
@@ -62,10 +63,13 @@ const Watchlist = memo(function Watchlist({
   selectedAccount,
   marketType = "binance-futures",
 }: WatchlistProps) {
+  const storedWatchlistSettings = useRef(getStoredWatchlistSettings());
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [watchlistItemsData, setWatchlistItemsData] = useState<any[]>([]);
-  const [selectedSymbol, setSelectedSymbol] = useState<string>("");
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(
+    storedWatchlistSettings.current?.lastSelectedSymbol || ""
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([]);
@@ -96,7 +100,6 @@ const Watchlist = memo(function Watchlist({
   const [showCreateWatchlistModal, setShowCreateWatchlistModal] =
     useState(false);
   const [newWatchlistName, setNewWatchlistName] = useState("");
-  const storedWatchlistSettings = useRef(getStoredWatchlistSettings());
   const [sortConfig, setSortConfig] = useState<{
     key: keyof WatchlistItem;
     direction: "asc" | "desc";
@@ -105,13 +108,38 @@ const Watchlist = memo(function Watchlist({
     direction: storedWatchlistSettings.current?.sortDirection || "asc",
   });
 
-  // Persist sort settings to localStorage
+  // Persist sort + symbol settings to localStorage
   useEffect(() => {
     saveWatchlistSettings({
       sortKey: sortConfig.key,
       sortDirection: sortConfig.direction,
+      lastSelectedSymbol: selectedSymbol || undefined,
     });
-  }, [sortConfig]);
+  }, [sortConfig, selectedSymbol]);
+
+  // Ensure selected symbol stays valid based on available symbols
+  useEffect(() => {
+    if (watchlistSymbols.length === 0) {
+      // Don't clear selectedSymbol when watchlist is empty during loading
+      // It will be validated once symbols are loaded
+      return;
+    }
+
+    // First priority: check if currently selected symbol is valid
+    if (selectedSymbol && watchlistSymbols.includes(selectedSymbol)) {
+      return;
+    }
+
+    // Second priority: try to restore from localStorage
+    const storedSymbol = storedWatchlistSettings.current?.lastSelectedSymbol;
+    if (storedSymbol && watchlistSymbols.includes(storedSymbol)) {
+      setSelectedSymbol(storedSymbol);
+      return;
+    }
+
+    // Fallback: select first symbol from watchlist
+    setSelectedSymbol(watchlistSymbols[0]);
+  }, [watchlistSymbols, selectedSymbol]);
 
   // Pending updates buffer for throttling
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -241,9 +269,7 @@ const Watchlist = memo(function Watchlist({
             );
 
             setWatchlistItems(initialData);
-            if (finalSymbols.length > 0 && !selectedSymbol) {
-              setSelectedSymbol(finalSymbols[0]);
-            }
+            // Symbol selection is handled by the useEffect that watches watchlistSymbols
 
             // Fetch cached prices from server for immediate display
             if (selectedAccount?.accountType === "binance") {
