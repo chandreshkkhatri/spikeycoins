@@ -496,6 +496,57 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       fetchChartData,
     ]);
 
+    // Effect to handle individual chart expand - recreate chart when a collapsed chart is expanded
+    useEffect(() => {
+      const initializeExpandedChart = async (index: number, timeframe: typeof selectedTimeframes[0]) => {
+        // Wait a bit for the container to be rendered
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        
+        const container = containerRefs.current[index];
+        if (!container) return;
+
+        // Check if chart already exists and is valid
+        const existingChart = chartRefs.current[index];
+        if (existingChart?.chart && existingChart?.series) {
+          // Chart exists, just need to resize it
+          try {
+            existingChart.chart.resize(container.clientWidth, container.clientHeight);
+            existingChart.chart.timeScale().fitContent();
+          } catch {
+            // Chart might be invalid, recreate it
+          }
+          return;
+        }
+
+        try {
+          const { chart, series } = createSingleChart(container);
+          chartRefs.current[index] = { chart, series };
+
+          const actualTimeframe = chartTimeframes[index] || timeframe.interval;
+          const data = await fetchChartData(actualTimeframe);
+
+          if (data.length > 0 && series && typeof series.setData === "function") {
+            series.setData(data);
+            chart.timeScale().fitContent();
+          }
+        } catch (error) {
+          console.error(`Error initializing expanded chart ${timeframe.interval}:`, error);
+        }
+      };
+
+      // Check each timeframe and initialize any that were just expanded
+      selectedTimeframes.forEach((timeframe, index) => {
+        const isChartCollapsed = collapsedCharts[timeframe.interval] ?? false;
+        if (!isChartCollapsed) {
+          // Chart is expanded - check if it needs initialization
+          const chartRef = chartRefs.current[index];
+          if (!chartRef?.chart || !chartRef?.series) {
+            initializeExpandedChart(index, timeframe);
+          }
+        }
+      });
+    }, [collapsedCharts, selectedTimeframes, chartTimeframes, createSingleChart, fetchChartData]);
+
     // Effect to reload data when individual chart timeframes change
     useEffect(() => {
       if (Object.keys(chartTimeframes).length === 0) return;

@@ -7,6 +7,30 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SymbolSearchModal from "./SymbolSearchModal";
 import TradingWindow from "./TradingWindow";
 
+const WATCHLIST_SETTINGS_KEY = "flipSafe_watchlistSettings";
+
+interface WatchlistSettings {
+  sortKey: keyof WatchlistItem;
+  sortDirection: "asc" | "desc";
+}
+
+const getStoredWatchlistSettings = (): WatchlistSettings | null => {
+  try {
+    const stored = localStorage.getItem(WATCHLIST_SETTINGS_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveWatchlistSettings = (settings: WatchlistSettings) => {
+  try {
+    localStorage.setItem(WATCHLIST_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Ignore storage errors
+  }
+};
+
 export interface WatchlistItem {
   symbol: string;
   lastPrice: number;
@@ -39,6 +63,7 @@ const Watchlist = memo(function Watchlist({
   marketType = "binance-futures",
 }: WatchlistProps) {
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [watchlistItemsData, setWatchlistItemsData] = useState<any[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -71,10 +96,22 @@ const Watchlist = memo(function Watchlist({
   const [showCreateWatchlistModal, setShowCreateWatchlistModal] =
     useState(false);
   const [newWatchlistName, setNewWatchlistName] = useState("");
+  const storedWatchlistSettings = useRef(getStoredWatchlistSettings());
   const [sortConfig, setSortConfig] = useState<{
     key: keyof WatchlistItem;
     direction: "asc" | "desc";
-  }>({ key: "symbol", direction: "asc" });
+  }>({
+    key: storedWatchlistSettings.current?.sortKey || "symbol",
+    direction: storedWatchlistSettings.current?.sortDirection || "asc",
+  });
+
+  // Persist sort settings to localStorage
+  useEffect(() => {
+    saveWatchlistSettings({
+      sortKey: sortConfig.key,
+      sortDirection: sortConfig.direction,
+    });
+  }, [sortConfig]);
 
   // Pending updates buffer for throttling
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1015,7 +1052,7 @@ const Watchlist = memo(function Watchlist({
             currentPrice={currentPrice}
             accounts={accounts}
             selectedAccount={selectedAccount}
-            marketType={marketType}
+            marketType={marketType?.includes("spot") ? "spot" : "futures"}
             onOrderPlaced={handleOrderPlaced}
           />
         </div>
@@ -1066,7 +1103,7 @@ const Watchlist = memo(function Watchlist({
             currentPrice={currentPrice}
             accounts={accounts}
             selectedAccount={selectedAccount}
-            marketType={marketType}
+            marketType={marketType?.includes("spot") ? "spot" : "futures"}
             onOrderPlaced={handleOrderPlaced}
           />
         </div>
