@@ -2,8 +2,8 @@ import { Button } from "@/components/ui/button";
 import binanceWebSocketService from "@/lib/binance-websocket";
 import { formatPrice, formatVolume, formatPercent } from "@/lib/format-utils";
 import { upstoxWebSocket } from "@/lib/upstox-websocket";
-import { ChevronDown, Plus, Trash2, X } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronDown, Plus, Trash2, X } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SymbolSearchModal from "./SymbolSearchModal";
 import TradingWindow from "./TradingWindow";
 
@@ -71,6 +71,14 @@ const Watchlist = memo(function Watchlist({
   const [showCreateWatchlistModal, setShowCreateWatchlistModal] =
     useState(false);
   const [newWatchlistName, setNewWatchlistName] = useState("");
+  const [sortConfig, setSortConfig] = useState<{
+    key: keyof WatchlistItem;
+    direction: "asc" | "desc";
+  }>({ key: "symbol", direction: "asc" });
+
+  // Pending updates buffer for throttling
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pendingUpdatesRef = useRef<Map<string, any>>(new Map());
 
   const currentPrice =
     watchlistItems.find((item) => item.symbol === selectedSymbol)?.lastPrice ||
@@ -90,6 +98,9 @@ const Watchlist = memo(function Watchlist({
     const currType = selectedAccount?.accountType || null;
     const accountChanged = prevId !== currId || prevType !== currType;
     shouldDisconnectRef.current = accountChanged;
+
+    // Clear pending updates on account change
+    pendingUpdatesRef.current.clear();
 
     const fetchWatchlistSymbols = async () => {
       if (!selectedAccount) {
@@ -249,29 +260,10 @@ const Watchlist = memo(function Watchlist({
                         high?: string;
                         low?: string;
                       }) => {
-                        setWatchlistItems((prev) =>
-                          prev.map((item) => {
-                            if (
-                              item.symbol.toLowerCase() ===
-                              priceUpdate.symbol?.toLowerCase()
-                            ) {
-                              return {
-                                ...item,
-                                lastPrice: parseFloat(
-                                  priceUpdate.lastPrice || "0"
-                                ),
-                                priceChange: parseFloat(priceUpdate.priceChange || "0"),
-                                priceChangePercent: parseFloat(
-                                  priceUpdate.priceChangePercent || "0"
-                                ),
-                                volume: parseFloat(priceUpdate.volume || "0"),
-                                high24h: parseFloat(priceUpdate.high || "0"),
-                                low24h: parseFloat(priceUpdate.low || "0"),
-                              };
-                            }
-                            return item;
-                          })
-                        );
+                        // Buffer the update instead of setting state immediately
+                        if (priceUpdate.symbol) {
+                          pendingUpdatesRef.current.set(priceUpdate.symbol.toLowerCase(), priceUpdate);
+                        }
                       }
                     );
                   });
@@ -284,22 +276,10 @@ const Watchlist = memo(function Watchlist({
               upstoxWebSocket.connect(
                 finalSymbols,
                 (priceUpdate) => {
-                  setWatchlistItems((prev) =>
-                    prev.map((item) => {
-                      if (item.symbol === priceUpdate.symbol) {
-                        return {
-                          ...item,
-                          lastPrice: priceUpdate.lastPrice,
-                          priceChange: priceUpdate.priceChange,
-                          priceChangePercent: priceUpdate.priceChangePercent,
-                          volume: priceUpdate.volume,
-                          high24h: priceUpdate.high24h,
-                          low24h: priceUpdate.low24h,
-                        };
-                      }
-                      return item;
-                    })
-                  );
+                  // Buffer the update
+                  if (priceUpdate.symbol) {
+                    pendingUpdatesRef.current.set(priceUpdate.symbol, priceUpdate);
+                  }
                 },
                 { accountId: selectedAccount._id, mode: "ltpc" }
               );
@@ -339,11 +319,102 @@ const Watchlist = memo(function Watchlist({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccount, marketType, currentWatchlistId]);
 
+  // Throttled update effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (pendingUpdatesRef.current.size > 0) {
+        setWatchlistItems((prev) => {
+          // Create a map of current items for faster lookup
+          const itemMap = new Map(prev.map(item => [item.symbol, item]));
+          let hasChanges = false;
+
+          pendingUpdatesRef.current.forEach((update, symbolKey) => {
+            // Handle Binance updates (symbolKey is lowercase)
+            // Find the matching item in the watchlist (case-insensitive check might be needed if symbols vary)
+            // But usually item.symbol matches the key logic used in subscribe
+            
+            // For Binance, we stored with lowercase key. For Upstox, we stored with symbol key.
+            // Let's try to find the item.
+            
+            // Try exact match first (Upstox)
+            let item = itemMap.get(symbolKey);
+            
+            // If not found, try case-insensitive match (Binance)
+            if (!item) {
+               // This is O(N) inside the loop, but N is small (watchlist size)
+               // To optimize, we could normalize keys in itemMap.
+               // For now, let's iterate if not found directly.
+               for (const [s, i] of itemMap.entries()) {
+                 if (s.toLowerCase() === symbolKey.toLowerCase()) {
+                   item = i;
+                   break;
+                 }
+               }
+            }
+
+            if (item) {
+              hasChanges = true;
+              // Update the item
+              const newItem = { ...item };
+              
+              // Check if it's a Binance update (strings) or Upstox (numbers)
+              if (typeof update.lastPrice === 'string') {
+                 // Binance format
+                 newItem.lastPrice = parseFloat(update.lastPrice || "0");
+                 newItem.priceChange = parseFloat(update.priceChange || "0");
+                 newItem.priceChangePercent = parseFloat(update.priceChangePercent || "0");
+                 newItem.volume = parseFloat(update.volume || "0");
+                 newItem.high24h = parseFloat(update.high || "0");
+                 newItem.low24h = parseFloat(update.low || "0");
+              } else {
+                 // Upstox format (already numbers)
+                 newItem.lastPrice = update.lastPrice;
+                 newItem.priceChange = update.priceChange;
+                 newItem.priceChangePercent = update.priceChangePercent;
+                 newItem.volume = update.volume;
+                 newItem.high24h = update.high24h;
+                 newItem.low24h = update.low24h;
+              }
+              
+              itemMap.set(item.symbol, newItem);
+            }
+          });
+
+          pendingUpdatesRef.current.clear();
+          return hasChanges ? Array.from(itemMap.values()) : prev;
+        });
+      }
+    }, 1000); // Update every 1 second
+
+    return () => clearInterval(interval);
+  }, []);
+
   // After each effect run, update previous account refs
   useEffect(() => {
     prevAccountIdRef.current = selectedAccount?._id || null;
     prevAccountTypeRef.current = selectedAccount?.accountType || null;
   }, [selectedAccount]);
+
+  const handleSort = (key: keyof WatchlistItem) => {
+    setSortConfig((current) => ({
+      key,
+      direction:
+        current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const sortedWatchlistItems = useMemo(() => {
+    const items = [...watchlistItems];
+    items.sort((a, b) => {
+      const aValue = a[sortConfig.key];
+      const bValue = b[sortConfig.key];
+
+      if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
+    });
+    return items;
+  }, [watchlistItems, sortConfig]);
 
   const addSymbol = async (item: {
     symbol: string;
@@ -599,8 +670,53 @@ const Watchlist = memo(function Watchlist({
 
   if (loading) {
     return (
-      <div className="watchlist-container">
-        <div className="loading-state">Loading market data...</div>
+      <div className="h-full w-full overflow-hidden rounded-lg border border-border bg-background shadow-sm">
+        <div className="hidden h-full md:grid md:grid-cols-[320px_1fr]">
+          <div className="h-full flex flex-col border-r border-border bg-card overflow-hidden">
+            {/* Skeleton Header */}
+            <div className="flex items-center justify-between border-b border-border bg-muted/30 p-3">
+              <div className="h-6 w-32 animate-pulse rounded bg-muted"></div>
+              <div className="h-8 w-8 animate-pulse rounded bg-muted"></div>
+            </div>
+            
+            {/* Skeleton Column Headers */}
+            <div className="grid grid-cols-[1fr_80px_65px_55px] gap-2 border-b border-border bg-muted/50 px-4 py-2">
+              <div className="h-3 w-12 animate-pulse rounded bg-muted"></div>
+              <div className="h-3 w-10 animate-pulse rounded bg-muted justify-self-end"></div>
+              <div className="h-3 w-10 animate-pulse rounded bg-muted justify-self-end"></div>
+              <div className="h-3 w-8 animate-pulse rounded bg-muted justify-self-end"></div>
+            </div>
+
+            {/* Skeleton Items */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-0">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-[1fr_80px_65px_55px] gap-2 border-b border-border px-4 py-3 items-center"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-16 animate-pulse rounded bg-muted"></div>
+                  </div>
+                  <div className="flex justify-end">
+                    <div className="h-4 w-20 animate-pulse rounded bg-muted"></div>
+                  </div>
+                  <div className="flex justify-end">
+                    <div className="h-4 w-14 animate-pulse rounded bg-muted"></div>
+                  </div>
+                  <div className="flex justify-end">
+                    <div className="h-3 w-12 animate-pulse rounded bg-muted"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="h-full overflow-hidden bg-background flex items-center justify-center">
+             <div className="flex flex-col items-center gap-4">
+               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+               <p className="text-sm text-muted-foreground">Loading trading interface...</p>
+             </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -768,11 +884,65 @@ const Watchlist = memo(function Watchlist({
         </div>
       )}
 
+      {/* Column Headers */}
+      {watchlistItems.length > 0 && (
+        <div className="grid grid-cols-[1fr_80px_65px_55px] gap-2 border-b border-border bg-muted/50 px-4 py-2 text-[10px] font-medium text-muted-foreground">
+          <div
+            className="flex cursor-pointer items-center gap-1 hover:text-foreground"
+            onClick={() => handleSort("symbol")}
+          >
+            Symbol
+            {sortConfig.key === "symbol" &&
+              (sortConfig.direction === "asc" ? (
+                <ArrowUp size={10} />
+              ) : (
+                <ArrowDown size={10} />
+              ))}
+          </div>
+          <div
+            className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
+            onClick={() => handleSort("lastPrice")}
+          >
+            Price
+            {sortConfig.key === "lastPrice" &&
+              (sortConfig.direction === "asc" ? (
+                <ArrowUp size={10} />
+              ) : (
+                <ArrowDown size={10} />
+              ))}
+          </div>
+          <div
+            className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
+            onClick={() => handleSort("priceChangePercent")}
+          >
+            24h %
+            {sortConfig.key === "priceChangePercent" &&
+              (sortConfig.direction === "asc" ? (
+                <ArrowUp size={10} />
+              ) : (
+                <ArrowDown size={10} />
+              ))}
+          </div>
+          <div
+            className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
+            onClick={() => handleSort("volume")}
+          >
+            Vol
+            {sortConfig.key === "volume" &&
+              (sortConfig.direction === "asc" ? (
+                <ArrowUp size={10} />
+              ) : (
+                <ArrowDown size={10} />
+              ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {watchlistItems.map((item) => (
+        {sortedWatchlistItems.map((item) => (
           <div
             key={item.symbol}
-            className={`group flex cursor-pointer flex-col gap-1 border-b border-border px-4 py-3 transition-colors hover:bg-accent/50 ${
+            className={`group grid grid-cols-[1fr_80px_65px_55px] gap-2 cursor-pointer border-b border-border px-4 py-3 transition-colors hover:bg-accent/50 items-center ${
               selectedSymbol === item.symbol
                 ? "bg-accent/50 border-l-4 border-l-primary pl-3"
                 : "border-l-4 border-l-transparent"
@@ -782,29 +952,24 @@ const Watchlist = memo(function Watchlist({
               setIsMobileWatchlistOpen(false);
             }}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-foreground">
-                  {item.symbol}
-                </span>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className="font-mono text-sm font-medium text-foreground">
-                  {selectedAccount?.accountType === "binance"
-                    ? formatPrice(item.lastPrice, "$")
-                    : selectedAccount?.accountType === "upstox" ||
-                      selectedAccount?.accountType === "kite"
-                    ? formatPrice(item.lastPrice, "₹")
-                    : formatPrice(item.lastPrice)}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                Vol: {formatVolume(item.volume)}
+            <div className="flex items-center gap-2 overflow-hidden">
+              <span className="truncate font-semibold text-foreground text-sm">
+                {item.symbol}
               </span>
+            </div>
+            <div className="text-right">
+              <span className="font-mono text-xs font-medium text-foreground">
+                {selectedAccount?.accountType === "binance"
+                  ? formatPrice(item.lastPrice, "$")
+                  : selectedAccount?.accountType === "upstox" ||
+                    selectedAccount?.accountType === "kite"
+                  ? formatPrice(item.lastPrice, "₹")
+                  : formatPrice(item.lastPrice)}
+              </span>
+            </div>
+            <div className="text-right">
               <span
-                className={`font-medium ${
+                className={`text-xs font-medium ${
                   item.priceChange >= 0
                     ? "text-green-600 dark:text-green-400"
                     : "text-red-600 dark:text-red-400"
@@ -813,11 +978,18 @@ const Watchlist = memo(function Watchlist({
                 {formatPercent(item.priceChangePercent)}
               </span>
             </div>
+            <div className="text-right">
+              <span className="text-xs text-muted-foreground">
+                {formatVolume(item.volume)}
+              </span>
+            </div>
+            
             {!isDefaultBinance && (
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 h-6 w-6 text-muted-foreground hover:text-destructive"
+                className="absolute right-2 opacity-0 transition-opacity group-hover:opacity-100 h-6 w-6 text-muted-foreground hover:text-destructive"
+                style={{ top: '50%', transform: 'translateY(-50%)' }}
                 onClick={(e) => {
                   e.stopPropagation();
                   removeSymbol(item.symbol);
@@ -843,6 +1015,7 @@ const Watchlist = memo(function Watchlist({
             currentPrice={currentPrice}
             accounts={accounts}
             selectedAccount={selectedAccount}
+            marketType={marketType}
             onOrderPlaced={handleOrderPlaced}
           />
         </div>
@@ -893,6 +1066,7 @@ const Watchlist = memo(function Watchlist({
             currentPrice={currentPrice}
             accounts={accounts}
             selectedAccount={selectedAccount}
+            marketType={marketType}
             onOrderPlaced={handleOrderPlaced}
           />
         </div>

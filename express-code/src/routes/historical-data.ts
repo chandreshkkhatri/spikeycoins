@@ -2,9 +2,46 @@ import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { getAccountById } from "../models/account";
-import axios from "axios";
+import axios, { AxiosRequestConfig } from "axios";
 
 const router = Router();
+
+// Helper function for retrying requests
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fetchWithRetry = async (
+  url: string,
+  config: AxiosRequestConfig,
+  retries = 3,
+  delay = 1000
+) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await axios.get(url, config);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      const isLastAttempt = i === retries - 1;
+      if (isLastAttempt) throw error;
+
+      // Retry on DNS errors (EAI_AGAIN) or Network errors
+      if (
+        error.code === "EAI_AGAIN" ||
+        error.code === "ECONNRESET" ||
+        error.code === "ETIMEDOUT"
+      ) {
+        console.log(
+          `Request failed with ${error.code}, retrying (${i + 1}/${retries})...`
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, delay * Math.pow(2, i))
+        ); // Exponential backoff
+        continue;
+      }
+
+      throw error;
+    }
+  }
+  throw new Error("Max retries reached");
+};
 
 // GET /api/historical-data - Get historical data for an instrument
 router.get("/", async (req: Request, res: Response) => {
@@ -67,6 +104,7 @@ router.get("/", async (req: Request, res: Response) => {
             : "https://api.binance.com/api/v3/klines";
         }
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const params: any = {
           symbol: symbol as string,
           interval: binanceInterval,
@@ -80,10 +118,11 @@ router.get("/", async (req: Request, res: Response) => {
           params.endTime = new Date(toDate as string).getTime();
         }
 
-        const response = await axios.get(apiUrl, { params });
+        const response = await fetchWithRetry(apiUrl, { params });
 
         // Convert Binance klines format to standard format
         // Binance format: [openTime, open, high, low, close, volume, closeTime, ...]
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         historicalData = response.data.map((candle: any[]) => ({
           date: new Date(candle[0]).toISOString(), // Convert timestamp to ISO date string
           open: parseFloat(candle[1]),
@@ -98,10 +137,11 @@ router.get("/", async (req: Request, res: Response) => {
           data: historicalData,
           accountType: "binance",
         });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         console.error("Error fetching Binance historical data:", error);
         return res.status(500).json({
-          error: "Failed to fetch historical data",
+          error: "Failed to fetch historical data from Binance",
           details: error.message,
         });
       }
@@ -179,6 +219,7 @@ router.get("/", async (req: Request, res: Response) => {
       data: historicalData,
       accountType: account.accountType,
     });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error("Error fetching historical data:", error);
     return res.status(500).json({

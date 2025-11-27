@@ -17,9 +17,12 @@ import {
 } from "lightweight-charts";
 import {
   AlertCircle,
+  ChevronDown,
+  ChevronUp,
   Maximize2,
   Minimize2,
   Plus,
+  RotateCcw,
   X,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -30,7 +33,40 @@ interface MultiTimeframeChartProps {
   accountType?: "binance" | "kite" | "upstox";
 }
 
-const DEFAULT_TIMEFRAMES = [{ interval: "1h", label: "1 Hour", index: 0 }];
+const DEFAULT_TIMEFRAMES = [
+  { interval: "1d", label: "1 Day", index: 0 },
+  { interval: "4h", label: "4 Hours", index: 1 },
+  { interval: "1h", label: "1 Hour", index: 2 },
+  { interval: "5m", label: "5 Minutes", index: 3 },
+];
+
+const CHART_SETTINGS_KEY = "flipSafe_chartSettings";
+
+interface ChartSettings {
+  selectedTimeframes: typeof DEFAULT_TIMEFRAMES;
+  chartTimeframes: { [index: number]: string };
+  autoScale: boolean;
+  isLogScale: boolean;
+  isCollapsed: boolean;
+  collapsedCharts: { [interval: string]: boolean };
+}
+
+const getStoredSettings = (): ChartSettings | null => {
+  try {
+    const stored = localStorage.getItem(CHART_SETTINGS_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveSettings = (settings: ChartSettings) => {
+  try {
+    localStorage.setItem(CHART_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Ignore storage errors
+  }
+};
 
 const AVAILABLE_TIMEFRAMES = [
   { interval: "1m", label: "1 Minute" },
@@ -55,8 +91,12 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     const displaySymbol = symbol || "BTCUSDT";
     const isDefaultSymbol = !symbol;
 
-    const [selectedTimeframes, setSelectedTimeframes] =
-      useState(DEFAULT_TIMEFRAMES);
+    // Load stored settings on mount
+    const storedSettings = useRef(getStoredSettings());
+    
+    const [selectedTimeframes, setSelectedTimeframes] = useState(
+      storedSettings.current?.selectedTimeframes || DEFAULT_TIMEFRAMES
+    );
     const [showTimeframeSelector, setShowTimeframeSelector] = useState(false);
     const containerRefs = useRef<(HTMLDivElement | null)[]>(
       new Array(selectedTimeframes.length).fill(null)
@@ -69,10 +109,49 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     const [error, setError] = useState<string | null>(null);
     const [chartTimeframes, setChartTimeframes] = useState<{
       [index: number]: string;
-    }>({});
-    const [autoScale, setAutoScale] = useState(false);
-    const [isLogScale, setIsLogScale] = useState(false);
+    }>(storedSettings.current?.chartTimeframes || {});
+    const [autoScale, setAutoScale] = useState(
+      storedSettings.current?.autoScale ?? false
+    );
+    const [isLogScale, setIsLogScale] = useState(
+      storedSettings.current?.isLogScale ?? false
+    );
+    const [isCollapsed, setIsCollapsed] = useState(
+      storedSettings.current?.isCollapsed ?? false
+    );
+    const [collapsedCharts, setCollapsedCharts] = useState<{
+      [interval: string]: boolean;
+    }>(storedSettings.current?.collapsedCharts || {});
     const runIdRef = useRef(0);
+
+    // Persist settings to localStorage whenever they change
+    useEffect(() => {
+      saveSettings({
+        selectedTimeframes,
+        chartTimeframes,
+        autoScale,
+        isLogScale,
+        isCollapsed,
+        collapsedCharts,
+      });
+    }, [selectedTimeframes, chartTimeframes, autoScale, isLogScale, isCollapsed, collapsedCharts]);
+
+    const resetToDefaults = () => {
+      setSelectedTimeframes(DEFAULT_TIMEFRAMES);
+      setChartTimeframes({});
+      setAutoScale(false);
+      setIsLogScale(false);
+      setIsCollapsed(false);
+      setCollapsedCharts({});
+      localStorage.removeItem(CHART_SETTINGS_KEY);
+    };
+
+    const toggleChartCollapse = (interval: string) => {
+      setCollapsedCharts((prev) => ({
+        ...prev,
+        [interval]: !prev[interval],
+      }));
+    };
 
     const setContainerRef = useCallback(
       (index: number) => (el: HTMLDivElement | null) => {
@@ -517,48 +596,72 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         <div className="rounded-xl border border-border/50 bg-card/80 p-3 shadow-sm backdrop-blur-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <h3 className="text-sm font-semibold text-foreground">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 hover:bg-transparent"
+                onClick={() => setIsCollapsed(!isCollapsed)}
+              >
+                {isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+              </Button>
+              <h3 
+                className="text-sm font-semibold text-foreground cursor-pointer select-none"
+                onClick={() => setIsCollapsed(!isCollapsed)}
+              >
                 Charts
               </h3>
-              <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/30 p-0.5">
+              {!isCollapsed && (
+                <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/30 p-0.5 animate-in fade-in duration-200">
+                  <Button
+                    variant={autoScale ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => setAutoScale(!autoScale)}
+                    title="Auto-scale height"
+                  >
+                    {autoScale ? (
+                      <Minimize2 size={12} />
+                    ) : (
+                      <Maximize2 size={12} />
+                    )}
+                  </Button>
+                  <Button
+                    variant={isLogScale ? "secondary" : "ghost"}
+                    size="icon"
+                    className="h-6 w-6 font-mono text-[10px] font-bold"
+                    onClick={() => setIsLogScale(!isLogScale)}
+                    title="Toggle logarithmic scale"
+                  >
+                    L
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {!isCollapsed && (
+              <div className="flex flex-wrap items-center gap-2 animate-in fade-in duration-200">
                 <Button
-                  variant={autoScale ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => setAutoScale(!autoScale)}
-                  title="Auto-scale height"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowTimeframeSelector(!showTimeframeSelector)}
+                  className="h-7 gap-1.5 text-xs"
                 >
-                  {autoScale ? (
-                    <Minimize2 size={12} />
-                  ) : (
-                    <Maximize2 size={12} />
-                  )}
+                  <Plus size={12} /> Add Chart
                 </Button>
                 <Button
-                  variant={isLogScale ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-6 w-6 font-mono text-[10px] font-bold"
-                  onClick={() => setIsLogScale(!isLogScale)}
-                  title="Toggle logarithmic scale"
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetToDefaults}
+                  className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                  title="Reset to defaults"
                 >
-                  L
+                  <RotateCcw size={12} /> Reset
                 </Button>
               </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowTimeframeSelector(!showTimeframeSelector)}
-                className="h-7 gap-1.5 text-xs"
-              >
-                <Plus size={12} /> Add Chart
-              </Button>
-            </div>
+            )}
           </div>
 
-          {showTimeframeSelector && (
+          {!isCollapsed && showTimeframeSelector && (
             <div className="mt-3 border-t border-border/50 pt-3 animate-in slide-in-from-top-2 fade-in duration-200">
               <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10">
                 {AVAILABLE_TIMEFRAMES.filter(
@@ -586,79 +689,108 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         </div>
 
         {/* Charts Grid */}
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {selectedTimeframes.map((timeframe) => {
-            return (
-              <div
-                key={timeframe.interval}
-                className={`flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm transition-all hover:border-border hover:shadow-md ${
-                  autoScale ? "h-[350px]" : "h-auto"
-                }`}
-              >
-                <div className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-3 py-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-                      {displaySymbol}
-                    </span>
-                    <Select
-                      value={
-                        chartTimeframes[timeframe.index] || timeframe.interval
-                      }
-                      onValueChange={(value) =>
-                        changeChartTimeframe(timeframe.index, value)
-                      }
-                    >
-                      <SelectTrigger className="h-6 w-[90px] text-[11px] border-border/50">
-                        <SelectValue placeholder="Timeframe" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {AVAILABLE_TIMEFRAMES.map((tf) => (
-                          <SelectItem key={tf.interval} value={tf.interval} className="text-xs">
-                            {tf.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+        {!isCollapsed && (
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 animate-in slide-in-from-top-4 fade-in duration-300">
+            {selectedTimeframes.map((timeframe) => {
+              const isChartCollapsed = collapsedCharts[timeframe.interval] ?? false;
+              return (
+                <div
+                  key={timeframe.interval}
+                  className={`flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm transition-all hover:border-border hover:shadow-md ${
+                    autoScale && !isChartCollapsed ? "h-[350px]" : "h-auto"
+                  }`}
+                >
+                  <div 
+                    className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-3 py-1.5 cursor-pointer"
+                    onClick={() => toggleChartCollapse(timeframe.interval)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 p-0 hover:bg-transparent"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleChartCollapse(timeframe.interval);
+                        }}
+                      >
+                        {isChartCollapsed ? (
+                          <ChevronDown size={12} />
+                        ) : (
+                          <ChevronUp size={12} />
+                        )}
+                      </Button>
+                      <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                        {displaySymbol}
+                      </span>
+                      <Select
+                        value={
+                          chartTimeframes[timeframe.index] || timeframe.interval
+                        }
+                        onValueChange={(value) =>
+                          changeChartTimeframe(timeframe.index, value)
+                        }
+                      >
+                        <SelectTrigger 
+                          className="h-6 w-[90px] text-[11px] border-border/50"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <SelectValue placeholder="Timeframe" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {AVAILABLE_TIMEFRAMES.map((tf) => (
+                            <SelectItem key={tf.interval} value={tf.interval} className="text-xs">
+                              {tf.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    {selectedTimeframes.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeTimeframe(timeframe.index);
+                        }}
+                      >
+                        <X size={12} />
+                      </Button>
+                    )}
                   </div>
                   
-                  {selectedTimeframes.length > 1 && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeTimeframe(timeframe.index)}
-                    >
-                      <X size={12} />
-                    </Button>
-                  )}
-                </div>
-                
-                <div className="relative flex-1 min-h-[250px] w-full bg-background">
-                  <div
-                    ref={setContainerRef(timeframe.index)}
-                    className="absolute inset-0 h-full w-full"
-                  />
-                  
-                  {loading && (
-                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/90 backdrop-blur-sm">
-                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
-                      <p className="mt-2 text-[10px] font-medium text-muted-foreground">Loading...</p>
-                    </div>
-                  )}
-                  
-                  {error && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/95 p-3">
-                      <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                        <AlertCircle size={14} />
-                        <p className="line-clamp-2">{error}</p>
-                      </div>
+                  {!isChartCollapsed && (
+                    <div className="relative flex-1 min-h-[250px] w-full bg-background animate-in slide-in-from-top-2 fade-in duration-200">
+                      <div
+                        ref={setContainerRef(timeframe.index)}
+                        className="absolute inset-0 h-full w-full"
+                      />
+                      
+                      {loading && (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/90 backdrop-blur-sm">
+                          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                          <p className="mt-2 text-[10px] font-medium text-muted-foreground">Loading...</p>
+                        </div>
+                      )}
+                    
+                      {error && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/95 p-3">
+                          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                            <AlertCircle size={14} />
+                            <p className="line-clamp-2">{error}</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }

@@ -77,12 +77,15 @@ const MarketDepth = memo(function MarketDepth({
       };
 
       ws.onerror = (error) => {
-        console.error("Order book WebSocket error:", error);
+        // Only log error if we haven't closed explicitly
+        if (ws?.readyState !== WebSocket.CLOSED) {
+          console.warn(`Order book WebSocket error for ${symbol}:`, error);
+        }
         setWsConnected(false);
       };
 
       ws.onclose = () => {
-        console.log("Order book WebSocket closed");
+        // console.log("Order book WebSocket closed");
         setWsConnected(false);
       };
     };
@@ -91,6 +94,8 @@ const MarketDepth = memo(function MarketDepth({
 
     return () => {
       if (ws) {
+        ws.onclose = null; // Prevent onclose trigger during cleanup
+        ws.onerror = null;
         ws.close();
       }
     };

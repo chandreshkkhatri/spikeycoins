@@ -85,13 +85,14 @@ class BinanceWebSocketService {
           // Start ping interval to keep connection alive
           this.startPingInterval();
 
-          // Resubscribe to previously subscribed symbols
-          this.resubscribeAll();
+          // Subscribe to All Market Tickers Stream (!ticker@arr)
+          this.subscribeToAllMarketTickers();
 
           resolve();
         };
 
         this.ws.onmessage = (event) => {
+          // Removed verbose logging to prevent console flooding
           this.handleMessage(event.data);
         };
 
@@ -116,11 +117,54 @@ class BinanceWebSocketService {
   }
 
   /**
+   * Subscribe to the All Market Tickers Stream
+   * This provides updates for ALL symbols in a single stream
+   */
+  private subscribeToAllMarketTickers() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const subscribeMessage = {
+      method: "SUBSCRIBE",
+      params: ["!ticker@arr"],
+      id: Date.now(),
+    };
+
+    this.ws.send(JSON.stringify(subscribeMessage));
+    console.log("Subscribed to All Market Tickers (!ticker@arr)");
+  }
+
+  /**
    * Handle incoming WebSocket messages
    */
   private handleMessage(data: string) {
     try {
       const message = JSON.parse(data);
+
+      // Handle All Market Tickers Stream (Array of tickers)
+      if (Array.isArray(message)) {
+        message.forEach((tickerData: any) => {
+          const symbol = tickerData.s;
+          if (!symbol) return;
+
+          // Only process symbols that have active subscribers
+          const symbolLower = symbol.toLowerCase();
+          const symbolCallbacks = this.callbacks.get(symbolLower);
+
+          if (symbolCallbacks && symbolCallbacks.length > 0) {
+            const formattedData = this.formatTickerData(tickerData);
+            symbolCallbacks.forEach((callback) => {
+              try {
+                callback(formattedData);
+              } catch (error) {
+                console.error("Error in callback:", error);
+              }
+            });
+          }
+        });
+        return;
+      }
 
       // Handle different message types
       if (message.e) {
@@ -188,30 +232,6 @@ class BinanceWebSocketService {
 
     // Add to subscribed symbols
     this.subscribedSymbols.add(symbolLower);
-
-    // Send subscription message if connected
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.sendSubscription(symbolLower);
-    }
-  }
-
-  /**
-   * Send subscription message to WebSocket
-   */
-  private sendSubscription(symbol: string) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    // Subscribe to 24hr ticker for the symbol
-    const subscribeMessage = {
-      method: "SUBSCRIBE",
-      params: [`${symbol}@ticker`],
-      id: Date.now(),
-    };
-
-    this.ws.send(JSON.stringify(subscribeMessage));
-    console.log(`Subscribed to ${symbol} ticker`);
   }
 
   /**
@@ -222,26 +242,6 @@ class BinanceWebSocketService {
 
     this.callbacks.delete(symbolLower);
     this.subscribedSymbols.delete(symbolLower);
-
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const unsubscribeMessage = {
-        method: "UNSUBSCRIBE",
-        params: [`${symbolLower}@ticker`],
-        id: Date.now(),
-      };
-
-      this.ws.send(JSON.stringify(unsubscribeMessage));
-      console.log(`Unsubscribed from ${symbolLower} ticker`);
-    }
-  }
-
-  /**
-   * Resubscribe to all symbols after reconnection
-   */
-  private resubscribeAll() {
-    this.subscribedSymbols.forEach((symbol) => {
-      this.sendSubscription(symbol);
-    });
   }
 
   /**

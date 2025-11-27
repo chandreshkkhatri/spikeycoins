@@ -20,6 +20,7 @@ interface TradingWindowProps {
     accountType: "binance" | "kite" | "upstox";
     isActive: boolean;
   } | null;
+  marketType?: "spot" | "futures";
   onOrderPlaced: () => void;
 }
 
@@ -41,6 +42,7 @@ const TradingWindow = memo(function TradingWindow({
   currentPrice,
   accounts,
   selectedAccount,
+  marketType = "futures",
   onOrderPlaced,
 }: TradingWindowProps) {
   const [orderForm, setOrderForm] = useState<OrderForm>({
@@ -262,12 +264,12 @@ const TradingWindow = memo(function TradingWindow({
           currentPrice={currentPrice}
           onPriceSelect={(price) => handleInputChange("price", price)}
           accountType={selectedAccount?.accountType}
-          marketType="binance-futures"
+          marketType={marketType === "futures" ? "binance-futures" : "binance-spot"}
         />
 
         <div className="trading-form">
-          {/* Order Side */}
-          <div className="form-group">
+          {/* Order Side - Full Width */}
+          <div className="form-group full-width">
             <label>Side</label>
             <div className="button-group">
               <Button
@@ -289,36 +291,139 @@ const TradingWindow = memo(function TradingWindow({
             </div>
           </div>
 
-          {/* Order Type */}
-          <div className="form-group">
-            <label>Type</label>
-            <select
-              value={orderForm.type}
-              onChange={(e) => handleInputChange("type", e.target.value as any)}
-              className="form-select"
-            >
-              <option value="MARKET">Market</option>
-              <option value="LIMIT">Limit</option>
-              <option value="STOP_MARKET">Stop Market</option>
-              <option value="TAKE_PROFIT_MARKET">Take Profit Mkt</option>
-            </select>
+          {/* Two Column Grid */}
+          <div className="form-grid">
+            {/* Order Type */}
+            <div className="form-group">
+              <label>Type</label>
+              <select
+                value={orderForm.type}
+                onChange={(e) => handleInputChange("type", e.target.value as any)}
+                className="form-select"
+              >
+                <option value="MARKET">Market</option>
+                <option value="LIMIT">Limit</option>
+                <option value="STOP_MARKET">Stop Market</option>
+                <option value="TAKE_PROFIT_MARKET">Take Profit Mkt</option>
+              </select>
+            </div>
+
+            {/* Leverage */}
+            <div className="form-group">
+              <label>Leverage</label>
+              <select
+                value={orderForm.leverage}
+                onChange={(e) => handleInputChange("leverage", e.target.value)}
+                className="form-select"
+              >
+                <option value="1">1x</option>
+                <option value="2">2x</option>
+                <option value="3">3x</option>
+                <option value="5">5x</option>
+                <option value="10">10x</option>
+                <option value="20">20x</option>
+                <option value="50">50x</option>
+                <option value="100">100x</option>
+              </select>
+            </div>
+
+            {/* Quantity */}
+            <div className="form-group">
+              <label>Quantity</label>
+              <input
+                type="number"
+                value={orderForm.quantity}
+                onChange={(e) => handleInputChange("quantity", e.target.value)}
+                className="form-input"
+                placeholder="0.001"
+                step="0.000001"
+              />
+            </div>
+
+            {/* Price (for limit orders) */}
+            {orderForm.type === "LIMIT" ? (
+              <div className="form-group">
+                <label>Price</label>
+                <input
+                  type="number"
+                  value={orderForm.price}
+                  onChange={(e) => handleInputChange("price", e.target.value)}
+                  className="form-input"
+                  placeholder={currentPrice.toFixed(2)}
+                  step="0.01"
+                />
+              </div>
+            ) : (
+              <div className="form-group">
+                <label>Reduce Only</label>
+                <div className="checkbox-container">
+                  <input
+                    type="checkbox"
+                    id="reduceOnly"
+                    checked={orderForm.reduceOnly}
+                    onChange={(e) =>
+                      handleInputChange("reduceOnly", e.target.checked)
+                    }
+                    className="form-checkbox"
+                  />
+                  <label htmlFor="reduceOnly" className="checkbox-label">
+                    Yes
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Stop Loss */}
+            <div className="form-group">
+              <label>Stop Loss *</label>
+              <input
+                type="number"
+                value={orderForm.stopLoss}
+                onChange={(e) => handleInputChange("stopLoss", e.target.value)}
+                className="form-input"
+                placeholder="SL Price"
+                step="0.01"
+                required
+              />
+            </div>
+
+            {/* Take Profit */}
+            <div className="form-group">
+              <label>Take Profit</label>
+              <input
+                type="number"
+                value={orderForm.takeProfit}
+                onChange={(e) => handleInputChange("takeProfit", e.target.value)}
+                className="form-input"
+                placeholder="TP Price"
+                step="0.01"
+              />
+            </div>
+
+            {/* Reduce Only when Limit is selected */}
+            {orderForm.type === "LIMIT" && (
+              <div className="form-group">
+                <label>Reduce Only</label>
+                <div className="checkbox-container">
+                  <input
+                    type="checkbox"
+                    id="reduceOnlyLimit"
+                    checked={orderForm.reduceOnly}
+                    onChange={(e) =>
+                      handleInputChange("reduceOnly", e.target.checked)
+                    }
+                    className="form-checkbox"
+                  />
+                  <label htmlFor="reduceOnlyLimit" className="checkbox-label">
+                    Yes
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Quantity */}
-          <div className="form-group">
-            <label>Quantity (Contracts)</label>
-            <input
-              type="number"
-              value={orderForm.quantity}
-              onChange={(e) => handleInputChange("quantity", e.target.value)}
-              className="form-input"
-              placeholder="0.001"
-              step="0.000001"
-            />
-          </div>
-
-          {/* Position Sizing Slider */}
-          <div className="form-group">
+          {/* Position Sizing Slider - Full Width */}
+          <div className="form-group full-width">
             <label>Position Size</label>
             <div className="slider-container">
               <Slider
@@ -333,85 +438,6 @@ const TradingWindow = memo(function TradingWindow({
                 <span>50%</span>
                 <span>100%</span>
               </div>
-            </div>
-          </div>
-
-          {/* Price (for limit orders) */}
-          {orderForm.type === "LIMIT" && (
-            <div className="form-group">
-              <label>Price (USDT)</label>
-              <input
-                type="number"
-                value={orderForm.price}
-                onChange={(e) => handleInputChange("price", e.target.value)}
-                className="form-input"
-                placeholder={currentPrice.toFixed(2)}
-                step="0.01"
-              />
-            </div>
-          )}
-
-          {/* Stop Loss */}
-          <div className="form-group">
-            <label>Stop Loss (Mandatory)</label>
-            <input
-              type="number"
-              value={orderForm.stopLoss}
-              onChange={(e) => handleInputChange("stopLoss", e.target.value)}
-              className="form-input"
-              placeholder="Stop Loss Price"
-              step="0.01"
-              required
-            />
-          </div>
-
-          {/* Take Profit */}
-          <div className="form-group">
-            <label>Take Profit</label>
-            <input
-              type="number"
-              value={orderForm.takeProfit}
-              onChange={(e) => handleInputChange("takeProfit", e.target.value)}
-              className="form-input"
-              placeholder="Take Profit Price"
-              step="0.01"
-            />
-          </div>
-
-          {/* Leverage */}
-          <div className="form-group">
-            <label>Leverage</label>
-            <select
-              value={orderForm.leverage}
-              onChange={(e) => handleInputChange("leverage", e.target.value)}
-              className="form-select"
-            >
-              <option value="1">1x</option>
-              <option value="2">2x</option>
-              <option value="3">3x</option>
-              <option value="5">5x</option>
-              <option value="10">10x</option>
-              <option value="20">20x</option>
-              <option value="50">50x</option>
-              <option value="100">100x</option>
-            </select>
-          </div>
-
-          {/* Reduce Only */}
-          <div className="form-group">
-            <div className="checkbox-group">
-              <input
-                type="checkbox"
-                id="reduceOnly"
-                checked={orderForm.reduceOnly}
-                onChange={(e) =>
-                  handleInputChange("reduceOnly", e.target.checked)
-                }
-                className="form-checkbox"
-              />
-              <label htmlFor="reduceOnly" className="checkbox-label">
-                Reduce Only
-              </label>
             </div>
           </div>
 
@@ -505,7 +531,7 @@ const TradingWindow = memo(function TradingWindow({
 
         .trading-form {
           flex: 1;
-          padding: 16px;
+          padding: 12px;
           max-width: 100%;
           background: #ffffff;
         }
@@ -514,14 +540,25 @@ const TradingWindow = memo(function TradingWindow({
           background: #09090b !important;
         }
 
+        .form-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px 12px;
+          margin-bottom: 12px;
+        }
+
         .form-group {
+          margin-bottom: 0;
+        }
+
+        .form-group.full-width {
           margin-bottom: 12px;
         }
 
         .form-group label {
           display: block;
-          margin-bottom: 4px;
-          font-size: 0.8rem;
+          margin-bottom: 3px;
+          font-size: 0.7rem;
           font-weight: 600;
           color: var(--foreground);
         }
@@ -529,10 +566,10 @@ const TradingWindow = memo(function TradingWindow({
         .form-input,
         .form-select {
           width: 100%;
-          padding: 6px 8px;
+          padding: 5px 6px;
           border: 1px solid #ddd;
           border-radius: 4px;
-          font-size: 0.8rem;
+          font-size: 0.75rem;
           background: #ffffff;
           color: #333;
         }
@@ -558,15 +595,22 @@ const TradingWindow = memo(function TradingWindow({
         }
 
         .slider-container {
-          padding: 8px 0;
+          padding: 4px 0;
         }
 
         .slider-labels {
           display: flex;
           justify-content: space-between;
-          font-size: 0.7rem;
+          font-size: 0.65rem;
           color: var(--muted-foreground);
-          margin-top: 4px;
+          margin-top: 2px;
+        }
+
+        .checkbox-container {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 5px 0;
         }
 
         .checkbox-group {
@@ -583,16 +627,16 @@ const TradingWindow = memo(function TradingWindow({
 
         .checkbox-label {
           cursor: pointer;
-          font-size: 0.8rem;
+          font-size: 0.7rem;
           margin: 0;
         }
 
         .order-summary {
           background: #f8f9fa;
           color: #333;
-          padding: 8px;
+          padding: 6px 8px;
           border-radius: 4px;
-          margin-bottom: 12px;
+          margin-bottom: 8px;
         }
 
         .dark .order-summary {
@@ -604,8 +648,8 @@ const TradingWindow = memo(function TradingWindow({
           display: flex;
           justify-content: space-between;
           align-items: center;
-          font-size: 0.8rem;
-          margin-bottom: 4px;
+          font-size: 0.7rem;
+          margin-bottom: 2px;
         }
 
         .summary-row:last-child {
@@ -615,9 +659,9 @@ const TradingWindow = memo(function TradingWindow({
         .error-message {
           background: #ffebee;
           color: #c62828;
-          padding: 6px 8px;
+          padding: 5px 8px;
           border-radius: 4px;
-          font-size: 0.8rem;
+          font-size: 0.75rem;
           margin-bottom: 8px;
         }
 
@@ -629,9 +673,9 @@ const TradingWindow = memo(function TradingWindow({
         .success-message {
           background: #e8f5e8;
           color: #2e7d32;
-          padding: 6px 8px;
+          padding: 5px 8px;
           border-radius: 4px;
-          font-size: 0.8rem;
+          font-size: 0.75rem;
           margin-bottom: 8px;
         }
 
@@ -644,6 +688,11 @@ const TradingWindow = memo(function TradingWindow({
         @media (max-width: 768px) {
           .trading-content {
             flex-direction: column;
+          }
+
+          .form-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 8px;
           }
           
           .trading-header {
