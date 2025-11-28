@@ -63,13 +63,14 @@ const TradingWindow = memo(function TradingWindow({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [availableBalance, setAvailableBalance] = useState<number>(0);
+  const [hasUserEditedPrice, setHasUserEditedPrice] = useState(false);
 
-  // Update price when current price changes
+  // Update price when current price changes (only if user hasn't manually edited it)
   useEffect(() => {
-    if (orderForm.type === "LIMIT") {
+    if (orderForm.type === "LIMIT" && !hasUserEditedPrice) {
       setOrderForm((prev) => ({ ...prev, price: currentPrice.toFixed(2) }));
     }
-  }, [currentPrice, orderForm.type]);
+  }, [currentPrice, orderForm.type, hasUserEditedPrice]);
 
   // Fetch account balance when account changes
   useEffect(() => {
@@ -101,6 +102,10 @@ const TradingWindow = memo(function TradingWindow({
     value: string | boolean
   ) => {
     setOrderForm((prev) => ({ ...prev, [field]: value }));
+    // Track if user manually edited price
+    if (field === 'price') {
+      setHasUserEditedPrice(true);
+    }
     setError(null);
     setSuccess(null);
   };

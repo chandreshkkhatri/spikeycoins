@@ -33,6 +33,7 @@ class BinanceWebSocketService {
   private segment: TradingSegment = "spot";
   private isConnecting = false;
   private pingInterval: NodeJS.Timeout | null = null;
+  private intentionalDisconnect = false;
 
   // WebSocket URLs according to Binance documentation
   private readonly SPOT_WS_URL = "wss://stream.binance.com:9443/ws";
@@ -59,6 +60,7 @@ class BinanceWebSocketService {
 
     this.segment = segment;
     this.isConnecting = true;
+    this.intentionalDisconnect = false;
 
     return new Promise((resolve, reject) => {
       try {
@@ -248,6 +250,11 @@ class BinanceWebSocketService {
    * Handle reconnection logic
    */
   private handleReconnect() {
+    // Don't reconnect if disconnect was intentional
+    if (this.intentionalDisconnect) {
+      return;
+    }
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error("Max reconnection attempts reached. Giving up.");
       return;
@@ -259,7 +266,9 @@ class BinanceWebSocketService {
     );
 
     setTimeout(() => {
-      this.connect(this.segment);
+      if (!this.intentionalDisconnect) {
+        this.connect(this.segment);
+      }
     }, this.reconnectDelay);
   }
 
@@ -310,14 +319,25 @@ class BinanceWebSocketService {
    * Disconnect from WebSocket
    */
   disconnect() {
+    this.intentionalDisconnect = true;
+    
     if (this.ws) {
       this.stopPingInterval();
-      this.ws.close();
+      // Clear all event handlers before closing
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      this.ws.onopen = null;
+      
+      if (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN) {
+        this.ws.close();
+      }
       this.ws = null;
     }
     this.subscribedSymbols.clear();
     this.callbacks.clear();
     this.reconnectAttempts = 0;
+    this.isConnecting = false;
   }
 
   /**

@@ -25,7 +25,7 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface MultiTimeframeChartProps {
   symbol: string;
@@ -147,7 +147,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       localStorage.removeItem(CHART_SETTINGS_KEY);
     };
 
-    const toggleChartCollapse = (interval: string) => {
+    const toggleChartCollapse = useCallback((interval: string) => {
       setCollapsedCharts((prev) => {
         const currentlyCollapsed = prev[interval] ?? false;
         const nextState = !currentlyCollapsed;
@@ -178,7 +178,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           [interval]: nextState,
         };
       });
-    };
+    }, [selectedTimeframes]);
 
     const setContainerRef = useCallback(
       (index: number) => (el: HTMLDivElement | null) => {
@@ -192,7 +192,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       containerRefs.current = new Array(selectedTimeframes.length).fill(null);
     }, [selectedTimeframes.length]);
 
-    const addTimeframe = (interval: string) => {
+    const addTimeframe = useCallback((interval: string) => {
       const timeframe = AVAILABLE_TIMEFRAMES.find(
         (tf) => tf.interval === interval
       );
@@ -206,9 +206,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         };
         setSelectedTimeframes((prev) => [...prev, newTimeframe]);
       }
-    };
+    }, [selectedTimeframes]);
 
-    const removeTimeframe = (index: number) => {
+    const removeTimeframe = useCallback((index: number) => {
       if (selectedTimeframes.length > 1) {
         setSelectedTimeframes((prev) =>
           prev
@@ -231,14 +231,14 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           return reindexed;
         });
       }
-    };
+    }, [selectedTimeframes.length]);
 
-    const changeChartTimeframe = (chartIndex: number, newTimeframe: string) => {
+    const changeChartTimeframe = useCallback((chartIndex: number, newTimeframe: string) => {
       setChartTimeframes((prev) => ({
         ...prev,
         [chartIndex]: newTimeframe,
       }));
-    };
+    }, []);
 
     const createSingleChart = useCallback(
       (container: HTMLDivElement) => {

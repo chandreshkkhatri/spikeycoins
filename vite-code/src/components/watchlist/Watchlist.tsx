@@ -382,74 +382,71 @@ const Watchlist = memo(function Watchlist({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccount, marketType, currentWatchlistId]);
 
-  // Throttled update effect
+  // Throttled update effect - optimized with requestAnimationFrame batching
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (pendingUpdatesRef.current.size > 0) {
-        setWatchlistItems((prev) => {
-          // Create a map of current items for faster lookup
-          const itemMap = new Map(prev.map(item => [item.symbol, item]));
-          let hasChanges = false;
+    let rafId: number | null = null;
+    let lastUpdate = 0;
+    const minInterval = 500; // Reduced from 1000ms to 500ms for more responsive UI
 
-          pendingUpdatesRef.current.forEach((update, symbolKey) => {
-            // Handle Binance updates (symbolKey is lowercase)
-            // Find the matching item in the watchlist (case-insensitive check might be needed if symbols vary)
-            // But usually item.symbol matches the key logic used in subscribe
-            
-            // For Binance, we stored with lowercase key. For Upstox, we stored with symbol key.
-            // Let's try to find the item.
-            
-            // Try exact match first (Upstox)
-            let item = itemMap.get(symbolKey);
-            
-            // If not found, try case-insensitive match (Binance)
-            if (!item) {
-               // This is O(N) inside the loop, but N is small (watchlist size)
-               // To optimize, we could normalize keys in itemMap.
-               // For now, let's iterate if not found directly.
-               for (const [s, i] of itemMap.entries()) {
-                 if (s.toLowerCase() === symbolKey.toLowerCase()) {
-                   item = i;
-                   break;
-                 }
-               }
-            }
-
-            if (item) {
-              hasChanges = true;
-              // Update the item
-              const newItem = { ...item };
-              
-              // Check if it's a Binance update (strings) or Upstox (numbers)
-              if (typeof update.lastPrice === 'string') {
-                 // Binance format
-                 newItem.lastPrice = parseFloat(update.lastPrice || "0");
-                 newItem.priceChange = parseFloat(update.priceChange || "0");
-                 newItem.priceChangePercent = parseFloat(update.priceChangePercent || "0");
-                 newItem.volume = parseFloat(update.volume || "0");
-                 newItem.high24h = parseFloat(update.high || "0");
-                 newItem.low24h = parseFloat(update.low || "0");
-              } else {
-                 // Upstox format (already numbers)
-                 newItem.lastPrice = update.lastPrice;
-                 newItem.priceChange = update.priceChange;
-                 newItem.priceChangePercent = update.priceChangePercent;
-                 newItem.volume = update.volume;
-                 newItem.high24h = update.high24h;
-                 newItem.low24h = update.low24h;
-              }
-              
-              itemMap.set(item.symbol, newItem);
-            }
-          });
-
-          pendingUpdatesRef.current.clear();
-          return hasChanges ? Array.from(itemMap.values()) : prev;
-        });
+    const processUpdates = () => {
+      const now = performance.now();
+      if (now - lastUpdate < minInterval || pendingUpdatesRef.current.size === 0) {
+        rafId = requestAnimationFrame(processUpdates);
+        return;
       }
-    }, 1000); // Update every 1 second
 
-    return () => clearInterval(interval);
+      lastUpdate = now;
+      setWatchlistItems((prev) => {
+        // Create normalized lookup map (O(1) instead of O(N))
+        const itemMap = new Map(prev.map(item => [item.symbol.toLowerCase(), item]));
+        let hasChanges = false;
+
+        pendingUpdatesRef.current.forEach((update, symbolKey) => {
+          // Normalize key for consistent lookup
+          const normalizedKey = symbolKey.toLowerCase();
+          const item = itemMap.get(normalizedKey);
+
+          if (item) {
+            hasChanges = true;
+            const newItem = { ...item };
+            
+            // Check if it's a Binance update (strings) or Upstox (numbers)
+            if (typeof update.lastPrice === 'string') {
+               // Binance format
+               newItem.lastPrice = parseFloat(update.lastPrice || "0");
+               newItem.priceChange = parseFloat(update.priceChange || "0");
+               newItem.priceChangePercent = parseFloat(update.priceChangePercent || "0");
+               newItem.volume = parseFloat(update.volume || "0");
+               newItem.high24h = parseFloat(update.high || "0");
+               newItem.low24h = parseFloat(update.low || "0");
+            } else {
+               // Upstox format (already numbers)
+               newItem.lastPrice = update.lastPrice;
+               newItem.priceChange = update.priceChange;
+               newItem.priceChangePercent = update.priceChangePercent;
+               newItem.volume = update.volume;
+               newItem.high24h = update.high24h;
+               newItem.low24h = update.low24h;
+            }
+            
+            itemMap.set(normalizedKey, newItem);
+          }
+        });
+
+        pendingUpdatesRef.current.clear();
+        return hasChanges ? Array.from(itemMap.values()) : prev;
+      });
+
+      rafId = requestAnimationFrame(processUpdates);
+    };
+
+    rafId = requestAnimationFrame(processUpdates);
+
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
   }, []);
 
   // After each effect run, update previous account refs
