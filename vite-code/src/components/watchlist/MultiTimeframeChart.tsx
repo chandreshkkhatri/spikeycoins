@@ -25,7 +25,7 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 interface MultiTimeframeChartProps {
   symbol: string;
@@ -105,6 +105,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     const chartRefs = useRef<{
       chart: IChartApi | null;
       series: ISeriesApi<"Candlestick"> | null;
+      wheelHandler?: (e: WheelEvent) => void;
+      container?: HTMLDivElement;
     }[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -161,6 +163,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             const chartRef = chartRefs.current[chartIndex];
             if (chartRef?.chart) {
               try {
+                // Remove wheel handler before removing chart
+                if (chartRef.wheelHandler && chartRef.container) {
+                  chartRef.container.removeEventListener('wheel', chartRef.wheelHandler);
+                }
                 chartRef.chart.remove();
               } catch {
                 // Ignore chart removal errors
@@ -321,7 +327,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             vertTouchDrag: false,
           },
           handleScale: {
-            mouseWheel: true,
+            mouseWheel: false, // Disabled - we handle wheel manually to require Ctrl key
             pinch: true,
             axisPressedMouseMove: {
               time: true,
@@ -329,6 +335,25 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             },
           },
         });
+
+        // Add custom wheel handler that requires Ctrl/Cmd key for zoom
+        const handleWheel = (e: WheelEvent) => {
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Apply zoom using timeScale
+            const timeScale = chart.timeScale();
+            const currentBarSpacing = timeScale.options().barSpacing || 5;
+            const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1; // Scroll down = zoom out, scroll up = zoom in
+            const newBarSpacing = Math.max(1, Math.min(50, currentBarSpacing * zoomFactor));
+            
+            timeScale.applyOptions({ barSpacing: newBarSpacing });
+          }
+          // If Ctrl/Cmd is not pressed, let the event bubble up for normal page scroll
+        };
+        
+        container.addEventListener('wheel', handleWheel, { passive: false });
 
         // Force resize after creation to ensure dimensions are applied
         setTimeout(() => {
@@ -347,7 +372,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
         const series = chart.addSeries(CandlestickSeries, candlestickOptions);
 
-        return { chart, series };
+        return { chart, series, wheelHandler: handleWheel };
       },
       [autoScale, isLogScale]
     );
@@ -443,9 +468,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           setError(null);
 
           // Clear existing charts
-          chartRefs.current.forEach(({ chart }) => {
+          chartRefs.current.forEach(({ chart, wheelHandler, container }) => {
             if (chart) {
               try {
+                // Remove wheel handler before removing chart
+                if (wheelHandler && container) {
+                  container.removeEventListener('wheel', wheelHandler);
+                }
                 chart.remove();
               } catch (e) {
                 // Silently handle chart removal errors
@@ -465,8 +494,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
 
             try {
-              const { chart, series } = createSingleChart(container);
-              chartRefs.current[index] = { chart, series };
+              const { chart, series, wheelHandler } = createSingleChart(container);
+              chartRefs.current[index] = { chart, series, wheelHandler, container };
 
               // Use individual chart timeframe if set, otherwise use default
               const actualTimeframe =
@@ -518,9 +547,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         clearTimeout(timeoutId);
         // Invalidate this run to prevent any pending async work from touching disposed charts
         runIdRef.current = thisRun + 1;
-        chartRefs.current.forEach(({ chart }) => {
+        chartRefs.current.forEach(({ chart, wheelHandler, container }) => {
           if (chart) {
             try {
+              // Remove wheel handler before removing chart
+              if (wheelHandler && container) {
+                container.removeEventListener('wheel', wheelHandler);
+              }
               chart.remove();
             } catch (e) {
               // Silently handle chart removal errors
@@ -559,8 +592,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         }
 
         try {
-          const { chart, series } = createSingleChart(container);
-          chartRefs.current[index] = { chart, series };
+          const { chart, series, wheelHandler } = createSingleChart(container);
+          chartRefs.current[index] = { chart, series, wheelHandler, container };
 
           const actualTimeframe = chartTimeframes[index] || timeframe.interval;
           const data = await fetchChartData(actualTimeframe);
@@ -855,11 +888,18 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                   </div>
                   
                   {!isChartCollapsed && (
-                    <div className="relative flex-1 min-h-[250px] w-full bg-background animate-in slide-in-from-top-2 fade-in duration-200">
+                    <div className="group relative flex-1 min-h-[250px] w-full bg-background animate-in slide-in-from-top-2 fade-in duration-200">
                       <div
                         ref={setContainerRef(timeframe.index)}
                         className="absolute inset-0 h-full w-full"
                       />
+                      
+                      {/* Zoom hint - shown on hover */}
+                      <div className="absolute bottom-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+                        <span className="text-[10px] text-muted-foreground bg-background/80 px-1.5 py-0.5 rounded">
+                          Ctrl + scroll to zoom
+                        </span>
+                      </div>
                       
                       {loading && (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/90 backdrop-blur-sm">
