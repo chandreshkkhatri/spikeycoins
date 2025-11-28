@@ -1,14 +1,37 @@
 import axios from 'axios';
-import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import { API_ROUTES } from './constants';
+import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState, useRef } from 'react';
+
+// Storage keys
+const ACCESS_TOKEN_KEY = 'flipSafe_accessToken';
+const REFRESH_TOKEN_KEY = 'flipSafe_refreshToken';
+const USER_KEY = 'flipSafe_user';
+
+export interface User {
+  _id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  isEmailVerified: boolean;
+  googleId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface AuthContextType {
+  user: User | null;
   isLoggedIn: boolean;
-  allowOfflineAccess: boolean;
-  loading: boolean;
+  isLoading: boolean;
   error: string | null;
-  checkAuthStatus: () => Promise<void>;
+  
+  // Auth methods
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, name: string) => Promise<void>;
+  loginWithGoogle: () => void;
   logout: () => Promise<void>;
+  
+  // Token methods
+  getAccessToken: () => string | null;
+  refreshTokens: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,91 +44,269 @@ export const useAuth = () => {
   return context;
 };
 
+// Create axios instance with auth interceptor
+const api = axios.create({
+  baseURL: '/api',
+  timeout: 10000,
+});
+
+// Add access token to requests
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 interface AuthProviderProps {
   children: ReactNode;
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [allowOfflineAccess, setAllowOfflineAccess] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const stored = localStorage.getItem(USER_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshingRef = useRef(false);
 
-  const checkAuthStatus = useCallback(async () => {
-    const cacheKey = 'authStatusCache';
-    const cacheTimeKey = 'authStatusCacheTime';
-    const cacheTime = 60000; // 1 minute cache
+  const isLoggedIn = !!user;
 
-    // Check cache first
-    const cachedData = sessionStorage.getItem(cacheKey);
-    const cacheTimestamp = sessionStorage.getItem(cacheTimeKey);
+  // Save tokens and user to storage
+  const saveAuth = useCallback((accessToken: string, refreshToken: string, userData: User) => {
+    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    localStorage.setItem(USER_KEY, JSON.stringify(userData));
+    setUser(userData);
+  }, []);
 
-    if (cachedData && cacheTimestamp) {
-      const now = Date.now();
-      if (now - parseInt(cacheTimestamp) < cacheTime) {
-        const cached = JSON.parse(cachedData);
-        setIsLoggedIn(cached.isLoggedIn);
-        setAllowOfflineAccess(cached.allowOfflineAccess);
-        setLoading(false);
+  // Clear auth data
+  const clearAuth = useCallback(() => {
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem('authStatusCache');
+    sessionStorage.removeItem('authStatusCacheTime');
+    sessionStorage.removeItem('accountsCache');
+    sessionStorage.removeItem('accountsCacheTime');
+    sessionStorage.removeItem('selectedAccountId');
+    setUser(null);
+  }, []);
+
+  // Get access token
+  const getAccessToken = useCallback((): string | null => {
+    return localStorage.getItem(ACCESS_TOKEN_KEY);
+  }, []);
+
+  // Refresh tokens
+  const refreshTokens = useCallback(async (): Promise<boolean> => {
+    if (refreshingRef.current) return false;
+    
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+    if (!refreshToken) return false;
+
+    refreshingRef.current = true;
+    
+    try {
+      const response = await axios.post('/api/auth/refresh', { refreshToken });
+      const { accessToken, refreshToken: newRefreshToken } = response.data;
+      
+      localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+      localStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
+      
+      return true;
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      clearAuth();
+      return false;
+    } finally {
+      refreshingRef.current = false;
+    }
+  }, [clearAuth]);
+
+  // Check current auth status on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+      
+      if (!token) {
+        setIsLoading(false);
         return;
       }
-    }
 
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await axios.get(API_ROUTES.auth.checkStatus, {
-        timeout: 8000,
-      });
+      try {
+        const response = await api.get('/auth/me');
+        if (response.data.success && response.data.user) {
+          setUser(response.data.user);
+          localStorage.setItem(USER_KEY, JSON.stringify(response.data.user));
+        }
+      } catch (error: any) {
+        // Token might be expired, try refresh
+        if (error.response?.status === 401) {
+          const refreshed = await refreshTokens();
+          if (refreshed) {
+            // Retry the request
+            try {
+              const retryResponse = await api.get('/auth/me');
+              if (retryResponse.data.success && retryResponse.data.user) {
+                setUser(retryResponse.data.user);
+                localStorage.setItem(USER_KEY, JSON.stringify(retryResponse.data.user));
+              }
+            } catch {
+              clearAuth();
+            }
+          }
+        } else {
+          clearAuth();
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-      const { isAuthenticated, offlineMode } = response.data;
-      setIsLoggedIn(isAuthenticated);
-      setAllowOfflineAccess(offlineMode);
+    checkAuth();
+  }, [refreshTokens, clearAuth]);
 
-      // Update cache
-      sessionStorage.setItem(
-        cacheKey,
-        JSON.stringify({ isLoggedIn: isAuthenticated, allowOfflineAccess: offlineMode })
-      );
-      sessionStorage.setItem(cacheTimeKey, Date.now().toString());
-    } catch (error: any) {
-      console.error('Error checking auth status:', error);
-      setError(error.response?.data?.error || 'Failed to check authentication');
-      setIsLoggedIn(false);
-      setAllowOfflineAccess(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const logout = useCallback(async () => {
-    try {
-      await axios.post(API_ROUTES.auth.logout);
-      setIsLoggedIn(false);
-      sessionStorage.removeItem('authStatusCache');
-      sessionStorage.removeItem('authStatusCacheTime');
-      sessionStorage.removeItem('accountsCache');
-      sessionStorage.removeItem('accountsCacheTime');
-      sessionStorage.removeItem('selectedAccountId');
-      window.location.href = '/';
-    } catch (error: any) {
-      console.error('Logout error:', error);
-      setError(error.response?.data?.error || 'Logout failed');
-    }
-  }, []);
-
+  // Handle OAuth callback
   useEffect(() => {
-    checkAuthStatus();
-  }, [checkAuthStatus]);
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('accessToken');
+    const refreshToken = params.get('refreshToken');
+
+    if (accessToken && refreshToken) {
+      // Store tokens
+      localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+      localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+
+      // Clear URL params
+      window.history.replaceState({}, '', window.location.pathname);
+
+      // Fetch user data
+      api.get('/auth/me').then((response) => {
+        if (response.data.success && response.data.user) {
+          saveAuth(accessToken, refreshToken, response.data.user);
+        }
+        setIsLoading(false);
+      }).catch(() => {
+        clearAuth();
+        setIsLoading(false);
+      });
+    }
+  }, [saveAuth, clearAuth]);
+
+  // Login with email/password
+  const login = useCallback(async (email: string, password: string) => {
+    setError(null);
+    setIsLoading(true);
+    
+    try {
+      const response = await axios.post('/api/auth/login', { email, password });
+      const { accessToken, refreshToken, user: userData } = response.data;
+      saveAuth(accessToken, refreshToken, userData);
+    } catch (error: any) {
+      const message = error.response?.data?.error || 'Login failed';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [saveAuth]);
+
+  // Register new account
+  const register = useCallback(async (email: string, password: string, name: string) => {
+    setError(null);
+    setIsLoading(true);
+    
+    try {
+      const response = await axios.post('/api/auth/register', { email, password, name });
+      const { accessToken, refreshToken, user: userData } = response.data;
+      saveAuth(accessToken, refreshToken, userData);
+    } catch (error: any) {
+      const message = error.response?.data?.error || 'Registration failed';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [saveAuth]);
+
+  // Redirect to Google OAuth
+  const loginWithGoogle = useCallback(() => {
+    window.location.href = '/api/auth/google';
+  }, []);
+
+  // Logout
+  const logout = useCallback(async () => {
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+    
+    try {
+      await axios.post('/api/auth/logout', { refreshToken });
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      clearAuth();
+      window.location.href = '/login';
+    }
+  }, [clearAuth]);
+
+  // Setup axios response interceptor for token refresh
+  useEffect(() => {
+    const interceptor = api.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config;
+        
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          originalRequest._retry = true;
+          
+          const refreshed = await refreshTokens();
+          if (refreshed) {
+            const newToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            return api(originalRequest);
+          }
+        }
+        
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      api.interceptors.response.eject(interceptor);
+    };
+  }, [refreshTokens]);
 
   const value: AuthContextType = {
+    user,
     isLoggedIn,
-    allowOfflineAccess,
-    loading,
+    isLoading,
     error,
-    checkAuthStatus,
+    login,
+    register,
+    loginWithGoogle,
     logout,
+    getAccessToken,
+    refreshTokens,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+// Export the api instance for use in other files
+export { api };
+
+// Helper hook to get auth headers
+export const useAuthHeaders = () => {
+  const { getAccessToken } = useAuth();
+  
+  return useCallback(() => {
+    const token = getAccessToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, [getAccessToken]);
 };

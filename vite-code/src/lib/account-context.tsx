@@ -47,11 +47,15 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   const [accounts, setAccounts] = useState<TradingAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { isLoggedIn, allowOfflineAccess } = useAuth();
+  const { isLoggedIn, user, getAccessToken } = useAuth();
+  
+  // Allow the app to work without authentication (using default_user fallback)
+  const allowOfflineAccess = true;
 
   const fetchAccounts = useCallback(
     async (isBackground = false) => {
-      const userId = 'default_user';
+      // Use authenticated user ID if logged in, otherwise fall back to default_user
+      const userId = user?._id || 'default_user';
 
       const cacheKey = 'accountsCache';
       const cacheTimeKey = 'accountsCacheTime';
@@ -89,10 +93,18 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
         let lastError: any = null;
         let response: any = null;
 
+        // Build headers with auth token if available
+        const headers: Record<string, string> = {};
+        const token = getAccessToken();
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+
         while (attempt <= maxRetries) {
           try {
             response = await axios.get(`${API_ROUTES.accounts.getAccounts}?userId=${userId}`, {
               timeout: 12000,
+              headers,
             });
             break;
           } catch (err: any) {
@@ -147,7 +159,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
         if (!isBackground) setLoadingAccounts(false);
       }
     },
-    [selectedAccount, isLoggedIn, allowOfflineAccess]
+    [selectedAccount, isLoggedIn, user, getAccessToken]
   );
 
   const setSelectedAccount = useCallback((account: TradingAccount | null) => {

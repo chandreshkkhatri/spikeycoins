@@ -3,9 +3,10 @@ import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account-context";
 import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/theme-context";
-import { Link, useLocation } from "react-router-dom";
-import { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useState, useRef, useEffect } from "react";
 import { PAGE_ROUTES } from "@/lib/constants";
+import { LogOut, User, LogIn } from "lucide-react";
 
 const navItems = [
   { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
@@ -19,8 +20,9 @@ const navItems = [
 
 export function Header() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { isDark, toggleTheme } = useTheme();
-  const { isLoggedIn, logout } = useAuth();
+  const { isLoggedIn, user, logout } = useAuth();
   const {
     selectedAccount,
     setSelectedAccount,
@@ -28,6 +30,20 @@ export function Header() {
     loadingAccounts: accountsLoading,
   } = useAccount();
   const [open, setOpen] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close user menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
@@ -117,14 +133,58 @@ export function Header() {
               {isDark ? "☀️" : "🌙"}
             </span>
           </button>
-          {isLoggedIn && (
+          
+          {/* User Menu */}
+          {isLoggedIn && user ? (
+            <div className="relative" ref={userMenuRef}>
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="hidden md:flex items-center gap-2 h-9 px-3 rounded-md border border-input bg-background hover:bg-accent transition-colors"
+              >
+                {user.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt={user.name}
+                    className="h-6 w-6 rounded-full"
+                  />
+                ) : (
+                  <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center">
+                    <User className="h-3 w-3 text-primary" />
+                  </div>
+                )}
+                <span className="text-sm font-medium max-w-[100px] truncate">
+                  {user.name}
+                </span>
+              </button>
+              
+              {showUserMenu && (
+                <div className="absolute right-0 top-full mt-1 w-48 rounded-md border border-border bg-popover p-1 shadow-lg z-50">
+                  <div className="px-3 py-2 border-b border-border">
+                    <p className="text-sm font-medium truncate">{user.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      logout();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-sm transition-colors"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => logout()}
-              className="hidden md:flex text-destructive hover:bg-destructive hover:text-destructive-foreground"
+              onClick={() => navigate("/login")}
+              className="hidden md:flex gap-2"
             >
-              Logout
+              <LogIn className="h-4 w-4" />
+              Sign in
             </Button>
           )}
         </div>
@@ -186,14 +246,54 @@ export function Header() {
             >
               {isDark ? "☀️ Light" : "🌙 Dark"} Mode
             </button>
-            {isLoggedIn && (
+          </div>
+          
+          {/* Mobile User Section */}
+          <div className="mt-4 pt-4 border-t border-border">
+            {isLoggedIn && user ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 px-3">
+                  {user.avatar ? (
+                    <img
+                      src={user.avatar}
+                      alt={user.name}
+                      className="h-10 w-10 rounded-full"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
+                      <User className="h-5 w-5 text-primary" />
+                    </div>
+                  )}
+                  <div className="overflow-hidden">
+                    <p className="font-medium truncate">{user.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => {
+                    setOpen(false);
+                    logout();
+                  }}
+                  className="w-full"
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign out
+                </Button>
+              </div>
+            ) : (
               <Button
                 size="sm"
-                variant="destructive"
-                onClick={() => logout()}
-                className="flex-1"
+                variant="default"
+                onClick={() => {
+                  setOpen(false);
+                  navigate("/login");
+                }}
+                className="w-full"
               >
-                Logout
+                <LogIn className="h-4 w-4 mr-2" />
+                Sign in
               </Button>
             )}
           </div>

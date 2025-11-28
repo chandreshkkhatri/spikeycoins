@@ -3,17 +3,26 @@ import Watchlist from "../models/watchlist";
 import connectDB from "../lib/mongodb";
 import binanceService from "../lib/binance-service";
 import { getInstrumentModel } from "../models/instrument";
+import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 
 const router = Router();
 
-// GET /api/watchlist - Get watchlists for a user
-router.get("/", async (req: Request, res: Response) => {
-  try {
-    const { userId, accountId } = req.query;
+// Helper to get userId - uses authenticated user or falls back to query param/body
+function getUserId(req: AuthenticatedRequest, fromBody = false): string {
+  if (req.user?.id) {
+    return req.user.id;
+  }
+  if (fromBody) {
+    return (req.body.userId as string) || "default_user";
+  }
+  return (req.query.userId as string) || "default_user";
+}
 
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
-    }
+// GET /api/watchlist - Get watchlists for a user
+router.get("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const { accountId } = req.query;
 
     await connectDB();
 
@@ -35,13 +44,14 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 // POST /api/watchlist - Create a new watchlist
-router.post("/", async (req: Request, res: Response) => {
+router.post("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { userId, accountId, name, marketType, symbols } = req.body;
+    const userId = getUserId(req, true);
+    const { accountId, name, marketType, symbols } = req.body;
 
-    if (!userId || !accountId || !name || !marketType) {
+    if (!accountId || !name || !marketType) {
       return res.status(400).json({
-        error: "userId, accountId, name, and marketType are required",
+        error: "accountId, name, and marketType are required",
       });
     }
 
@@ -69,8 +79,9 @@ router.post("/", async (req: Request, res: Response) => {
 });
 
 // GET /api/watchlist/symbols - Get symbols in a watchlist
-router.get("/symbols", async (req: Request, res: Response) => {
+router.get("/symbols", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const userId = getUserId(req);
     const { watchlistId, accountId, marketType } = req.query;
 
     await connectDB();
@@ -91,7 +102,7 @@ router.get("/symbols", async (req: Request, res: Response) => {
       // If no default watchlist exists, create one
       if (!watchlist) {
         watchlist = new Watchlist({
-          userId: "default_user", // You may want to get this from session/auth
+          userId,
           accountId,
           name: `${marketType} Watchlist`,
           marketType,

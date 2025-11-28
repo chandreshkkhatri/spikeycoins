@@ -9,6 +9,8 @@ import TradingPanelPage from "@/pages/TradingPanel";
 import TradingPage from "@/pages/Trading";
 import FundsPage from "@/pages/Funds";
 import TradingGymPage from "@/pages/TradingGym";
+import LoginPage from "@/pages/Login";
+import AuthCallbackPage from "@/pages/AuthCallback";
 
 function App() {
   return (
@@ -29,6 +31,8 @@ function App() {
       />
       <Route path={PAGE_ROUTES.TRADING_GYM} element={<TradingGymPage />} />
       <Route path={PAGE_ROUTES.TRADING} element={<TradingPage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route
         path="*"
         element={<Navigate to={PAGE_ROUTES.DASHBOARD} replace />}

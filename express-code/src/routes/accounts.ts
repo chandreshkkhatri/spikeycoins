@@ -6,19 +6,30 @@ import {
   updateAccount,
   deleteAccount,
 } from "../models/account";
+import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 
 const router = Router();
 
+// Helper to get userId - uses authenticated user or falls back to query param
+function getUserId(req: AuthenticatedRequest): string | null {
+  // If user is authenticated, always use their ID
+  if (req.user?.id) {
+    return req.user.id;
+  }
+  // Fall back to query param for legacy support
+  return (req.query.userId as string) || null;
+}
+
 // GET /api/accounts - Get all accounts for a user
-router.get("/", async (req: Request, res: Response) => {
+router.get("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { userId } = req.query;
+    const userId = getUserId(req);
 
     if (!userId) {
       return res.status(400).json({ error: "User ID is required" });
     }
 
-    const accounts = await getAccountsByUserId(userId as string);
+    const accounts = await getAccountsByUserId(userId);
 
     // Remove sensitive data before sending to client
     const safeAccounts = accounts.map((account) => ({
@@ -35,10 +46,11 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 // POST /api/accounts - Create a new account
-router.post("/", async (req: Request, res: Response) => {
+router.post("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { userId, accountType, accountName, apiKey, apiSecret, redirectUri } =
-      req.body;
+    // Get userId from auth or request body
+    const userId = req.user?.id || req.body.userId;
+    const { accountType, accountName, apiKey, apiSecret, redirectUri } = req.body;
 
     if (!userId || !accountType || !accountName || !apiKey || !apiSecret) {
       return res.status(400).json({

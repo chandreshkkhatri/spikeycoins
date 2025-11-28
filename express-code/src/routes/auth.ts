@@ -4,16 +4,379 @@ import upstoxService from "../lib/upstox-service";
 import binanceService from "../lib/binance-service";
 import connectDB from "../lib/mongodb";
 import Account from "../models/account";
+import User from "../models/user";
+import UserSettings from "../models/user-settings";
+import RefreshToken from "../models/refresh-token";
+import {
+  generateToken,
+  generateRefreshToken,
+  verifyToken,
+  requireAuth,
+  getRefreshTokenExpiry,
+  AuthenticatedRequest,
+} from "../lib/auth-middleware";
 
 const router = Router();
 
+// Google OAuth configuration
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+const GOOGLE_REDIRECT_URI =
+  process.env.GOOGLE_REDIRECT_URI || "http://localhost:8000/api/auth/google/callback";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+
 // ============================================================================
-// AUTH STATUS
+// USER AUTHENTICATION
+// ============================================================================
+
+// POST /api/auth/register - Register new user with email/password
+router.post("/register", async (req: Request, res: Response) => {
+  try {
+    const { email, password, name } = req.body;
+
+    if (!email || !password || !name) {
+      return res.status(400).json({
+        error: "Email, password, and name are required",
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        error: "Password must be at least 8 characters long",
+      });
+    }
+
+    await connectDB();
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(409).json({
+        error: "An account with this email already exists",
+      });
+    }
+
+    // Create user
+    const user = new User({
+      email: email.toLowerCase(),
+      name,
+    });
+    user.setPassword(password);
+    await user.save();
+
+    // Create default settings
+    await UserSettings.create({
+      userId: user._id,
+      theme: "system",
+      chartSettings: {},
+      watchlistSettings: {},
+      tradingDefaults: {},
+    });
+
+    // Generate tokens
+    const accessToken = generateToken(user._id.toString(), user.email);
+    const refreshToken = generateRefreshToken();
+
+    // Save refresh token
+    await RefreshToken.create({
+      userId: user._id,
+      token: refreshToken,
+      expiresAt: getRefreshTokenExpiry(),
+    });
+
+    return res.status(201).json({
+      success: true,
+      user: user.toJSON(),
+      accessToken,
+      refreshToken,
+    });
+  } catch (error) {
+    console.error("Error registering user:", error);
+    return res.status(500).json({
+      error: "Failed to register user",
+    });
+  }
+});
+
+// POST /api/auth/login - Login with email/password
+router.post("/login", async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: "Email and password are required",
+      });
+    }
+
+    await connectDB();
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(401).json({
+        error: "Invalid email or password",
+      });
+    }
+
+    if (!user.validatePassword(password)) {
+      return res.status(401).json({
+        error: "Invalid email or password",
+      });
+    }
+
+    // Generate tokens
+    const accessToken = generateToken(user._id.toString(), user.email);
+    const refreshToken = generateRefreshToken();
+
+    // Save refresh token
+    await RefreshToken.create({
+      userId: user._id,
+      token: refreshToken,
+      expiresAt: getRefreshTokenExpiry(),
+    });
+
+    // Cleanup old tokens
+    await (RefreshToken as any).cleanupOldTokens(user._id.toString());
+
+    return res.json({
+      success: true,
+      user: user.toJSON(),
+      accessToken,
+      refreshToken,
+    });
+  } catch (error) {
+    console.error("Error logging in:", error);
+    return res.status(500).json({
+      error: "Failed to login",
+    });
+  }
+});
+
+// POST /api/auth/refresh - Refresh access token
+router.post("/refresh", async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({
+        error: "Refresh token is required",
+      });
+    }
+
+    await connectDB();
+
+    // Find and validate refresh token
+    const tokenDoc = await RefreshToken.findOne({ token: refreshToken });
+    if (!tokenDoc) {
+      return res.status(401).json({
+        error: "Invalid refresh token",
+      });
+    }
+
+    if (tokenDoc.expiresAt < new Date()) {
+      await RefreshToken.deleteOne({ _id: tokenDoc._id });
+      return res.status(401).json({
+        error: "Refresh token expired",
+      });
+    }
+
+    // Get user
+    const user = await User.findById(tokenDoc.userId);
+    if (!user) {
+      await RefreshToken.deleteOne({ _id: tokenDoc._id });
+      return res.status(401).json({
+        error: "User not found",
+      });
+    }
+
+    // Generate new tokens
+    const newAccessToken = generateToken(user._id.toString(), user.email);
+    const newRefreshToken = generateRefreshToken();
+
+    // Replace old refresh token with new one
+    await RefreshToken.deleteOne({ _id: tokenDoc._id });
+    await RefreshToken.create({
+      userId: user._id,
+      token: newRefreshToken,
+      expiresAt: getRefreshTokenExpiry(),
+    });
+
+    return res.json({
+      success: true,
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    });
+  } catch (error) {
+    console.error("Error refreshing token:", error);
+    return res.status(500).json({
+      error: "Failed to refresh token",
+    });
+  }
+});
+
+// GET /api/auth/me - Get current user
+router.get("/me", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await connectDB();
+
+    const user = await User.findById(req.user!.id);
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      user: user.toJSON(),
+    });
+  } catch (error) {
+    console.error("Error getting user:", error);
+    return res.status(500).json({
+      error: "Failed to get user",
+    });
+  }
+});
+
+// ============================================================================
+// GOOGLE OAUTH
+// ============================================================================
+
+// GET /api/auth/google - Initiate Google OAuth
+router.get("/google", (req: Request, res: Response) => {
+  if (!GOOGLE_CLIENT_ID) {
+    return res.status(500).json({
+      error: "Google OAuth is not configured",
+    });
+  }
+
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    response_type: "code",
+    scope: "openid email profile",
+    access_type: "offline",
+    prompt: "consent",
+  });
+
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  return res.redirect(authUrl);
+});
+
+// GET /api/auth/google/callback - Handle Google OAuth callback
+router.get("/google/callback", async (req: Request, res: Response) => {
+  try {
+    const { code, error: oauthError } = req.query;
+
+    if (oauthError) {
+      return res.redirect(`${FRONTEND_URL}/login?error=google_auth_cancelled`);
+    }
+
+    if (!code) {
+      return res.redirect(`${FRONTEND_URL}/login?error=no_authorization_code`);
+    }
+
+    // Exchange code for tokens
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        code: code as string,
+        grant_type: "authorization_code",
+        redirect_uri: GOOGLE_REDIRECT_URI,
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      console.error("Google token exchange failed:", await tokenResponse.text());
+      return res.redirect(`${FRONTEND_URL}/login?error=google_token_failed`);
+    }
+
+    const tokens = await tokenResponse.json();
+
+    // Get user info
+    const userInfoResponse = await fetch(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+      }
+    );
+
+    if (!userInfoResponse.ok) {
+      return res.redirect(`${FRONTEND_URL}/login?error=google_userinfo_failed`);
+    }
+
+    const googleUser = await userInfoResponse.json();
+
+    await connectDB();
+
+    // Find or create user
+    const user = await (User as any).findOrCreateFromGoogle({
+      id: googleUser.id,
+      email: googleUser.email,
+      name: googleUser.name,
+      picture: googleUser.picture,
+    });
+
+    // Ensure user settings exist
+    await (UserSettings as any).getOrCreate(user._id.toString());
+
+    // Generate tokens
+    const accessToken = generateToken(user._id.toString(), user.email);
+    const refreshToken = generateRefreshToken();
+
+    // Save refresh token
+    await RefreshToken.create({
+      userId: user._id,
+      token: refreshToken,
+      expiresAt: getRefreshTokenExpiry(),
+    });
+
+    // Redirect to frontend with tokens
+    const params = new URLSearchParams({
+      accessToken,
+      refreshToken,
+    });
+
+    return res.redirect(`${FRONTEND_URL}/auth/callback?${params.toString()}`);
+  } catch (error) {
+    console.error("Error in Google callback:", error);
+    return res.redirect(`${FRONTEND_URL}/login?error=google_auth_failed`);
+  }
+});
+
+// ============================================================================
+// AUTH STATUS (Updated to check JWT)
 // ============================================================================
 
 // GET /api/auth/status - Check authentication status
 router.get("/status", async (req: Request, res: Response) => {
   try {
+    // Check for JWT token
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.substring(7);
+      const payload = verifyToken(token);
+
+      if (payload) {
+        await connectDB();
+        const user = await User.findById(payload.userId);
+        if (user) {
+          return res.json({
+            isLoggedIn: true,
+            user: user.toJSON(),
+            allowOfflineAccess: true,
+          });
+        }
+      }
+    }
+
     return res.json({
       isLoggedIn: false,
       allowOfflineAccess: true,
@@ -42,6 +405,34 @@ router.get("/logout", async (req: Request, res: Response) => {
     // Clear any session cookies if they exist
     res.clearCookie("kite_account_id");
     res.clearCookie("upstox_account_id");
+
+    return res.json({
+      success: true,
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    console.error("Error during logout:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Logout failed",
+    });
+  }
+});
+
+// POST /api/auth/logout - Handle logout with token invalidation
+router.post("/logout", async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+
+    // Clear session cookies
+    res.clearCookie("kite_account_id");
+    res.clearCookie("upstox_account_id");
+
+    // Invalidate refresh token if provided
+    if (refreshToken) {
+      await connectDB();
+      await RefreshToken.deleteOne({ token: refreshToken });
+    }
 
     return res.json({
       success: true,

@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { PAGE_ROUTES } from "@/lib/constants";
 
 export default function DashboardPage() {
-  const { isLoggedIn, allowOfflineAccess, loading: authLoading } = useAuth();
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
 
   if (authLoading) {
     return <LoadingSpinner message="Loading dashboard..." />;
@@ -101,9 +101,10 @@ export default function DashboardPage() {
               {isLoggedIn ? "Live Trading" : "Offline Mode"}
             </Badge>
           </div>
-          {!isLoggedIn && allowOfflineAccess && (
+          {!isLoggedIn && (
             <div className="rounded-md border border-yellow-200 bg-yellow-100 p-3 text-yellow-800 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200">
-              ⚠️ You are in offline mode. Some features may be limited.
+              ⚠️ You are not signed in. Your settings will only be saved locally on this device.{" "}
+              <a href="/login" className="font-medium underline">Sign in</a> to sync across devices.
             </div>
           )}
         </div>
