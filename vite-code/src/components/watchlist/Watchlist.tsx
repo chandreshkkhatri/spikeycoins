@@ -1,4 +1,10 @@
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import binanceWebSocketService from "@/lib/binance-websocket";
 import { formatPrice, formatVolume, formatPercent } from "@/lib/format-utils";
 import { upstoxWebSocket } from "@/lib/upstox-websocket";
@@ -57,6 +63,30 @@ interface WatchlistProps {
   } | null;
   marketType?: string;
 }
+
+// Helper function to format symbol name for tooltip display
+const formatSymbolForTooltip = (symbol: string, accountType?: string): string => {
+  // For Binance futures, format as "BTC/USDT Perpetual"
+  if (accountType === "binance") {
+    if (symbol.endsWith("USDT")) {
+      const base = symbol.slice(0, -4);
+      return `${base}/USDT Perpetual`;
+    }
+    if (symbol.endsWith("BUSD")) {
+      const base = symbol.slice(0, -4);
+      return `${base}/BUSD Perpetual`;
+    }
+    if (symbol.endsWith("USD")) {
+      const base = symbol.slice(0, -3);
+      return `${base}/USD`;
+    }
+  }
+  // For Indian brokers
+  if (accountType === "kite" || accountType === "upstox") {
+    return symbol.replace(":", " - ");
+  }
+  return symbol;
+};
 
 const Watchlist = memo(function Watchlist({
   accounts = [],
@@ -1013,9 +1043,23 @@ const Watchlist = memo(function Watchlist({
             }}
           >
             <div className="flex items-center gap-2 overflow-hidden">
-              <span className="truncate font-semibold text-foreground text-sm">
-                {item.symbol}
-              </span>
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="truncate font-semibold text-foreground text-sm cursor-help">
+                      {item.symbol}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs">
+                    <p className="font-medium">{formatSymbolForTooltip(item.symbol, selectedAccount?.accountType)}</p>
+                    {item.high24h > 0 && item.low24h > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        24h High: {formatPrice(item.high24h)} | Low: {formatPrice(item.low24h)}
+                      </p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
             <div className="text-right">
               <span className="font-mono text-xs font-medium text-foreground">

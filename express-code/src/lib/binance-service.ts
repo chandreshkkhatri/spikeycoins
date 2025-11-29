@@ -316,9 +316,11 @@ class BinanceService {
   /**
    * Get Futures all orders (history)
    */
-  async getFuturesAllOrders(symbol: string, limit: number = 500) {
+  async getFuturesAllOrders(symbol?: string, limit: number = 100) {
     try {
-      const signedParams = this.signRequest({ symbol, limit });
+      const params: any = { limit };
+      if (symbol) params.symbol = symbol;
+      const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
         `/fapi/v1/allOrders?${signedParams}`
       );
@@ -331,6 +333,30 @@ class BinanceService {
       throw new Error(
         error.response?.data?.msg ||
           "Failed to fetch Binance Futures order history"
+      );
+    }
+  }
+
+  /**
+   * Get Futures user trades (executed trades)
+   */
+  async getFuturesUserTrades(symbol?: string, limit: number = 50) {
+    try {
+      const params: any = { limit };
+      if (symbol) params.symbol = symbol;
+      const signedParams = this.signRequest(params);
+      const response = await this.futuresClient.get(
+        `/fapi/v1/userTrades?${signedParams}`
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures getUserTrades error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg ||
+          "Failed to fetch Binance Futures trade history"
       );
     }
   }

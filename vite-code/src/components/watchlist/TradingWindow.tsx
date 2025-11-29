@@ -12,6 +12,7 @@ import { HelpCircle } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
+import TradingPanelTabs from "./TradingPanelTabs";
 
 interface TradingWindowProps {
   symbol: string;
@@ -73,12 +74,14 @@ const TradingWindow = memo(function TradingWindow({
   const [availableBalance, setAvailableBalance] = useState<number>(0);
   const [hasUserEditedPrice, setHasUserEditedPrice] = useState(false);
   const [hasUserEditedSL, setHasUserEditedSL] = useState(false);
+  const [hasUserEditedTP, setHasUserEditedTP] = useState(false);
   const [accountDetails, setAccountDetails] = useState<any>(null);
   const [positionDetails, setPositionDetails] = useState<any>(null);
   const [exchangeMaxLeverage, setExchangeMaxLeverage] = useState<number>(125);
   const [tickSize, setTickSize] = useState<string>("0.01");
   const [stepSize, setStepSize] = useState<string>("0.001");
   const [isExponentialSlider, setIsExponentialSlider] = useState(false);
+  const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   
   // User-defined max leverage (stored in localStorage)
   const [userMaxLeverage, setUserMaxLeverage] = useState<number>(() => {
@@ -93,6 +96,11 @@ const TradingWindow = memo(function TradingWindow({
   // User-defined default risk amount
   const [defaultRiskAmount, setDefaultRiskAmount] = useState<string>(() => {
     return localStorage.getItem("flipSafe_defaultRiskAmount") || "";
+  });
+
+  // User-defined default take profit percentage (optional)
+  const [defaultTakeProfitPercent, setDefaultTakeProfitPercent] = useState<string>(() => {
+    return localStorage.getItem("flipSafe_defaultTakeProfitPercent") || "";
   });
 
   // Effective max leverage is min of exchange max and user max
@@ -116,6 +124,36 @@ const TradingWindow = memo(function TradingWindow({
     if (parseInt(orderForm.leverage) > effectiveMax) {
       setOrderForm(prev => ({ ...prev, leverage: String(effectiveMax) }));
     }
+  };
+
+  // Save default risk amount to localStorage
+  const handleDefaultRiskChange = (value: string) => {
+    setDefaultRiskAmount(value);
+    if (value) {
+      localStorage.setItem("flipSafe_defaultRiskAmount", value);
+    } else {
+      localStorage.removeItem("flipSafe_defaultRiskAmount");
+    }
+  };
+
+  // Save default take profit percentage to localStorage
+  const handleDefaultTakeProfitChange = (value: string) => {
+    setDefaultTakeProfitPercent(value);
+    if (value) {
+      localStorage.setItem("flipSafe_defaultTakeProfitPercent", value);
+    } else {
+      localStorage.removeItem("flipSafe_defaultTakeProfitPercent");
+    }
+  };
+
+  // Helper to calculate decimals from price
+  const calculatePriceDecimals = (price: number): number => {
+    if (price >= 1000) return 1;
+    if (price >= 100) return 2;
+    if (price >= 10) return 3;
+    if (price >= 1) return 4;
+    if (price >= 0.1) return 5;
+    return 6;
   };
 
   // Update price when current price changes (only if user hasn't manually edited it)
@@ -181,6 +219,36 @@ const TradingWindow = memo(function TradingWindow({
       }
     }
   }, [defaultRiskAmount, orderForm.quantity, orderForm.price, orderForm.side, tickSize]);
+
+  // Auto-calculate Take Profit based on default percentage
+  useEffect(() => {
+    if (hasUserEditedTP || !defaultTakeProfitPercent) return;
+    
+    const tpPercent = parseFloat(defaultTakeProfitPercent);
+    const price = parseFloat(orderForm.price);
+    
+    if (isNaN(tpPercent) || isNaN(price) || tpPercent <= 0 || price <= 0) return;
+    
+    let newTP = 0;
+    
+    if (orderForm.side === "BUY") {
+      // For long, TP is above entry price
+      newTP = price * (1 + tpPercent / 100);
+    } else {
+      // For short, TP is below entry price
+      newTP = price * (1 - tpPercent / 100);
+    }
+    
+    if (newTP > 0) {
+      const tick = parseFloat(tickSize);
+      const roundedTP = Math.round(newTP / tick) * tick;
+      
+      // Only update if different to avoid loops
+      if (Math.abs(roundedTP - parseFloat(orderForm.takeProfit || "0")) > Number.EPSILON) {
+        setOrderForm(prev => ({ ...prev, takeProfit: roundedTP.toFixed(calculatePriceDecimals(price)) }));
+      }
+    }
+  }, [defaultTakeProfitPercent, orderForm.price, orderForm.side, tickSize, hasUserEditedTP]);
 
   // Fetch account balance and details when account changes or symbol changes
   useEffect(() => {
@@ -272,6 +340,9 @@ const TradingWindow = memo(function TradingWindow({
     if (field === 'stopLoss') {
       setHasUserEditedSL(true);
     }
+    if (field === 'takeProfit') {
+      setHasUserEditedTP(true);
+    }
     setError(null);
     setSuccess(null);
   };
@@ -321,11 +392,35 @@ const TradingWindow = memo(function TradingWindow({
       orderForm.type === "MARKET"
         ? currentPrice
         : parseFloat(orderForm.price) || currentPrice;
-
+    const quantity = parseFloat(orderForm.quantity) || 0;
+    
+    if (entryPrice <= 0 || leverage <= 0) return "N/A";
+    
+    // Calculate position value
+    const positionValue = entryPrice * quantity;
+    
+    // Maintenance Margin Rate (MMR) - Binance uses tiered rates based on position size
+    // Simplified: 0.4% for positions < $50k, 0.5% for $50k-$250k, increasing for larger positions
+    let mmr = 0.004; // 0.4% default
+    if (positionValue >= 250000) mmr = 0.01;
+    else if (positionValue >= 50000) mmr = 0.005;
+    
+    // Initial Margin (IM) = 1/leverage
+    const im = 1 / leverage;
+    
+    // Liquidation Price Formula:
+    // For LONG: Liq Price = Entry * (1 - IM + MMR)
+    // For SHORT: Liq Price = Entry * (1 + IM - MMR)
+    // Note: This is simplified. Full formula includes accumulated funding, wallet balance, etc.
+    
     if (orderForm.side === "BUY") {
-      return (entryPrice * (1 - 1 / leverage)).toFixed(2);
+      // Long position
+      const liqPrice = entryPrice * (1 - im + mmr);
+      return liqPrice > 0 ? liqPrice.toFixed(calculatePriceDecimals(entryPrice)) : "N/A";
     } else {
-      return (entryPrice * (1 + 1 / leverage)).toFixed(2);
+      // Short position
+      const liqPrice = entryPrice * (1 + im - mmr);
+      return liqPrice.toFixed(calculatePriceDecimals(entryPrice));
     }
   };
 
@@ -433,6 +528,7 @@ const TradingWindow = memo(function TradingWindow({
         `${orderForm.side} order placed successfully for ${orderForm.quantity} ${symbol}`
       );
       onOrderPlaced();
+      setOrderRefreshTrigger(prev => prev + 1); // Trigger refresh of positions/orders tabs
 
       // Reset form
       setOrderForm((prev) => ({
@@ -542,22 +638,24 @@ const TradingWindow = memo(function TradingWindow({
                 </select>
               </div>
 
-              {/* Leverage */}
+              {/* Leverage Slider */}
               <div className="form-group">
-                <label>Leverage (Max {maxLeverage}x)</label>
-                <select
-                  value={orderForm.leverage}
-                  onChange={(e) => handleInputChange("leverage", e.target.value)}
-                  className="form-select"
-                >
-                  {[1, 2, 3, 5, 10, 20, 25, 50, 75, 100, 125]
-                    .filter((l) => l <= maxLeverage)
-                    .map((l) => (
-                      <option key={l} value={l}>
-                        {l}x
-                      </option>
-                    ))}
-                </select>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs mb-0">Leverage</label>
+                  <span className="text-xs font-medium text-primary">{orderForm.leverage}x</span>
+                </div>
+                <Slider
+                  value={[parseInt(orderForm.leverage) || 1]}
+                  min={1}
+                  max={maxLeverage}
+                  step={1}
+                  onValueChange={(value) => handleInputChange("leverage", String(value[0]))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+                  <span>1x</span>
+                  <span>{maxLeverage}x</span>
+                </div>
               </div>
 
               {/* Quantity */}
@@ -815,7 +913,20 @@ const TradingWindow = memo(function TradingWindow({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="form-group mb-0">
-                <label className="text-[10px] mb-1 block text-muted-foreground">Max Lev.</label>
+                <label className="text-[10px] mb-1 flex items-center gap-1 text-muted-foreground">
+                  Max Lev.
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[200px]">
+                        <p className="text-xs"><strong>Maximum Leverage</strong></p>
+                        <p className="text-xs text-muted-foreground">The maximum leverage multiplier to use for your trades. Higher leverage = higher risk.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </label>
                 <input
                   type="number"
                   value={userMaxLeverage}
@@ -827,7 +938,20 @@ const TradingWindow = memo(function TradingWindow({
                 />
               </div>
               <div className="form-group mb-0">
-                <label className="text-[10px] mb-1 block text-muted-foreground">Def. Risk ($)</label>
+                <label className="text-[10px] mb-1 flex items-center gap-1 text-muted-foreground">
+                  Def. Risk ($)
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[200px]">
+                        <p className="text-xs"><strong>Default Risk Amount</strong></p>
+                        <p className="text-xs text-muted-foreground">The default amount you're willing to risk per trade. Used to auto-calculate position size based on stop loss.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </label>
                 <input
                   type="number"
                   value={defaultRiskAmount}
@@ -837,6 +961,45 @@ const TradingWindow = memo(function TradingWindow({
                   min="0"
                   step="1"
                 />
+              </div>
+              <div className="form-group mb-0 col-span-2">
+                <label className="text-[10px] mb-1 flex items-center gap-1 text-muted-foreground">
+                  Def. TP (%)
+                  <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[200px]">
+                        <p className="text-xs"><strong>Default Take Profit %</strong></p>
+                        <p className="text-xs text-muted-foreground">Optional: Default percentage gain for take profit. Auto-calculates TP price based on entry. Leave empty to disable.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    value={defaultTakeProfitPercent}
+                    onChange={(e) => handleDefaultTakeProfitChange(e.target.value)}
+                    className="form-input w-full text-left px-2 py-1 h-7 text-xs"
+                    placeholder="e.g. 2"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                  />
+                  <span className="text-muted-foreground text-xs">%</span>
+                  {defaultTakeProfitPercent && (
+                    <button
+                      type="button"
+                      onClick={() => handleDefaultTakeProfitChange("")}
+                      className="text-muted-foreground hover:text-destructive text-xs px-1"
+                      title="Clear"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -966,6 +1129,15 @@ const TradingWindow = memo(function TradingWindow({
             }
           />
         </div>
+      </div>
+
+      {/* Positions, Orders, History Tabs */}
+      <div className="px-2 mt-3">
+        <TradingPanelTabs
+          selectedAccount={selectedAccount}
+          symbol={symbol}
+          refreshTrigger={orderRefreshTrigger}
+        />
       </div>
 
       {/* Spacer to allow scrolling the form up */}

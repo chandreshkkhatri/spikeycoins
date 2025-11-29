@@ -38,34 +38,23 @@ export default function DashboardPage() {
         />
 
         <EnhancedCard
+          title="Trading Gym"
+          description="Practice trading with historical data and improve your skills"
+          hoverable
+          action={
+            <Button asChild size="sm" variant="trading">
+              <Link to={PAGE_ROUTES.TRADING_GYM}>Go to Trading Gym</Link>
+            </Button>
+          }
+        />
+
+        <EnhancedCard
           title="Funds"
           description="View and manage your account balances"
           hoverable
           action={
             <Button asChild size="sm" variant="trading">
               <Link to="/funds">View Funds</Link>
-            </Button>
-          }
-        />
-
-        <EnhancedCard
-          title="Orders"
-          description="View and manage your trading orders"
-          hoverable
-          action={
-            <Button asChild size="sm" variant="trading">
-              <Link to="/orders">View Orders</Link>
-            </Button>
-          }
-        />
-
-        <EnhancedCard
-          title="Positions"
-          description="Track your current trading positions"
-          hoverable
-          action={
-            <Button asChild size="sm" variant="trading">
-              <Link to="/positions">View Positions</Link>
             </Button>
           }
         />

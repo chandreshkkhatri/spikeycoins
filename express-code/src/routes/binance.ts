@@ -350,4 +350,111 @@ router.get("/position-details", async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/binance/order-history - Get order history
+router.get("/order-history", async (req: Request, res: Response) => {
+  try {
+    const { accountId, symbol, limit } = req.query;
+
+    if (!accountId) {
+      return res.status(400).json({ error: "accountId is required" });
+    }
+
+    const account = await getAccountById(accountId as string);
+    if (!account || account.accountType !== "binance") {
+      return res.status(404).json({ error: "Binance account not found" });
+    }
+
+    binanceService.initializeWithCredentials(
+      account.apiKey,
+      account.apiSecret,
+      account.isTestnet
+    );
+
+    const orders = await binanceService.getFuturesAllOrders(
+      symbol as string | undefined,
+      parseInt(limit as string) || 50
+    );
+
+    // Filter to filled/cancelled orders (not NEW status)
+    const historyOrders = orders.filter(
+      (o: any) => o.status === "FILLED" || o.status === "CANCELED" || o.status === "EXPIRED"
+    );
+
+    return res.json({
+      success: true,
+      orders: historyOrders.map((o: any) => ({
+        id: o.orderId,
+        symbol: o.symbol,
+        side: o.side,
+        type: o.type,
+        quantity: parseFloat(o.origQty),
+        executedQty: parseFloat(o.executedQty),
+        price: parseFloat(o.price) || parseFloat(o.avgPrice),
+        avgPrice: parseFloat(o.avgPrice),
+        status: o.status,
+        time: o.time,
+        updateTime: o.updateTime,
+      })),
+    });
+  } catch (error: any) {
+    console.error("Error fetching order history:", error);
+    return res.status(500).json({
+      error: "Failed to fetch order history",
+      details: error.message,
+    });
+  }
+});
+
+// GET /api/binance/trade-history - Get trade history (executed trades)
+router.get("/trade-history", async (req: Request, res: Response) => {
+  try {
+    const { accountId, symbol, limit } = req.query;
+
+    if (!accountId) {
+      return res.status(400).json({ error: "accountId is required" });
+    }
+
+    const account = await getAccountById(accountId as string);
+    if (!account || account.accountType !== "binance") {
+      return res.status(404).json({ error: "Binance account not found" });
+    }
+
+    binanceService.initializeWithCredentials(
+      account.apiKey,
+      account.apiSecret,
+      account.isTestnet
+    );
+
+    const trades = await binanceService.getFuturesUserTrades(
+      symbol as string | undefined,
+      parseInt(limit as string) || 50
+    );
+
+    return res.json({
+      success: true,
+      trades: trades.map((t: any) => ({
+        id: t.id,
+        symbol: t.symbol,
+        side: t.side,
+        price: parseFloat(t.price),
+        qty: parseFloat(t.qty),
+        quoteQty: parseFloat(t.quoteQty),
+        realizedPnl: parseFloat(t.realizedPnl),
+        commission: parseFloat(t.commission),
+        commissionAsset: t.commissionAsset,
+        time: t.time,
+        positionSide: t.positionSide,
+        buyer: t.buyer,
+        maker: t.maker,
+      })),
+    });
+  } catch (error: any) {
+    console.error("Error fetching trade history:", error);
+    return res.status(500).json({
+      error: "Failed to fetch trade history",
+      details: error.message,
+    });
+  }
+});
+
 export default router;

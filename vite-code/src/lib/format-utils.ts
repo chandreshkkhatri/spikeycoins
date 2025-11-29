@@ -28,8 +28,9 @@ export function calculatePriceDecimals(price: number): number {
  * @param symbol - Optional currency symbol prefix
  * @returns Formatted price string
  */
-export function formatPrice(price: number, symbol: string = ""): string {
-  if (price === 0 || isNaN(price)) return `${symbol}0.00`;
+export function formatPrice(price: number | null | undefined, symbol: string = ""): string {
+  if (price === null || price === undefined || isNaN(price)) return `${symbol}0.00`;
+  if (price === 0) return `${symbol}0.00`;
   
   const decimals = calculatePriceDecimals(price);
   const formatted = price.toFixed(decimals);
@@ -49,8 +50,9 @@ export function formatPrice(price: number, symbol: string = ""): string {
  * @param volume - The volume value to format
  * @returns Formatted volume string
  */
-export function formatVolume(volume: number): string {
-  if (volume === 0 || isNaN(volume)) return "0";
+export function formatVolume(volume: number | null | undefined): string {
+  if (volume === null || volume === undefined || isNaN(volume)) return "0";
+  if (volume === 0) return "0";
   
   const absVolume = Math.abs(volume);
   
@@ -73,8 +75,8 @@ export function formatVolume(volume: number): string {
  * @param includeSign - Whether to include + sign for positive values
  * @returns Formatted percentage string
  */
-export function formatPercent(percent: number, includeSign: boolean = true): string {
-  if (isNaN(percent)) return "0.00%";
+export function formatPercent(percent: number | null | undefined, includeSign: boolean = true): string {
+  if (percent === null || percent === undefined || isNaN(percent)) return "0.00%";
   
   const sign = includeSign && percent > 0 ? "+" : "";
   return `${sign}${percent.toFixed(2)}%`;
@@ -85,8 +87,9 @@ export function formatPercent(percent: number, includeSign: boolean = true): str
  * @param quantity - The quantity value to format
  * @returns Formatted quantity string
  */
-export function formatQuantity(quantity: number): string {
-  if (quantity === 0 || isNaN(quantity)) return "0";
+export function formatQuantity(quantity: number | null | undefined): string {
+  if (quantity === null || quantity === undefined || isNaN(quantity)) return "0";
+  if (quantity === 0) return "0";
   
   if (quantity >= 1000) {
     return quantity.toLocaleString(undefined, { maximumFractionDigits: 2 });

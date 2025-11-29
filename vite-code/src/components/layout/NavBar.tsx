@@ -35,8 +35,6 @@ export default function NavBar({
     { href: PAGE_ROUTES.TRADING_PANEL, label: "Trading Panel" },
     { href: PAGE_ROUTES.TRADING_GYM, label: "Trading Gym" },
     { href: PAGE_ROUTES.FUNDS, label: "Funds" },
-    { href: PAGE_ROUTES.ORDERS, label: "Orders" },
-    { href: PAGE_ROUTES.POSITIONS, label: "Positions" },
     { href: PAGE_ROUTES.HOLDINGS, label: "Holdings" },
     { href: PAGE_ROUTES.ACCOUNTS, label: "Accounts" },
   ];

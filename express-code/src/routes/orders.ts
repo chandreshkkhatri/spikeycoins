@@ -157,6 +157,26 @@ router.post("/place", async (req: Request, res: Response) => {
         // USD(S)-M Futures - Extract special params
         const { leverage, stopLoss, takeProfit, reduceOnly, ...binanceOrderParams } = orderParams;
         
+        // Fetch exchange info to get precision
+        let quantityPrecision = 0;
+        let pricePrecision = 2;
+        try {
+          const exchangeInfo = await binanceService.getFuturesExchangeInfo();
+          const symbolInfo = exchangeInfo.symbols?.find((s: any) => s.symbol === orderParams.symbol);
+          if (symbolInfo) {
+            quantityPrecision = symbolInfo.quantityPrecision || 0;
+            pricePrecision = symbolInfo.pricePrecision || 2;
+          }
+        } catch (infoError) {
+          console.warn("Could not fetch exchange info for precision:", infoError);
+        }
+        
+        // Helper to round to precision
+        const roundToPrecision = (value: number, precision: number): number => {
+          const factor = Math.pow(10, precision);
+          return Math.floor(value * factor) / factor;
+        };
+        
         // Set leverage if provided
         if (leverage && leverage > 0) {
           try {
@@ -169,17 +189,21 @@ router.post("/place", async (req: Request, res: Response) => {
           }
         }
         
+        // Round quantity and price to correct precision
+        const roundedQuantity = roundToPrecision(binanceOrderParams.quantity, quantityPrecision);
+        const roundedPrice = binanceOrderParams.price ? roundToPrecision(binanceOrderParams.price, pricePrecision) : undefined;
+        
         // Build clean order params for Binance
         const cleanOrderParams: any = {
           symbol: binanceOrderParams.symbol,
           side: binanceOrderParams.side,
           type: binanceOrderParams.type,
-          quantity: binanceOrderParams.quantity,
+          quantity: roundedQuantity,
         };
         
         // Add price for LIMIT orders
         if (binanceOrderParams.type === "LIMIT") {
-          cleanOrderParams.price = binanceOrderParams.price;
+          cleanOrderParams.price = roundedPrice;
           cleanOrderParams.timeInForce = "GTC";
         }
         
@@ -197,12 +221,13 @@ router.post("/place", async (req: Request, res: Response) => {
         if (stopLoss && stopLoss > 0) {
           try {
             const slSide = orderParams.side === "BUY" ? "SELL" : "BUY";
+            const roundedSL = roundToPrecision(stopLoss, pricePrecision);
             await binanceService.placeFuturesOrder({
               symbol: orderParams.symbol,
               side: slSide,
               type: "STOP_MARKET",
-              quantity: orderParams.quantity,
-              stopPrice: stopLoss,
+              quantity: roundedQuantity,
+              stopPrice: roundedSL,
               reduceOnly: true,
             });
           } catch (slError: any) {
@@ -215,12 +240,13 @@ router.post("/place", async (req: Request, res: Response) => {
         if (takeProfit && takeProfit > 0) {
           try {
             const tpSide = orderParams.side === "BUY" ? "SELL" : "BUY";
+            const roundedTP = roundToPrecision(takeProfit, pricePrecision);
             await binanceService.placeFuturesOrder({
               symbol: orderParams.symbol,
               side: tpSide,
               type: "TAKE_PROFIT_MARKET",
-              quantity: orderParams.quantity,
-              stopPrice: takeProfit,
+              quantity: roundedQuantity,
+              stopPrice: roundedTP,
               reduceOnly: true,
             });
           } catch (tpError: any) {
