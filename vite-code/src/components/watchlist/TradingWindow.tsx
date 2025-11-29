@@ -563,22 +563,20 @@ const TradingWindow = memo(function TradingWindow({
                   />
                 </div>
               ) : (
-                <div className="form-group">
-                  <label className="label-with-tooltip">
-                    Reduce Only
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <HelpCircle className="tooltip-icon" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="max-w-[200px] text-xs">
-                          When enabled, this order will only reduce your existing position, not increase it.
-                          Useful for closing positions without accidentally opening a new one.
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </label>
-                  <div className="checkbox-container">
+                <div className="form-group flex flex-row items-center gap-2">
+                  <label className="mb-0 text-xs font-semibold whitespace-nowrap">Reduce Only</label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-[200px] text-xs">
+                        When enabled, this order will only reduce your existing position, not increase it.
+                        Useful for closing positions without accidentally opening a new one.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <div className="flex items-center gap-1.5 ml-2">
                     <input
                       type="checkbox"
                       id="reduceOnly"
@@ -586,11 +584,9 @@ const TradingWindow = memo(function TradingWindow({
                       onChange={(e) =>
                         handleInputChange("reduceOnly", e.target.checked)
                       }
-                      className="form-checkbox"
+                      className="form-checkbox w-3.5 h-3.5"
                     />
-                    <label htmlFor="reduceOnly" className="checkbox-label">
-                      Yes
-                    </label>
+                    <label htmlFor="reduceOnly" className="mb-0 text-xs cursor-pointer">Yes</label>
                   </div>
                 </div>
               )}
@@ -629,22 +625,20 @@ const TradingWindow = memo(function TradingWindow({
 
               {/* Reduce Only when Limit is selected */}
               {orderForm.type === "LIMIT" && (
-                <div className="form-group">
-                  <label className="label-with-tooltip">
-                    Reduce Only
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <HelpCircle className="tooltip-icon" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="max-w-[200px] text-xs">
-                          When enabled, this order will only reduce your existing position, not increase it.
-                          Useful for closing positions without accidentally opening a new one.
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </label>
-                  <div className="checkbox-container">
+                <div className="form-group flex flex-row items-center gap-2">
+                  <label className="mb-0 text-xs font-semibold whitespace-nowrap">Reduce Only</label>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-[200px] text-xs">
+                        When enabled, this order will only reduce your existing position, not increase it.
+                        Useful for closing positions without accidentally opening a new one.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <div className="flex items-center gap-1.5 ml-2">
                     <input
                       type="checkbox"
                       id="reduceOnlyLimit"
@@ -652,11 +646,9 @@ const TradingWindow = memo(function TradingWindow({
                       onChange={(e) =>
                         handleInputChange("reduceOnly", e.target.checked)
                       }
-                      className="form-checkbox"
+                      className="form-checkbox w-3.5 h-3.5"
                     />
-                    <label htmlFor="reduceOnlyLimit" className="checkbox-label">
-                      Yes
-                    </label>
+                    <label htmlFor="reduceOnlyLimit" className="mb-0 text-xs cursor-pointer">Yes</label>
                   </div>
                 </div>
               )}
@@ -702,21 +694,27 @@ const TradingWindow = memo(function TradingWindow({
                   </span>
                   <span
                     className="cursor-pointer hover:text-primary"
-                    onClick={() => handleSliderCommit([25])}
+                    onClick={() => handleSliderCommit([20])}
                   >
-                    25%
+                    {isExponentialSlider ? "4%" : "20%"}
                   </span>
                   <span
                     className="cursor-pointer hover:text-primary"
-                    onClick={() => handleSliderCommit([50])}
+                    onClick={() => handleSliderCommit([40])}
                   >
-                    50%
+                    {isExponentialSlider ? "16%" : "40%"}
                   </span>
                   <span
                     className="cursor-pointer hover:text-primary"
-                    onClick={() => handleSliderCommit([75])}
+                    onClick={() => handleSliderCommit([60])}
                   >
-                    75%
+                    {isExponentialSlider ? "36%" : "60%"}
+                  </span>
+                  <span
+                    className="cursor-pointer hover:text-primary"
+                    onClick={() => handleSliderCommit([80])}
+                  >
+                    {isExponentialSlider ? "64%" : "80%"}
                   </span>
                   <span
                     className="cursor-pointer hover:text-primary"
@@ -1076,6 +1074,7 @@ const TradingWindow = memo(function TradingWindow({
           display: flex;
           align-items: center;
           gap: 4px;
+          white-space: nowrap;
         }
 
         .tooltip-icon {
