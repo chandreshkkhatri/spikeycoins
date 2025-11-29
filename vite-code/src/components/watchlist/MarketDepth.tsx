@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, useMemo, useRef } from "react";
 import { formatPrice, formatQuantity, calculatePriceDecimals } from "@/lib/format-utils";
+import { GripHorizontal } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -71,6 +72,7 @@ const MarketDepth = memo(function MarketDepth({
   const [precision, setPrecision] = useState<number | null>(null);
   const [availablePrecisions, setAvailablePrecisions] = useState<number[]>([]);
   const [lastSymbol, setLastSymbol] = useState<string>("");
+  const [rowCount, setRowCount] = useState(7);
 
   // Throttle state updates to reduce re-renders
   const throttleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -219,11 +221,12 @@ const MarketDepth = memo(function MarketDepth({
         }
       };
 
-      ws.onerror = (error) => {
+      ws.onerror = () => {
         if (isCleanedUp) return;
         // Only log error if we haven't closed explicitly
-        if (ws?.readyState !== WebSocket.CLOSED) {
-          console.warn(`Order book WebSocket error for ${symbol}:`, error);
+        if (ws?.readyState !== WebSocket.CLOSED && ws?.readyState !== WebSocket.CLOSING) {
+          // Suppress connection errors during unmount/remount cycles
+          // console.warn(`Order book WebSocket error for ${symbol}:`, error);
         }
         setWsConnected(false);
       };
@@ -280,31 +283,55 @@ const MarketDepth = memo(function MarketDepth({
 
   const displayAsks = useMemo(() => {
     if (precision && precision > 0) {
-      // Aggregate and take bottom 15 (closest to price)
+      // Aggregate and take bottom N (closest to price)
       // aggregateOrders returns sorted ascending for asks
       const aggregated = aggregateOrders(rawAsks, precision, 'ask');
       // We want to show the lowest asks at the bottom of the list
       // So we take the first N (lowest prices) and reverse them
-      return aggregated.slice(0, 15).reverse();
+      return aggregated.slice(0, rowCount).reverse();
     }
-    // If no precision, just take first 15 and reverse
-    return rawAsks.slice(0, 15).reverse();
-  }, [rawAsks, precision]);
+    // If no precision, just take first N and reverse
+    return rawAsks.slice(0, rowCount).reverse();
+  }, [rawAsks, precision, rowCount]);
 
   const displayBids = useMemo(() => {
     if (precision && precision > 0) {
-      // Aggregate and take top 15 (closest to price)
+      // Aggregate and take top N (closest to price)
       // aggregateOrders returns sorted descending for bids
       const aggregated = aggregateOrders(rawBids, precision, 'bid');
-      return aggregated.slice(0, 15);
+      return aggregated.slice(0, rowCount);
     }
-    return rawBids.slice(0, 15);
-  }, [rawBids, precision]);
+    return rawBids.slice(0, rowCount);
+  }, [rawBids, precision, rowCount]);
 
   // Calculate decimal places based on current price or selected precision
   const priceDecimals = precision 
     ? Math.max(0, Math.round(-Math.log10(precision)))
     : calculatePriceDecimals(currentPrice);
+
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startRows = rowCount;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      // Approx 20px per row pair (ask+bid) change? 
+      // Actually each row is ~24px. Changing rowCount by 1 adds 1 ask AND 1 bid = 48px total height change.
+      // Let's make it sensitive enough.
+      const steps = Math.round(deltaY / 30); 
+      const newRows = Math.min(12, Math.max(7, startRows + steps));
+      setRowCount(newRows);
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
 
   return (
     <div className="market-depth">
@@ -361,18 +388,45 @@ const MarketDepth = memo(function MarketDepth({
           </div>
         ))}
       </div>
+      
+      {/* Resize Handle */}
+      <div 
+        className="resize-handle"
+        onMouseDown={handleResizeMouseDown}
+      >
+        <GripHorizontal className="w-4 h-4 text-muted-foreground/50" />
+      </div>
+
       <style>{`
         .market-depth {
           font-size: 0.8rem;
-          width: 250px;
-          border-left: 1px solid #e5e5e5;
+          width: 100%;
           display: flex;
           flex-direction: column;
           background: #fff;
+          position: relative;
         }
         .dark .market-depth {
-          border-left: 1px solid #27272a;
           background: #09090b;
+        }
+        .resize-handle {
+          height: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: ns-resize;
+          border-top: 1px solid #e5e5e5;
+          background: #f9fafb;
+        }
+        .resize-handle:hover {
+          background: #f3f4f6;
+        }
+        .dark .resize-handle {
+          border-top: 1px solid #27272a;
+          background: #18181b;
+        }
+        .dark .resize-handle:hover {
+          background: #27272a;
         }
         .depth-toolbar {
           display: flex;

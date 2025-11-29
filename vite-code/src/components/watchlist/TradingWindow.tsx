@@ -1,7 +1,15 @@
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { formatPercent, formatPrice } from "@/lib/format-utils";
 import axios from "axios";
-import { memo, useEffect, useState } from "react";
+import { HelpCircle } from "lucide-react";
+import { memo, useEffect, useMemo, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
 
@@ -64,6 +72,46 @@ const TradingWindow = memo(function TradingWindow({
   const [success, setSuccess] = useState<string | null>(null);
   const [availableBalance, setAvailableBalance] = useState<number>(0);
   const [hasUserEditedPrice, setHasUserEditedPrice] = useState(false);
+  const [hasUserEditedSL, setHasUserEditedSL] = useState(false);
+  const [accountDetails, setAccountDetails] = useState<any>(null);
+  const [positionDetails, setPositionDetails] = useState<any>(null);
+  const [exchangeMaxLeverage, setExchangeMaxLeverage] = useState<number>(125);
+  const [tickSize, setTickSize] = useState<string>("0.01");
+  const [stepSize, setStepSize] = useState<string>("0.001");
+  const [isExponentialSlider, setIsExponentialSlider] = useState(false);
+  
+  // User-defined max leverage (stored in localStorage)
+  const [userMaxLeverage, setUserMaxLeverage] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("flipSafe_userMaxLeverage");
+      return stored ? parseInt(stored, 10) : 20;
+    } catch {
+      return 20;
+    }
+  });
+  
+  // Effective max leverage is min of exchange max and user max
+  const maxLeverage = Math.min(exchangeMaxLeverage, userMaxLeverage);
+
+  // Helper to round value to nearest step size
+  const roundToStep = (value: number, step: string): string => {
+    const stepNum = parseFloat(step);
+    if (stepNum <= 0 || isNaN(stepNum)) return value.toFixed(8);
+    const decimals = step.includes('.') ? step.split('.')[1].replace(/0+$/, '').length : 0;
+    const rounded = Math.round(value / stepNum) * stepNum;
+    return rounded.toFixed(decimals);
+  };
+
+  // Save user max leverage to localStorage
+  const handleUserMaxLeverageChange = (value: number) => {
+    setUserMaxLeverage(value);
+    localStorage.setItem("flipSafe_userMaxLeverage", String(value));
+    // Also update form leverage if current is higher than new max
+    const effectiveMax = Math.min(exchangeMaxLeverage, value);
+    if (parseInt(orderForm.leverage) > effectiveMax) {
+      setOrderForm(prev => ({ ...prev, leverage: String(effectiveMax) }));
+    }
+  };
 
   // Update price when current price changes (only if user hasn't manually edited it)
   useEffect(() => {
@@ -72,30 +120,109 @@ const TradingWindow = memo(function TradingWindow({
     }
   }, [currentPrice, orderForm.type, hasUserEditedPrice]);
 
-  // Fetch account balance when account changes
+  // Auto-calculate Stop Loss based on 5% risk rule
   useEffect(() => {
-    const fetchBalance = async () => {
+    if (hasUserEditedSL || !availableBalance || !orderForm.quantity) return;
+
+    const qty = parseFloat(orderForm.quantity);
+    const entryPrice = orderForm.type === "LIMIT" ? parseFloat(orderForm.price) : currentPrice;
+    
+    if (qty > 0 && entryPrice > 0) {
+      // Risk 5% of total capital
+      const riskAmount = availableBalance * 0.05;
+      const priceDiff = riskAmount / qty;
+      
+      let slPrice;
+      if (orderForm.side === "BUY") {
+        slPrice = entryPrice - priceDiff;
+      } else {
+        slPrice = entryPrice + priceDiff;
+      }
+      
+      // Ensure SL is positive and round to tick size
+      if (slPrice > 0) {
+        setOrderForm(prev => ({ ...prev, stopLoss: roundToStep(slPrice, tickSize) }));
+      }
+    }
+  }, [orderForm.quantity, orderForm.price, orderForm.side, currentPrice, availableBalance, hasUserEditedSL]);
+
+  // Fetch account balance and details when account changes or symbol changes
+  useEffect(() => {
+    const fetchDetails = async () => {
       if (!selectedAccount) return;
+
       try {
-        const response = await axios.get(
-          `/api/funds?accountId=${selectedAccount._id}`
-        );
-        if (response.data && response.data.available) {
-          // Assuming response structure has available balance
-          // Adjust based on actual API response structure
-          setAvailableBalance(parseFloat(response.data.available) || 0);
-        } else if (response.data && response.data.data) {
-           // Handle different response structures
-           const balance = response.data.data.availableCash || response.data.data.net || 0;
-           setAvailableBalance(parseFloat(balance));
+        // If Binance account, use the detailed endpoint
+        if (selectedAccount.accountType === "binance") {
+          const response = await axios.get("/api/binance/position-details", {
+            params: {
+              accountId: selectedAccount._id,
+              symbol: symbol,
+            },
+          });
+
+          if (response.data && response.data.success) {
+            setAccountDetails(response.data.account);
+            setPositionDetails(response.data.position);
+            
+            // Set exchange max leverage from symbol info
+            let newExchangeMaxLeverage = 125; // default
+            if (response.data.symbolInfo?.maxLeverage) {
+              newExchangeMaxLeverage = response.data.symbolInfo.maxLeverage;
+            } else if (response.data.position?.maxLeverage) {
+              newExchangeMaxLeverage = response.data.position.maxLeverage;
+            }
+            setExchangeMaxLeverage(newExchangeMaxLeverage);
+            
+            // Set tick size and step size for price/quantity inputs
+            if (response.data.symbolInfo?.tickSize) {
+              setTickSize(response.data.symbolInfo.tickSize);
+            }
+            if (response.data.symbolInfo?.stepSize) {
+              setStepSize(response.data.symbolInfo.stepSize);
+            }
+            
+            // Calculate effective max leverage
+            const effectiveMaxLeverage = Math.min(newExchangeMaxLeverage, userMaxLeverage);
+            
+            // Set default leverage to effective max (or current position leverage if exists)
+            const currentPositionLeverage = response.data.position?.leverage;
+            const defaultLeverage = currentPositionLeverage 
+              ? Math.min(currentPositionLeverage, effectiveMaxLeverage)
+              : effectiveMaxLeverage;
+            setOrderForm(prev => ({
+              ...prev,
+              leverage: String(defaultLeverage)
+            }));
+
+            // Use available balance for new orders, fallback to equity
+            const equity = response.data.account.equity || 0;
+            const available = response.data.account.availableBalance || equity;
+            setAvailableBalance(available);
+          }
+        } else {
+          // Fallback for other account types
+          const response = await axios.get(
+            `/api/funds?accountId=${selectedAccount._id}`
+          );
+          if (response.data && response.data.available) {
+            setAvailableBalance(parseFloat(response.data.available) || 0);
+          } else if (response.data && response.data.data) {
+            const balance =
+              response.data.data.availableCash || response.data.data.net || 0;
+            setAvailableBalance(parseFloat(balance));
+          }
         }
       } catch (err) {
-        console.error("Failed to fetch balance:", err);
+        console.error("Failed to fetch account details:", err);
       }
     };
 
-    fetchBalance();
-  }, [selectedAccount]);
+    fetchDetails();
+    // Poll every 5 seconds
+    const interval = setInterval(fetchDetails, 5000);
+    return () => clearInterval(interval);
+  }, [selectedAccount, symbol]);
 
   const handleInputChange = (
     field: keyof OrderForm,
@@ -106,14 +233,41 @@ const TradingWindow = memo(function TradingWindow({
     if (field === 'price') {
       setHasUserEditedPrice(true);
     }
+    if (field === 'stopLoss') {
+      setHasUserEditedSL(true);
+    }
     setError(null);
     setSuccess(null);
   };
 
   const handleSliderChange = (value: number[]) => {
-    const percentage = value[0];
+    let percentage = value[0];
+    if (isExponentialSlider) {
+      // Map slider (0-100) to percentage (0-100) exponentially
+      // y = 100 * (x/100)^2
+      percentage = 100 * Math.pow(value[0] / 100, 2);
+    }
+    // Round to integer
+    percentage = Math.round(percentage);
+    
     setPositionSizePercentage(percentage);
     setQuickQuantity(percentage);
+  };
+
+  const handleSliderCommit = (value: number[]) => {
+    let percentage = value[0];
+    if (isExponentialSlider) {
+      percentage = 100 * Math.pow(value[0] / 100, 2);
+      // No snapping for exponential mode to allow fine control
+      const rounded = Math.round(percentage);
+      setPositionSizePercentage(rounded);
+      setQuickQuantity(rounded);
+    } else {
+      // Snap to nearest 10% on commit (mouse up / click) for linear mode
+      const snapped = Math.round(percentage / 10) * 10;
+      setPositionSizePercentage(snapped);
+      setQuickQuantity(snapped);
+    }
   };
 
   const calculateOrderValue = () => {
@@ -139,22 +293,44 @@ const TradingWindow = memo(function TradingWindow({
     }
   };
 
+  // Calculate risked amount based on stop loss
+  const calculateRiskedAmount = useMemo(() => {
+    const qty = parseFloat(orderForm.quantity) || 0;
+    const entryPrice =
+      orderForm.type === "MARKET"
+        ? currentPrice
+        : parseFloat(orderForm.price) || currentPrice;
+    const slPrice = parseFloat(orderForm.stopLoss) || 0;
+
+    if (qty <= 0 || entryPrice <= 0 || slPrice <= 0) {
+      return { amount: 0, percentage: 0 };
+    }
+
+    let priceDiff: number;
+    if (orderForm.side === "BUY") {
+      priceDiff = entryPrice - slPrice;
+    } else {
+      priceDiff = slPrice - entryPrice;
+    }
+
+    const riskAmount = Math.abs(priceDiff * qty);
+    const riskPercentage = availableBalance > 0 ? (riskAmount / availableBalance) * 100 : 0;
+
+    return { amount: riskAmount, percentage: riskPercentage };
+  }, [orderForm.quantity, orderForm.price, orderForm.stopLoss, orderForm.side, orderForm.type, currentPrice, availableBalance]);
+
   const setQuickQuantity = (percentage: number) => {
     if (availableBalance > 0 && currentPrice > 0) {
       const leverage = parseFloat(orderForm.leverage) || 1;
       const maxPositionValue = availableBalance * leverage;
-      const quantity = (
-        (maxPositionValue / currentPrice) *
-        (percentage / 100)
-      ).toFixed(6);
+      const rawQuantity = (maxPositionValue / currentPrice) * (percentage / 100);
+      const quantity = roundToStep(rawQuantity, stepSize);
       handleInputChange("quantity", quantity);
     } else {
       // Fallback if balance not available
       const baseAmount = 1000;
-      const quantity = (
-        (baseAmount / currentPrice) *
-        (percentage / 100)
-      ).toFixed(6);
+      const rawQuantity = (baseAmount / currentPrice) * (percentage / 100);
+      const quantity = roundToStep(rawQuantity, stepSize);
       handleInputChange("quantity", quantity);
     }
   };
@@ -209,7 +385,7 @@ const TradingWindow = memo(function TradingWindow({
       };
 
       const response = await axios.post(
-        "/api/trading/binance/place-order",
+        "/api/orders/place",
         orderData
       );
 
@@ -249,6 +425,51 @@ const TradingWindow = memo(function TradingWindow({
     );
   }
 
+  // Build price lines for the chart
+  const chartPriceLines = [];
+  
+  // Order price line (for limit orders)
+  if (orderForm.type === "LIMIT" && orderForm.price) {
+    const price = parseFloat(orderForm.price);
+    if (price > 0) {
+      chartPriceLines.push({
+        price,
+        color: orderForm.side === "BUY" ? "#22c55e" : "#ef4444", // Green for buy, red for sell
+        lineWidth: 2,
+        lineStyle: 0, // Solid
+        title: `${orderForm.side} @ ${price}`,
+      });
+    }
+  }
+  
+  // Stop Loss line
+  if (orderForm.stopLoss) {
+    const slPrice = parseFloat(orderForm.stopLoss);
+    if (slPrice > 0) {
+      chartPriceLines.push({
+        price: slPrice,
+        color: "#f97316", // Orange
+        lineWidth: 1,
+        lineStyle: 2, // Dashed
+        title: `SL ${slPrice}`,
+      });
+    }
+  }
+  
+  // Take Profit line
+  if (orderForm.takeProfit) {
+    const tpPrice = parseFloat(orderForm.takeProfit);
+    if (tpPrice > 0) {
+      chartPriceLines.push({
+        price: tpPrice,
+        color: "#3b82f6", // Blue
+        lineWidth: 1,
+        lineStyle: 2, // Dashed
+        title: `TP ${tpPrice}`,
+      });
+    }
+  }
+
   return (
     <div className="trading-window">
       <MultiTimeframeChart
@@ -258,6 +479,7 @@ const TradingWindow = memo(function TradingWindow({
           accounts.find((a) => a._id === orderForm.accountId)?.accountType
         }
         marketType={marketType}
+        priceLines={chartPriceLines}
       />
       <div className="trading-header">
         <h3>{symbol} Trading</h3>
@@ -265,17 +487,284 @@ const TradingWindow = memo(function TradingWindow({
       </div>
 
       <div className="trading-content">
-        <MarketDepth
-          symbol={symbol}
-          currentPrice={currentPrice}
-          onPriceSelect={(price) => handleInputChange("price", price)}
-          accountType={selectedAccount?.accountType}
-          marketType={marketType === "futures" ? "binance-futures" : "binance-spot"}
-        />
+        <div className="market-depth-panel">
+          <MarketDepth
+            symbol={symbol}
+            currentPrice={currentPrice}
+            onPriceSelect={(price) => handleInputChange("price", price)}
+            accountType={selectedAccount?.accountType}
+            marketType={
+              marketType === "futures" ? "binance-futures" : "binance-spot"
+            }
+          />
+        </div>
 
-        <div className="trading-form">
-          {/* Order Side - Full Width */}
-          <div className="form-group full-width">
+        <TooltipProvider>
+          <div className="trading-form">
+            {/* Two Column Grid */}
+            <div className="form-grid">
+              {/* Order Type */}
+              <div className="form-group">
+                <label>Type</label>
+                <select
+                  value={orderForm.type}
+                  onChange={(e) => handleInputChange("type", e.target.value as any)}
+                  className="form-select"
+                >
+                  <option value="MARKET">Market</option>
+                  <option value="LIMIT">Limit</option>
+                  <option value="STOP_MARKET">Stop Market</option>
+                  <option value="TAKE_PROFIT_MARKET">Take Profit Mkt</option>
+                </select>
+              </div>
+
+              {/* Leverage */}
+              <div className="form-group">
+                <label>Leverage (Max {maxLeverage}x)</label>
+                <select
+                  value={orderForm.leverage}
+                  onChange={(e) => handleInputChange("leverage", e.target.value)}
+                  className="form-select"
+                >
+                  {[1, 2, 3, 5, 10, 20, 25, 50, 75, 100, 125]
+                    .filter((l) => l <= maxLeverage)
+                    .map((l) => (
+                      <option key={l} value={l}>
+                        {l}x
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Quantity */}
+              <div className="form-group">
+                <label>Quantity</label>
+                <input
+                  type="number"
+                  value={orderForm.quantity}
+                  onChange={(e) => handleInputChange("quantity", e.target.value)}
+                  className="form-input"
+                  placeholder="0.001"
+                  step={stepSize}
+                />
+              </div>
+
+              {/* Price (for limit orders) */}
+              {orderForm.type === "LIMIT" ? (
+                <div className="form-group">
+                  <label>Price</label>
+                  <input
+                    type="number"
+                    value={orderForm.price}
+                    onChange={(e) => handleInputChange("price", e.target.value)}
+                    className="form-input"
+                    placeholder={currentPrice.toFixed(2)}
+                    step={tickSize}
+                  />
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label className="label-with-tooltip">
+                    Reduce Only
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="tooltip-icon" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="max-w-[200px] text-xs">
+                          When enabled, this order will only reduce your existing position, not increase it.
+                          Useful for closing positions without accidentally opening a new one.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </label>
+                  <div className="checkbox-container">
+                    <input
+                      type="checkbox"
+                      id="reduceOnly"
+                      checked={orderForm.reduceOnly}
+                      onChange={(e) =>
+                        handleInputChange("reduceOnly", e.target.checked)
+                      }
+                      className="form-checkbox"
+                    />
+                    <label htmlFor="reduceOnly" className="checkbox-label">
+                      Yes
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Stop Loss with Risk Amount */}
+              <div className="form-group">
+                <label>Stop Loss *</label>
+                <input
+                  type="number"
+                  value={orderForm.stopLoss}
+                  onChange={(e) => handleInputChange("stopLoss", e.target.value)}
+                  className="form-input"
+                  placeholder="SL Price"
+                  step={tickSize}
+                  required
+                />
+                {calculateRiskedAmount.amount > 0 && (
+                  <div className={`risk-amount ${calculateRiskedAmount.percentage > 5 ? 'risk-high' : 'risk-normal'}`}>
+                    Risk: ${calculateRiskedAmount.amount.toFixed(2)} ({calculateRiskedAmount.percentage.toFixed(1)}%)
+                  </div>
+                )}
+              </div>
+
+              {/* Take Profit */}
+              <div className="form-group">
+                <label>Take Profit</label>
+                <input
+                  type="number"
+                  value={orderForm.takeProfit}
+                  onChange={(e) => handleInputChange("takeProfit", e.target.value)}
+                  className="form-input"
+                  placeholder="TP Price"
+                  step={tickSize}
+                />
+              </div>
+
+              {/* Reduce Only when Limit is selected */}
+              {orderForm.type === "LIMIT" && (
+                <div className="form-group">
+                  <label className="label-with-tooltip">
+                    Reduce Only
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <HelpCircle className="tooltip-icon" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="max-w-[200px] text-xs">
+                          When enabled, this order will only reduce your existing position, not increase it.
+                          Useful for closing positions without accidentally opening a new one.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </label>
+                  <div className="checkbox-container">
+                    <input
+                      type="checkbox"
+                      id="reduceOnlyLimit"
+                      checked={orderForm.reduceOnly}
+                      onChange={(e) =>
+                        handleInputChange("reduceOnly", e.target.checked)
+                      }
+                      className="form-checkbox"
+                    />
+                    <label htmlFor="reduceOnlyLimit" className="checkbox-label">
+                      Yes
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Slider and Summary Grid */}
+            <div className="form-grid">
+              {/* Position Sizing Slider */}
+              <div className="form-group">
+                <div className="flex justify-between items-center mb-1">
+                  <label className="mb-0">Position Size: <span className="slider-value-display">{positionSizePercentage}%</span></label>
+                  <div className="flex items-center gap-1.5">
+                    <input 
+                      type="checkbox" 
+                      id="expSlider" 
+                      checked={isExponentialSlider} 
+                      onChange={(e) => setIsExponentialSlider(e.target.checked)} 
+                      className="form-checkbox w-3 h-3"
+                    />
+                    <label htmlFor="expSlider" className="text-[10px] cursor-pointer text-muted-foreground mb-0">Exp. Spacing</label>
+                  </div>
+                </div>
+                <div className="slider-wrapper">
+                  <Slider
+                    value={[
+                      isExponentialSlider 
+                        ? 100 * Math.sqrt(positionSizePercentage / 100) 
+                        : positionSizePercentage
+                    ]}
+                    onValueChange={handleSliderChange}
+                    onValueCommit={handleSliderCommit}
+                    max={100}
+                    step={1}
+                    className="position-slider"
+                  />
+                </div>
+                <div className="slider-labels">
+                  <span
+                    className="cursor-pointer hover:text-primary"
+                    onClick={() => handleSliderCommit([0])}
+                  >
+                    0%
+                  </span>
+                  <span
+                    className="cursor-pointer hover:text-primary"
+                    onClick={() => handleSliderCommit([25])}
+                  >
+                    25%
+                  </span>
+                  <span
+                    className="cursor-pointer hover:text-primary"
+                    onClick={() => handleSliderCommit([50])}
+                  >
+                    50%
+                  </span>
+                  <span
+                    className="cursor-pointer hover:text-primary"
+                    onClick={() => handleSliderCommit([75])}
+                  >
+                    75%
+                  </span>
+                  <span
+                    className="cursor-pointer hover:text-primary"
+                    onClick={() => handleSliderCommit([100])}
+                  >
+                    100%
+                  </span>
+                </div>
+              </div>
+
+              {/* Order Summary */}
+              <div className="order-summary">
+                <div className="summary-row">
+                  <span>Order Value:</span>
+                  <span>${calculateOrderValue()}</span>
+                </div>
+                <div className="summary-row">
+                  <span>Liquidation Price:</span>
+                  <span>${calculateLiquidationPrice()}</span>
+                </div>
+                <div className="summary-row">
+                  <span>Available:</span>
+                  <span>${availableBalance.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Error/Success Messages */}
+            {error && <div className="error-message">{error}</div>}
+            {success && <div className="success-message">{success}</div>}
+
+            {/* Submit Button */}
+            <Button
+              variant={orderForm.side === "BUY" ? "success" : "danger"}
+              size="sm"
+              disabled={isSubmitting}
+              onClick={submitOrder}
+              className="w-full"
+            >
+              {isSubmitting ? "Placing Order..." : `${orderForm.side} ${symbol}`}
+            </Button>
+          </div>
+        </TooltipProvider>
+
+        {/* Right Side - Account Info and Position Details */}
+        <div className="trading-info-panel">
+          {/* Order Side - At Top of Info Panel */}
+          <div className="form-group full-width mb-4">
             <label>Side</label>
             <div className="button-group">
               <Button
@@ -297,188 +786,136 @@ const TradingWindow = memo(function TradingWindow({
             </div>
           </div>
 
-          {/* Two Column Grid */}
-          <div className="form-grid">
-            {/* Order Type */}
-            <div className="form-group">
-              <label>Type</label>
-              <select
-                value={orderForm.type}
-                onChange={(e) => handleInputChange("type", e.target.value as any)}
-                className="form-select"
-              >
-                <option value="MARKET">Market</option>
-                <option value="LIMIT">Limit</option>
-                <option value="STOP_MARKET">Stop Market</option>
-                <option value="TAKE_PROFIT_MARKET">Take Profit Mkt</option>
-              </select>
-            </div>
-
-            {/* Leverage */}
-            <div className="form-group">
-              <label>Leverage</label>
-              <select
-                value={orderForm.leverage}
-                onChange={(e) => handleInputChange("leverage", e.target.value)}
-                className="form-select"
-              >
-                <option value="1">1x</option>
-                <option value="2">2x</option>
-                <option value="3">3x</option>
-                <option value="5">5x</option>
-                <option value="10">10x</option>
-                <option value="20">20x</option>
-                <option value="50">50x</option>
-                <option value="100">100x</option>
-              </select>
-            </div>
-
-            {/* Quantity */}
-            <div className="form-group">
-              <label>Quantity</label>
-              <input
-                type="number"
-                value={orderForm.quantity}
-                onChange={(e) => handleInputChange("quantity", e.target.value)}
-                className="form-input"
-                placeholder="0.001"
-                step="0.000001"
-              />
-            </div>
-
-            {/* Price (for limit orders) */}
-            {orderForm.type === "LIMIT" ? (
-              <div className="form-group">
-                <label>Price</label>
-                <input
-                  type="number"
-                  value={orderForm.price}
-                  onChange={(e) => handleInputChange("price", e.target.value)}
-                  className="form-input"
-                  placeholder={currentPrice.toFixed(2)}
-                  step="0.01"
-                />
-              </div>
-            ) : (
-              <div className="form-group">
-                <label>Reduce Only</label>
-                <div className="checkbox-container">
-                  <input
-                    type="checkbox"
-                    id="reduceOnly"
-                    checked={orderForm.reduceOnly}
-                    onChange={(e) =>
-                      handleInputChange("reduceOnly", e.target.checked)
-                    }
-                    className="form-checkbox"
-                  />
-                  <label htmlFor="reduceOnly" className="checkbox-label">
-                    Yes
-                  </label>
-                </div>
-              </div>
-            )}
-
-            {/* Stop Loss */}
-            <div className="form-group">
-              <label>Stop Loss *</label>
-              <input
-                type="number"
-                value={orderForm.stopLoss}
-                onChange={(e) => handleInputChange("stopLoss", e.target.value)}
-                className="form-input"
-                placeholder="SL Price"
-                step="0.01"
-                required
-              />
-            </div>
-
-            {/* Take Profit */}
-            <div className="form-group">
-              <label>Take Profit</label>
-              <input
-                type="number"
-                value={orderForm.takeProfit}
-                onChange={(e) => handleInputChange("takeProfit", e.target.value)}
-                className="form-input"
-                placeholder="TP Price"
-                step="0.01"
-              />
-            </div>
-
-            {/* Reduce Only when Limit is selected */}
-            {orderForm.type === "LIMIT" && (
-              <div className="form-group">
-                <label>Reduce Only</label>
-                <div className="checkbox-container">
-                  <input
-                    type="checkbox"
-                    id="reduceOnlyLimit"
-                    checked={orderForm.reduceOnly}
-                    onChange={(e) =>
-                      handleInputChange("reduceOnly", e.target.checked)
-                    }
-                    className="form-checkbox"
-                  />
-                  <label htmlFor="reduceOnlyLimit" className="checkbox-label">
-                    Yes
-                  </label>
-                </div>
-              </div>
-            )}
+          {/* User Max Leverage Setting - Below Side Selection */}
+          <div className="form-group max-lev-group">
+            <label>Your Max Lev.</label>
+            <input
+              type="number"
+              value={userMaxLeverage}
+              onChange={(e) => handleUserMaxLeverageChange(parseInt(e.target.value) || 1)}
+              className="form-input max-lev-input"
+              min="1"
+              max="125"
+              step="1"
+            />
           </div>
 
-          {/* Position Sizing Slider - Full Width */}
-          <div className="form-group full-width">
-            <label>Position Size</label>
-            <div className="slider-container">
-              <Slider
-                value={[positionSizePercentage]}
-                onValueChange={handleSliderChange}
-                max={100}
-                step={10}
-                className="w-full"
-              />
-              <div className="slider-labels">
-                <span>0%</span>
-                <span>50%</span>
-                <span>100%</span>
+          {/* Account Details */}
+          {accountDetails && (
+            <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
+              <div className="font-medium text-muted-foreground mb-1">
+                Account Info
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Margin Ratio</span>
+                <span
+                  className={
+                    accountDetails.marginRatio > 80
+                      ? "text-red-500 font-medium"
+                      : "text-green-500 font-medium"
+                  }
+                >
+                  {formatPercent(accountDetails.marginRatio)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Maint. Margin</span>
+                <span>${formatPrice(accountDetails.maintenanceMargin)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Equity</span>
+                <span className="font-medium">
+                  ${formatPrice(accountDetails.equity)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Available</span>
+                <span>${formatPrice(accountDetails.availableBalance)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Position Value</span>
+                <span>${formatPrice(accountDetails.positionValue)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Actual Leverage</span>
+                <span>{accountDetails.actualLeverage?.toFixed(2)}x</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Unrealized PNL</span>
+                <span
+                  className={
+                    accountDetails.unrealizedPNL >= 0
+                      ? "text-green-500"
+                      : "text-red-500"
+                  }
+                >
+                  ${formatPrice(accountDetails.unrealizedPNL)}
+                </span>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Order Summary */}
-          <div className="order-summary">
-            <div className="summary-row">
-              <span>Order Value:</span>
-              <span>${calculateOrderValue()}</span>
+          {/* Position Details */}
+          {positionDetails && (
+            <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
+              <div className="font-medium text-muted-foreground mb-1 flex justify-between">
+                <span>Position: {positionDetails.symbol}</span>
+                <span
+                  className={
+                    positionDetails.size > 0 ? "text-green-500" : "text-red-500"
+                  }
+                >
+                  {positionDetails.size > 0 ? "LONG" : "SHORT"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Size</span>
+                <span>{Math.abs(positionDetails.size)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Entry Price</span>
+                <span>{formatPrice(positionDetails.entryPrice)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Mark Price</span>
+                <span>{formatPrice(positionDetails.markPrice)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Liq. Price</span>
+                <span className="text-orange-500 font-medium">
+                  {formatPrice(positionDetails.liquidationPrice)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Margin</span>
+                <span>{formatPrice(positionDetails.margin)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">PNL (ROI)</span>
+                <span
+                  className={
+                    positionDetails.pnl >= 0
+                      ? "text-green-500 font-medium"
+                      : "text-red-500 font-medium"
+                  }
+                >
+                  {formatPrice(positionDetails.pnl)} (
+                  {formatPercent(positionDetails.roi)})
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Est. Funding</span>
+                <span className="text-yellow-500">
+                  {formatPrice(positionDetails.estFundingFee)}
+                </span>
+              </div>
             </div>
-            <div className="summary-row">
-              <span>Liquidation Price:</span>
-              <span>${calculateLiquidationPrice()}</span>
-            </div>
-            <div className="summary-row">
-              <span>Available:</span>
-              <span>${availableBalance.toFixed(2)}</span>
-            </div>
-          </div>
-
-          {/* Error/Success Messages */}
-          {error && <div className="error-message">{error}</div>}
-          {success && <div className="success-message">{success}</div>}
-
-          {/* Submit Button */}
-          <Button
-            variant={orderForm.side === "BUY" ? "success" : "danger"}
-            size="sm"
-            disabled={isSubmitting}
-            onClick={submitOrder}
-            className="w-full"
-          >
-            {isSubmitting ? "Placing Order..." : `${orderForm.side} ${symbol}`}
-          </Button>
+          )}
         </div>
       </div>
+
+      {/* Spacer to allow scrolling the form up */}
+      <div className="h-[25vh] w-full shrink-0" />
 
       <style>{`
         .trading-window {
@@ -533,24 +970,90 @@ const TradingWindow = memo(function TradingWindow({
         .trading-content {
           display: flex;
           flex-shrink: 0;
+          gap: 0; /* Remove gap, handle with padding/borders */
+          align-items: flex-start;
+          border-bottom: 1px solid #e9ecef;
+        }
+
+        .dark .trading-content {
+          border-bottom: 1px solid #27272a;
+        }
+
+        .market-depth-panel {
+          flex: 0 0 220px;
+          max-width: 220px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          border-right: 1px solid #e9ecef;
+          background: #ffffff;
+        }
+
+        .dark .market-depth-panel {
+          border-right: 1px solid #27272a;
+          background: #09090b;
         }
 
         .trading-form {
           flex: 1;
-          padding: 12px;
-          max-width: 100%;
+          min-width: 320px;
+          padding: 16px;
           background: #ffffff;
+          border-right: 1px solid #e9ecef;
         }
 
         .dark .trading-form {
           background: #09090b !important;
+          border-right: 1px solid #27272a;
+        }
+
+        .trading-info-panel {
+          flex: 0 0 240px;
+          max-width: 240px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          padding: 16px;
+          background: #f8f9fa;
+        }
+
+        .dark .trading-info-panel {
+          background: #18181b;
+        }
+
+        .max-lev-group {
+          display: flex;
+          align-items: center;
+          justify-content: flex-start;
+          width: 100%;
+          gap: 12px;
+          margin-bottom: 0;
+          margin-left: 0;
+          padding-left: 0;
+          padding-bottom: 12px;
+          border-bottom: 1px solid #e9ecef;
+        }
+
+        .dark .max-lev-group {
+          border-bottom: 1px solid #27272a;
+        }
+
+        .max-lev-group label {
+          margin-bottom: 0 !important;
+          white-space: nowrap;
+          font-size: 0.75rem;
+        }
+
+        .max-lev-input {
+          width: 70px !important;
+          text-align: left; /* Left align text inside input */
         }
 
         .form-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 8px 12px;
-          margin-bottom: 12px;
+          gap: 12px 16px;
+          margin-bottom: 16px;
         }
 
         .form-group {
@@ -558,26 +1061,61 @@ const TradingWindow = memo(function TradingWindow({
         }
 
         .form-group.full-width {
-          margin-bottom: 12px;
+          margin-bottom: 16px;
         }
 
         .form-group label {
           display: block;
-          margin-bottom: 3px;
-          font-size: 0.7rem;
+          margin-bottom: 4px;
+          font-size: 0.75rem;
           font-weight: 600;
           color: var(--foreground);
+        }
+
+        .label-with-tooltip {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .tooltip-icon {
+          width: 12px;
+          height: 12px;
+          color: var(--muted-foreground);
+          cursor: help;
+        }
+
+        .tooltip-icon:hover {
+          color: var(--foreground);
+        }
+
+        .risk-amount {
+          font-size: 0.65rem;
+          margin-top: 2px;
+          padding: 2px 4px;
+          border-radius: 2px;
+        }
+
+        .risk-normal {
+          color: #22c55e;
+          background: rgba(34, 197, 94, 0.1);
+        }
+
+        .risk-high {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
         }
 
         .form-input,
         .form-select {
           width: 100%;
-          padding: 5px 6px;
+          padding: 8px 10px;
           border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 0.75rem;
+          border-radius: 6px;
+          font-size: 0.85rem;
           background: #ffffff;
           color: #333;
+          height: 36px;
         }
 
         .dark .form-input,
@@ -597,11 +1135,29 @@ const TradingWindow = memo(function TradingWindow({
         .button-group {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 4px;
+          gap: 8px;
         }
 
-        .slider-container {
-          padding: 4px 0;
+        .slider-wrapper {
+          padding: 12px 0;
+        }
+
+        .position-slider {
+          height: 24px;
+        }
+
+        .position-slider [data-radix-slider-track] {
+          height: 6px;
+        }
+
+        .position-slider [data-radix-slider-thumb] {
+          width: 20px;
+          height: 20px;
+        }
+
+        .slider-value-display {
+          font-weight: 700;
+          color: var(--primary);
         }
 
         .slider-labels {
@@ -610,6 +1166,17 @@ const TradingWindow = memo(function TradingWindow({
           font-size: 0.65rem;
           color: var(--muted-foreground);
           margin-top: 2px;
+          padding: 4px 0;
+        }
+
+        .slider-labels span {
+          padding: 4px 8px;
+          border-radius: 4px;
+          transition: background-color 0.15s;
+        }
+
+        .slider-labels span:hover {
+          background-color: var(--accent);
         }
 
         .checkbox-container {
@@ -640,22 +1207,27 @@ const TradingWindow = memo(function TradingWindow({
         .order-summary {
           background: #f8f9fa;
           color: #333;
-          padding: 6px 8px;
-          border-radius: 4px;
-          margin-bottom: 8px;
+          padding: 12px;
+          border-radius: 6px;
+          border: 1px solid #e9ecef;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          height: 100%;
         }
 
         .dark .order-summary {
           background: #27272a !important;
           color: #ffffff !important;
+          border: 1px solid #3f3f46;
         }
 
         .summary-row {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          font-size: 0.7rem;
-          margin-bottom: 2px;
+          font-size: 0.8rem;
+          margin-bottom: 4px;
         }
 
         .summary-row:last-child {
@@ -694,6 +1266,17 @@ const TradingWindow = memo(function TradingWindow({
         @media (max-width: 768px) {
           .trading-content {
             flex-direction: column;
+          }
+
+          .trading-form {
+            flex: 1;
+            max-width: 100%;
+          }
+
+          .trading-info-panel {
+            flex: 1;
+            max-width: 100%;
+            padding: 12px;
           }
 
           .form-grid {

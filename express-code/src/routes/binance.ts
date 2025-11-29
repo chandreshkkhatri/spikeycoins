@@ -209,4 +209,145 @@ router.post("/margin-type", async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/binance/position-details - Get detailed position info including calculated values
+router.get("/position-details", async (req: Request, res: Response) => {
+  try {
+    const { accountId, symbol } = req.query;
+
+    if (!accountId) {
+      return res.status(400).json({ error: "accountId is required" });
+    }
+
+    const account = await getAccountById(accountId as string);
+    if (!account) return res.status(404).json({ error: "Account not found" });
+    if (account.accountType !== "binance") return res.status(400).json({ error: "Not a Binance account" });
+
+    const isTestnet = account.metadata?.testnet || false;
+    binanceService.initializeWithCredentials(account.apiKey, account.apiSecret, isTestnet);
+
+    // Fetch all necessary data in parallel
+    const [accountInfo, positions, leverageBrackets, premiumIndex, exchangeInfo] = await Promise.all([
+      binanceService.getFuturesAccount(),
+      binanceService.getFuturesPositions(),
+      binanceService.getFuturesLeverageBrackets(symbol as string),
+      binanceService.getFuturesPremiumIndex(symbol as string),
+      symbol ? binanceService.getFuturesExchangeInfo() : Promise.resolve(null)
+    ]);
+
+    // Get symbol filters for tick size and quantity precision
+    let tickSize = "0.01";
+    let stepSize = "0.001";
+    if (exchangeInfo && symbol) {
+      const symbolInfo = exchangeInfo.symbols?.find((s: any) => s.symbol === symbol);
+      if (symbolInfo) {
+        const priceFilter = symbolInfo.filters?.find((f: any) => f.filterType === "PRICE_FILTER");
+        const lotSizeFilter = symbolInfo.filters?.find((f: any) => f.filterType === "LOT_SIZE");
+        if (priceFilter?.tickSize) tickSize = priceFilter.tickSize;
+        if (lotSizeFilter?.stepSize) stepSize = lotSizeFilter.stepSize;
+      }
+    }
+
+    // 1. Account Level Calculations
+    const totalMaintMargin = parseFloat(accountInfo.totalMaintMargin);
+    const totalMarginBalance = parseFloat(accountInfo.totalMarginBalance);
+    const totalPositionInitialMargin = parseFloat(accountInfo.totalPositionInitialMargin);
+    const totalUnrealizedProfit = parseFloat(accountInfo.totalUnrealizedProfit);
+    const availableBalance = parseFloat(accountInfo.availableBalance);
+    
+    // Account Margin Ratio = Maintenance Margin / Margin Balance
+    const accountMarginRatio = totalMarginBalance > 0 ? (totalMaintMargin / totalMarginBalance) * 100 : 0;
+    
+    // Actual Leverage = Total Notional / Margin Balance
+    // Note: totalNotional isn't directly in accountInfo v2, usually sum of abs(position.notional)
+    // But we can approximate or calculate from positions if needed. 
+    // For now, let's use what we have or calculate from positions list.
+    let totalNotional = 0;
+    positions.forEach((p: any) => {
+      totalNotional += Math.abs(parseFloat(p.notional));
+    });
+    const actualAccountLeverage = totalMarginBalance > 0 ? totalNotional / totalMarginBalance : 0;
+
+    // 2. Position Level Calculations (if symbol provided)
+    let positionDetails = null;
+    let symbolMaxLeverage = 20; // Default safe value
+
+    if (symbol) {
+      const position = positions.find((p: any) => p.symbol === symbol as string);
+      const bracket = Array.isArray(leverageBrackets) ? leverageBrackets[0] : leverageBrackets; // if symbol passed, returns object or array of 1
+      const funding = Array.isArray(premiumIndex) ? premiumIndex.find((p: any) => p.symbol === symbol) : premiumIndex;
+      
+      // Get max leverage from brackets
+      if (bracket && bracket.brackets && bracket.brackets.length > 0) {
+        symbolMaxLeverage = bracket.brackets[0].initialLeverage;
+      }
+
+      if (position) {
+        const entryPrice = parseFloat(position.entryPrice);
+        const markPrice = parseFloat(position.markPrice);
+        const size = parseFloat(position.positionAmt);
+        const leverage = parseFloat(position.leverage);
+        const unrealizedProfit = parseFloat(position.unRealizedProfit);
+        const initialMargin = parseFloat(position.initialMargin); // Position Margin
+        
+        // ROI %
+        const roi = initialMargin > 0 ? (unrealizedProfit / initialMargin) * 100 : 0;
+
+        // Est. Funding Fee = Size * Mark Price * Funding Rate
+        const fundingRate = funding ? parseFloat(funding.lastFundingRate) : 0;
+        const estFundingFee = Math.abs(size * markPrice) * fundingRate;
+
+        // Break Even Price (Approximate, ignoring fees for now or using standard 0.04% taker)
+        // Long: Entry * (1 + fee), Short: Entry * (1 - fee)
+        const TAKER_FEE = 0.0004; // 0.04%
+        const breakEvenPrice = size > 0 
+          ? entryPrice * (1 + TAKER_FEE * 2) // Entry + Exit fee
+          : entryPrice * (1 - TAKER_FEE * 2);
+
+        positionDetails = {
+          symbol: position.symbol,
+          size,
+          entryPrice,
+          markPrice,
+          liquidationPrice: parseFloat(position.liquidationPrice),
+          margin: initialMargin,
+          marginRatio: position.maintMargin / position.marginBalance, // Position specific if isolated
+          pnl: unrealizedProfit,
+          roi,
+          estFundingFee,
+          breakEvenPrice,
+          leverage,
+          marginType: position.marginType,
+          maxLeverage: symbolMaxLeverage
+        };
+      }
+    }
+
+    return res.json({
+      success: true,
+      account: {
+        marginRatio: accountMarginRatio,
+        maintenanceMargin: totalMaintMargin,
+        equity: totalMarginBalance,
+        availableBalance: availableBalance,
+        positionValue: totalNotional,
+        actualLeverage: actualAccountLeverage,
+        unrealizedPNL: totalUnrealizedProfit
+      },
+      position: positionDetails,
+      symbolInfo: symbol ? {
+        maxLeverage: symbolMaxLeverage,
+        tickSize,
+        stepSize
+      } : null
+    });
+
+  } catch (error: any) {
+    console.error("Error fetching position details:", error);
+    return res.status(500).json({
+      error: "Failed to fetch position details",
+      details: error.message,
+    });
+  }
+});
+
 export default router;

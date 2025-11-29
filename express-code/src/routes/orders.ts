@@ -154,8 +154,80 @@ router.post("/place", async (req: Request, res: Response) => {
       );
 
       if (tradingSegment === "usdm") {
-        // USD(S)-M Futures
-        result = await binanceService.placeFuturesOrder(orderParams);
+        // USD(S)-M Futures - Extract special params
+        const { leverage, stopLoss, takeProfit, reduceOnly, ...binanceOrderParams } = orderParams;
+        
+        // Set leverage if provided
+        if (leverage && leverage > 0) {
+          try {
+            await binanceService.changeFuturesLeverage(orderParams.symbol, leverage);
+          } catch (leverageError: any) {
+            // Ignore "No need to change leverage" errors
+            if (!leverageError.message?.includes("No need to change")) {
+              console.warn("Failed to set leverage:", leverageError.message);
+            }
+          }
+        }
+        
+        // Build clean order params for Binance
+        const cleanOrderParams: any = {
+          symbol: binanceOrderParams.symbol,
+          side: binanceOrderParams.side,
+          type: binanceOrderParams.type,
+          quantity: binanceOrderParams.quantity,
+        };
+        
+        // Add price for LIMIT orders
+        if (binanceOrderParams.type === "LIMIT") {
+          cleanOrderParams.price = binanceOrderParams.price;
+          cleanOrderParams.timeInForce = "GTC";
+        }
+        
+        // Add reduceOnly if true (but not for initial position orders)
+        if (reduceOnly) {
+          cleanOrderParams.reduceOnly = true;
+        }
+        
+        console.log("Placing Binance futures order:", cleanOrderParams);
+        
+        // Place main order
+        result = await binanceService.placeFuturesOrder(cleanOrderParams);
+        
+        // Place stop loss order if provided
+        if (stopLoss && stopLoss > 0) {
+          try {
+            const slSide = orderParams.side === "BUY" ? "SELL" : "BUY";
+            await binanceService.placeFuturesOrder({
+              symbol: orderParams.symbol,
+              side: slSide,
+              type: "STOP_MARKET",
+              quantity: orderParams.quantity,
+              stopPrice: stopLoss,
+              reduceOnly: true,
+            });
+          } catch (slError: any) {
+            console.warn("Failed to place stop loss order:", slError.message);
+            // Don't fail the main order, just log
+          }
+        }
+        
+        // Place take profit order if provided
+        if (takeProfit && takeProfit > 0) {
+          try {
+            const tpSide = orderParams.side === "BUY" ? "SELL" : "BUY";
+            await binanceService.placeFuturesOrder({
+              symbol: orderParams.symbol,
+              side: tpSide,
+              type: "TAKE_PROFIT_MARKET",
+              quantity: orderParams.quantity,
+              stopPrice: takeProfit,
+              reduceOnly: true,
+            });
+          } catch (tpError: any) {
+            console.warn("Failed to place take profit order:", tpError.message);
+            // Don't fail the main order, just log
+          }
+        }
       } else {
         // Spot
         result = await binanceService.placeSpotOrder(orderParams);

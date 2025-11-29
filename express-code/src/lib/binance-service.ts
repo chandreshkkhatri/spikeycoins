@@ -351,6 +351,7 @@ class BinanceService {
       | "TAKE_PROFIT_MARKET";
     quantity: number;
     price?: number;
+    stopPrice?: number;
     timeInForce?: "GTC" | "IOC" | "FOK" | "GTX";
     reduceOnly?: boolean;
   }) {
@@ -434,6 +435,55 @@ class BinanceService {
       throw new Error(
         error.response?.data?.msg ||
           "Failed to change Binance Futures margin type"
+      );
+    }
+  }
+
+  /**
+   * Get Futures leverage brackets
+   * Contains info about allowed leverage and margin requirements
+   */
+  async getFuturesLeverageBrackets(symbol?: string) {
+    try {
+      const params = symbol ? { symbol } : {};
+      const signedParams = this.signRequest(params);
+      const response = await this.futuresClient.get(
+        `/fapi/v1/leverageBracket?${signedParams}`
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures getLeverageBrackets error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg ||
+          "Failed to fetch Binance Futures leverage brackets"
+      );
+    }
+  }
+
+  /**
+   * Get Futures premium index (funding rates)
+   */
+  async getFuturesPremiumIndex(symbol?: string) {
+    try {
+      const params = symbol ? { symbol } : {};
+      // Public endpoint, no signature needed usually, but client is configured with headers
+      // Using public client or just removing signature for this one if needed.
+      // premiumIndex is public, doesn't need signature.
+      const response = await this.futuresClient.get(
+        `/fapi/v1/premiumIndex`, { params }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures getPremiumIndex error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg ||
+          "Failed to fetch Binance Futures premium index"
       );
     }
   }

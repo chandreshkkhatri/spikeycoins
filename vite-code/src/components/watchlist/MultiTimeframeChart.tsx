@@ -13,6 +13,7 @@ import {
   createChart,
   IChartApi,
   ISeriesApi,
+  LineWidth,
   UTCTimestamp,
 } from "lightweight-charts";
 import {
@@ -27,11 +28,20 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
+interface PriceLine {
+  price: number;
+  color: string;
+  lineWidth?: number;
+  lineStyle?: number; // 0 = Solid, 1 = Dotted, 2 = Dashed, 3 = LargeDashed
+  title?: string;
+}
+
 interface MultiTimeframeChartProps {
   symbol: string;
   accountId?: string;
   accountType?: "binance" | "kite" | "upstox";
   marketType?: "spot" | "futures";
+  priceLines?: PriceLine[];
 }
 
 const DEFAULT_TIMEFRAMES = [
@@ -87,7 +97,7 @@ const AVAILABLE_TIMEFRAMES = [
 ];
 
 const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
-  ({ symbol, accountId, accountType, marketType }) => {
+  ({ symbol, accountId, accountType, marketType, priceLines }) => {
     // Use default symbol (BTCUSDT) if none provided
     const displaySymbol = symbol || "BTCUSDT";
     const isDefaultSymbol = !symbol;
@@ -107,6 +117,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       series: ISeriesApi<"Candlestick"> | null;
       wheelHandler?: (e: WheelEvent) => void;
       container?: HTMLDivElement;
+      priceLineRefs?: any[];
     }[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -138,6 +149,41 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         collapsedCharts,
       });
     }, [selectedTimeframes, chartTimeframes, autoScale, isLogScale, isCollapsed, collapsedCharts]);
+
+    // Update price lines on all charts when they change
+    useEffect(() => {
+      chartRefs.current.forEach((chartRef) => {
+        if (!chartRef?.series) return;
+
+        // Remove existing price lines
+        if (chartRef.priceLineRefs) {
+          chartRef.priceLineRefs.forEach((line) => {
+            try {
+              chartRef.series?.removePriceLine(line);
+            } catch {
+              // Line might already be removed
+            }
+          });
+          chartRef.priceLineRefs = [];
+        }
+
+        // Add new price lines
+        if (priceLines && priceLines.length > 0) {
+          chartRef.priceLineRefs = priceLines
+            .filter((pl) => pl.price > 0)
+            .map((pl) => {
+              return chartRef.series?.createPriceLine({
+                price: pl.price,
+                color: pl.color,
+                lineWidth: (pl.lineWidth || 1) as LineWidth,
+                lineStyle: pl.lineStyle ?? 2, // Default to dashed
+                axisLabelVisible: true,
+                title: pl.title || "",
+              });
+            });
+        }
+      });
+    }, [priceLines]);
 
     const resetToDefaults = () => {
       setSelectedTimeframes(DEFAULT_TIMEFRAMES);

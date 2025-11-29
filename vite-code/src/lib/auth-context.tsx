@@ -132,12 +132,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Check current auth status on mount
   useEffect(() => {
+    const isTokenExpired = (token: string) => {
+      try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(window.atob(base64));
+        return payload.exp * 1000 < Date.now();
+      } catch {
+        return true;
+      }
+    };
+
     const checkAuth = async () => {
       const token = localStorage.getItem(ACCESS_TOKEN_KEY);
       
       if (!token) {
         setIsLoading(false);
         return;
+      }
+
+      // Check if token is expired locally to avoid 401 error
+      if (isTokenExpired(token)) {
+        const refreshed = await refreshTokens();
+        if (!refreshed) {
+          clearAuth();
+          setIsLoading(false);
+          return;
+        }
+        // If refreshed, the new token is in localStorage and will be used by api interceptor
       }
 
       try {
@@ -147,7 +169,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           localStorage.setItem(USER_KEY, JSON.stringify(response.data.user));
         }
       } catch (error: any) {
-        // Token might be expired, try refresh
+        // Token might be expired (if local check failed or clock skew), try refresh
         if (error.response?.status === 401) {
           const refreshed = await refreshTokens();
           if (refreshed) {
