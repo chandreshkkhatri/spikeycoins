@@ -10,9 +10,9 @@
 }
 
 .main-content {
-  margin-top: 16px;
+  margin-top: 8px;
   padding-bottom: 0;
-  height: calc(100vh - 80px);
+  height: calc(100vh - 72px);
   overflow: hidden;
 }
 
@@ -26,12 +26,16 @@
 
 @media (max-width: 960px) {
   .main-content {
-    margin-top: 56px;
+    margin-top: 8px;
   }
 }
 
 @media (max-width: 640px) {
+  .main-content {
+    margin-top: 4px;
+  }
+  
   .container {
-    padding: 0 0.75rem;
+    padding: 0 0.5rem;
   }
 }

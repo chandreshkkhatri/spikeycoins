@@ -90,6 +90,11 @@ const TradingWindow = memo(function TradingWindow({
     }
   });
   
+  // User-defined default risk amount
+  const [defaultRiskAmount, setDefaultRiskAmount] = useState<string>(() => {
+    return localStorage.getItem("flipSafe_defaultRiskAmount") || "";
+  });
+
   // Effective max leverage is min of exchange max and user max
   const maxLeverage = Math.min(exchangeMaxLeverage, userMaxLeverage);
 
@@ -145,6 +150,37 @@ const TradingWindow = memo(function TradingWindow({
       }
     }
   }, [orderForm.quantity, orderForm.price, orderForm.side, currentPrice, availableBalance, hasUserEditedSL]);
+
+  // Update SL when defaultRiskAmount, quantity, price, or side changes
+  useEffect(() => {
+    if (!defaultRiskAmount || !orderForm.quantity || !orderForm.price) return;
+    
+    const risk = parseFloat(defaultRiskAmount);
+    const qty = parseFloat(orderForm.quantity);
+    const price = parseFloat(orderForm.price);
+    
+    if (isNaN(risk) || isNaN(qty) || isNaN(price) || qty === 0) return;
+    
+    const riskPerUnit = risk / qty;
+    let newSL = 0;
+    
+    if (orderForm.side === "BUY") {
+      newSL = price - riskPerUnit;
+    } else {
+      newSL = price + riskPerUnit;
+    }
+    
+    if (newSL > 0) {
+      // Round to tick size
+      const tick = parseFloat(tickSize);
+      const roundedSL = Math.round(newSL / tick) * tick;
+      
+      // Only update if different to avoid loops
+      if (Math.abs(roundedSL - parseFloat(orderForm.stopLoss || "0")) > Number.EPSILON) {
+        setOrderForm(prev => ({ ...prev, stopLoss: roundedSL.toFixed(calculatePriceDecimals(price)) }));
+      }
+    }
+  }, [defaultRiskAmount, orderForm.quantity, orderForm.price, orderForm.side, tickSize]);
 
   // Fetch account balance and details when account changes or symbol changes
   useEffect(() => {
@@ -487,18 +523,6 @@ const TradingWindow = memo(function TradingWindow({
       </div>
 
       <div className="trading-content">
-        <div className="market-depth-panel">
-          <MarketDepth
-            symbol={symbol}
-            currentPrice={currentPrice}
-            onPriceSelect={(price) => handleInputChange("price", price)}
-            accountType={selectedAccount?.accountType}
-            marketType={
-              marketType === "futures" ? "binance-futures" : "binance-spot"
-            }
-          />
-        </div>
-
         <TooltipProvider>
           <div className="trading-form">
             {/* Two Column Grid */}
@@ -784,24 +808,43 @@ const TradingWindow = memo(function TradingWindow({
             </div>
           </div>
 
-          {/* User Max Leverage Setting - Below Side Selection */}
-          <div className="form-group max-lev-group">
-            <label>Your Max Lev.</label>
-            <input
-              type="number"
-              value={userMaxLeverage}
-              onChange={(e) => handleUserMaxLeverageChange(parseInt(e.target.value) || 1)}
-              className="form-input max-lev-input"
-              min="1"
-              max="125"
-              step="1"
-            />
+          {/* Config Section */}
+          <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
+            <div className="font-medium text-muted-foreground mb-2 text-[1rem]">
+              Config
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="form-group mb-0">
+                <label className="text-[10px] mb-1 block text-muted-foreground">Max Lev.</label>
+                <input
+                  type="number"
+                  value={userMaxLeverage}
+                  onChange={(e) => handleUserMaxLeverageChange(parseInt(e.target.value) || 1)}
+                  className="form-input w-full text-left px-2 py-1 h-7 text-xs"
+                  min="1"
+                  max="125"
+                  step="1"
+                />
+              </div>
+              <div className="form-group mb-0">
+                <label className="text-[10px] mb-1 block text-muted-foreground">Def. Risk ($)</label>
+                <input
+                  type="number"
+                  value={defaultRiskAmount}
+                  onChange={(e) => handleDefaultRiskChange(e.target.value)}
+                  className="form-input w-full text-left px-2 py-1 h-7 text-xs"
+                  placeholder="Auto SL"
+                  min="0"
+                  step="1"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Account Details */}
           {accountDetails && (
             <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
-              <div className="font-medium text-muted-foreground mb-1">
+              <div className="font-medium text-muted-foreground mb-1 text-[1rem]">
                 Account Info
               </div>
               <div className="flex justify-between items-center">
@@ -910,6 +953,19 @@ const TradingWindow = memo(function TradingWindow({
             </div>
           )}
         </div>
+
+        {/* Order Book - Rightmost Column */}
+        <div className="market-depth-panel">
+          <MarketDepth
+            symbol={symbol}
+            currentPrice={currentPrice}
+            onPriceSelect={(price) => handleInputChange("price", price)}
+            accountType={selectedAccount?.accountType}
+            marketType={
+              marketType === "futures" ? "binance-futures" : "binance-spot"
+            }
+          />
+        </div>
       </div>
 
       {/* Spacer to allow scrolling the form up */}
@@ -983,12 +1039,12 @@ const TradingWindow = memo(function TradingWindow({
           display: flex;
           flex-direction: column;
           gap: 2px;
-          border-right: 1px solid #e9ecef;
+          border-left: 1px solid #e9ecef;
           background: #ffffff;
         }
 
         .dark .market-depth-panel {
-          border-right: 1px solid #27272a;
+          border-left: 1px solid #27272a;
           background: #09090b;
         }
 
@@ -1013,18 +1069,20 @@ const TradingWindow = memo(function TradingWindow({
           gap: 12px;
           padding: 16px;
           background: #f8f9fa;
+          border-right: 1px solid #e9ecef;
         }
 
         .dark .trading-info-panel {
           background: #18181b;
+          border-right: 1px solid #27272a;
         }
 
         .max-lev-group {
           display: flex;
           align-items: center;
-          justify-content: flex-start;
+          justify-content: flex-start !important;
           width: 100%;
-          gap: 12px;
+          gap: 8px;
           margin-bottom: 0;
           margin-left: 0;
           padding-left: 0;
@@ -1039,12 +1097,14 @@ const TradingWindow = memo(function TradingWindow({
         .max-lev-group label {
           margin-bottom: 0 !important;
           white-space: nowrap;
-          font-size: 0.75rem;
+          font-size: 0.85rem;
+          text-align: left;
         }
 
         .max-lev-input {
           width: 70px !important;
-          text-align: left; /* Left align text inside input */
+          text-align: left !important;
+          padding-left: 8px !important;
         }
 
         .form-grid {
@@ -1065,7 +1125,7 @@ const TradingWindow = memo(function TradingWindow({
         .form-group label {
           display: block;
           margin-bottom: 4px;
-          font-size: 0.75rem;
+          font-size: 0.85rem;
           font-weight: 600;
           color: var(--foreground);
         }
@@ -1089,7 +1149,7 @@ const TradingWindow = memo(function TradingWindow({
         }
 
         .risk-amount {
-          font-size: 0.65rem;
+          font-size: 0.75rem;
           margin-top: 2px;
           padding: 2px 4px;
           border-radius: 2px;
@@ -1111,7 +1171,7 @@ const TradingWindow = memo(function TradingWindow({
           padding: 8px 10px;
           border: 1px solid #ddd;
           border-radius: 6px;
-          font-size: 0.85rem;
+          font-size: 0.9rem;
           background: #ffffff;
           color: #333;
           height: 36px;
@@ -1162,7 +1222,7 @@ const TradingWindow = memo(function TradingWindow({
         .slider-labels {
           display: flex;
           justify-content: space-between;
-          font-size: 0.65rem;
+          font-size: 0.75rem;
           color: var(--muted-foreground);
           margin-top: 2px;
           padding: 4px 0;
@@ -1199,7 +1259,7 @@ const TradingWindow = memo(function TradingWindow({
 
         .checkbox-label {
           cursor: pointer;
-          font-size: 0.7rem;
+          font-size: 0.8rem;
           margin: 0;
         }
 
@@ -1225,7 +1285,7 @@ const TradingWindow = memo(function TradingWindow({
           display: flex;
           justify-content: space-between;
           align-items: center;
-          font-size: 0.8rem;
+          font-size: 0.875rem;
           margin-bottom: 4px;
         }
 
@@ -1238,7 +1298,7 @@ const TradingWindow = memo(function TradingWindow({
           color: #c62828;
           padding: 5px 8px;
           border-radius: 4px;
-          font-size: 0.75rem;
+          font-size: 0.85rem;
           margin-bottom: 8px;
         }
 
@@ -1265,38 +1325,51 @@ const TradingWindow = memo(function TradingWindow({
         @media (max-width: 768px) {
           .trading-content {
             flex-direction: column;
+            align-items: stretch;
           }
 
           .trading-form {
             flex: 1;
             max-width: 100%;
+            border-right: none;
+            padding: 8px;
           }
 
           .trading-info-panel {
             flex: 1;
             max-width: 100%;
-            padding: 12px;
+            padding: 8px;
+            border-right: none;
+          }
+
+          .market-depth-panel {
+            flex: 1;
+            max-width: 100%;
+            border-left: none;
           }
 
           .form-grid {
-            grid-template-columns: 1fr 1fr;
-            gap: 6px 8px;
+            grid-template-columns: 1fr;
+            gap: 6px;
+            margin-bottom: 8px;
           }
           
           .trading-header {
-            padding: 8px 12px;
+            padding: 4px 8px;
           }
 
           .trading-header h3 {
-            font-size: 0.9rem;
+            font-size: 0.85rem;
           }
 
           .current-price {
-            font-size: 0.9rem;
+            font-size: 0.85rem;
           }
 
-          .trading-form {
-            padding: 12px;
+          /* Stack order summary below slider on mobile to reduce whitespace */
+          .form-grid {
+            display: flex;
+            flex-direction: column;
           }
         }
       `}</style>
