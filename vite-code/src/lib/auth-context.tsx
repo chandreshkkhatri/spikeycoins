@@ -49,7 +49,7 @@ export const useAuth = () => {
 
 // Create axios instance with auth interceptor
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: `${API_BASE_URL}/api`,
   timeout: 10000,
 });
 

@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import axios from "axios";
+import api from "@/lib/api";
 import {
   AlertTriangle,
   Clock,
@@ -103,8 +103,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     try {
       // Fetch based on active tab
       if (activeTab === "positions") {
-        const response = await axios.get(
-          `/api/positions?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
+        const response = await api.get(
+          `/positions?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
         );
         if (response.data?.success) {
           const posData = response.data.positions || [];
@@ -128,8 +128,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           );
         }
       } else if (activeTab === "orders") {
-        const response = await axios.get(
-          `/api/orders?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
+        const response = await api.get(
+          `/orders?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
         );
         if (response.data?.success) {
           // Filter to only open orders
@@ -152,11 +152,11 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
       } else if (activeTab === "history") {
         // Fetch both order history and trade history
         const [orderRes, tradeRes] = await Promise.all([
-          axios.get(
-            `/api/binance/order-history?accountId=${selectedAccount._id}${symbol ? `&symbol=${symbol}` : ""}&limit=30`
+          api.get(
+            `/binance/order-history?accountId=${selectedAccount._id}${symbol ? `&symbol=${symbol}` : ""}&limit=30`
           ).catch(() => ({ data: { success: false } })),
-          axios.get(
-            `/api/binance/trade-history?accountId=${selectedAccount._id}${symbol ? `&symbol=${symbol}` : ""}&limit=30`
+          api.get(
+            `/binance/trade-history?accountId=${selectedAccount._id}${symbol ? `&symbol=${symbol}` : ""}&limit=30`
           ).catch(() => ({ data: { success: false } })),
         ]);
 
@@ -208,7 +208,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     if (!selectedAccount) return;
 
     try {
-      await axios.delete(`/api/orders/${orderId}`, {
+      await api.delete(`/orders/${orderId}`, {
         data: {
           accountId: selectedAccount._id,
           symbol: orderSymbol,

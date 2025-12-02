@@ -48,9 +48,17 @@ const API_ROUTES = {
 } as const;
 
 const API_CONFIG = {
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseURL: import.meta.env.VITE_API_URL || '',
   clientURL: window.location.origin,
 } as const;
+
+// Helper to get full API URL
+export const getApiUrl = (path: string): string => {
+  const base = API_CONFIG.baseURL;
+  // Ensure path starts with /
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${normalizedPath}`;
+};
 
 const PAGE_ROUTES = {
   HOME: '/',

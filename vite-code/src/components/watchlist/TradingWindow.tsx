@@ -7,7 +7,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatPercent, formatPrice } from "@/lib/format-utils";
-import axios from "axios";
+import api from "@/lib/api";
 import { HelpCircle } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import MarketDepth from "./MarketDepth";
@@ -258,7 +258,7 @@ const TradingWindow = memo(function TradingWindow({
       try {
         // If Binance account, use the detailed endpoint
         if (selectedAccount.accountType === "binance") {
-          const response = await axios.get("/api/binance/position-details", {
+          const response = await api.get("/binance/position-details", {
             params: {
               accountId: selectedAccount._id,
               symbol: symbol,
@@ -306,8 +306,8 @@ const TradingWindow = memo(function TradingWindow({
           }
         } else {
           // Fallback for other account types
-          const response = await axios.get(
-            `/api/funds?accountId=${selectedAccount._id}`
+          const response = await api.get(
+            `/funds?accountId=${selectedAccount._id}`
           );
           if (response.data && response.data.available) {
             setAvailableBalance(parseFloat(response.data.available) || 0);
@@ -515,8 +515,8 @@ const TradingWindow = memo(function TradingWindow({
           : undefined,
       };
 
-      const response = await axios.post(
-        "/api/orders/place",
+      const response = await api.post(
+        "/orders/place",
         orderData
       );
 
