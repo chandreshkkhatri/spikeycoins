@@ -84,7 +84,7 @@ accountSchema.index(
 );
 
 // Pre-save middleware: encrypt apiKey and apiSecret before saving
-accountSchema.pre('save', function (next) {
+accountSchema.pre('save', function (next: any) {
   if (this.isModified('apiKey') && this.apiKey && !this.apiKey.includes(':')) {
     this.apiKey = encrypt(this.apiKey);
   }
@@ -94,21 +94,30 @@ accountSchema.pre('save', function (next) {
   next();
 });
 
-// Pre-save middleware for findByIdAndUpdate: encrypt apiKey and apiSecret
-accountSchema.pre('findByIdAndUpdate', function (next) {
+// Pre-update middleware: encrypt apiKey and apiSecret for findOneAndUpdate/updateOne
+accountSchema.pre('findOneAndUpdate', function (next: any) {
   const update = this.getUpdate() as any;
-  if (update.apiKey && !update.apiKey.includes(':')) {
-    update.apiKey = encrypt(update.apiKey);
-  }
-  if (update.apiSecret && !update.apiSecret.includes(':')) {
-    update.apiSecret = encrypt(update.apiSecret);
+  if (update.$set) {
+    if (update.$set.apiKey && !update.$set.apiKey.includes(':')) {
+      update.$set.apiKey = encrypt(update.$set.apiKey);
+    }
+    if (update.$set.apiSecret && !update.$set.apiSecret.includes(':')) {
+      update.$set.apiSecret = encrypt(update.$set.apiSecret);
+    }
+  } else {
+    if (update.apiKey && !update.apiKey.includes(':')) {
+      update.apiKey = encrypt(update.apiKey);
+    }
+    if (update.apiSecret && !update.apiSecret.includes(':')) {
+      update.apiSecret = encrypt(update.apiSecret);
+    }
   }
   next();
 });
 
 // Post-retrieval middleware: decrypt apiKey and apiSecret after finding
 accountSchema.post('find', function (docs: any[]) {
-  docs.forEach(doc => {
+  docs.forEach((doc: any) => {
     if (doc && doc.apiKey && doc.apiKey.includes(':')) {
       try {
         doc.apiKey = decrypt(doc.apiKey);
