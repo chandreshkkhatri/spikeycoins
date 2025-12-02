@@ -367,7 +367,7 @@ router.get("/order-history", async (req: Request, res: Response) => {
     binanceService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
-      account.isTestnet
+      account.metadata?.testnet ?? false
     );
 
     const orders = await binanceService.getFuturesAllOrders(
@@ -422,7 +422,7 @@ router.get("/trade-history", async (req: Request, res: Response) => {
     binanceService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
-      account.isTestnet
+      account.metadata?.testnet ?? false
     );
 
     const trades = await binanceService.getFuturesUserTrades(
