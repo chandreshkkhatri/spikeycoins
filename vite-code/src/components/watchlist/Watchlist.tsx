@@ -5,6 +5,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { getApiUrl } from "@/lib/api";
 import binanceWebSocketService from "@/lib/binance-websocket";
 import { formatPrice, formatVolume, formatPercent } from "@/lib/format-utils";
 import { upstoxWebSocket } from "@/lib/upstox-websocket";
@@ -217,8 +218,8 @@ const Watchlist = memo(function Watchlist({
         // but we don't pass the system ID to the user endpoint
         const userWlUrl =
           !isSystemRequest && currentWatchlistId
-            ? `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`
-            : `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}`;
+            ? getApiUrl(`/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`)
+            : getApiUrl(`/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}`);
 
         const userRes = await fetch(userWlUrl);
         if (!userRes.ok) {
@@ -253,7 +254,7 @@ const Watchlist = memo(function Watchlist({
           if (isSystemRequest) {
             try {
               const sysRes = await fetch(
-                "/api/watchlist/system/binance-futures"
+                getApiUrl("/api/watchlist/system/binance-futures")
               );
               const sysData = await sysRes.json();
               if (sysData.success) {
@@ -304,7 +305,7 @@ const Watchlist = memo(function Watchlist({
             // Fetch cached prices from server for immediate display
             if (selectedAccount?.accountType === "binance") {
               try {
-                const pricesRes = await fetch("/api/prices");
+                const pricesRes = await fetch(getApiUrl("/api/prices"));
                 const pricesData = await pricesRes.json();
                 if (pricesData.success && pricesData.prices) {
                   // Update items with cached prices
@@ -590,7 +591,7 @@ const Watchlist = memo(function Watchlist({
           body.watchlistId = currentWatchlistId;
         }
 
-        const response = await fetch("/api/watchlist/symbols", {
+        const response = await fetch(getApiUrl("/api/watchlist/symbols"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -659,7 +660,7 @@ const Watchlist = memo(function Watchlist({
           body.watchlistId = currentWatchlistId;
         }
 
-        await fetch("/api/watchlist/symbols", {
+        await fetch(getApiUrl("/api/watchlist/symbols"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -688,7 +689,7 @@ const Watchlist = memo(function Watchlist({
     if (!selectedAccount || !newWatchlistName.trim()) return;
 
     try {
-      const response = await fetch("/api/watchlist", {
+      const response = await fetch(getApiUrl("/api/watchlist"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -731,7 +732,7 @@ const Watchlist = memo(function Watchlist({
     if (!confirm("Are you sure you want to delete this watchlist?")) return;
 
     try {
-      const response = await fetch(`/api/watchlist/${watchlistId}`, {
+      const response = await fetch(getApiUrl(`/api/watchlist/${watchlistId}`), {
         method: "DELETE",
       });
 

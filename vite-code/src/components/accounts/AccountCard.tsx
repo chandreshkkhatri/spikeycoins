@@ -1,5 +1,6 @@
 import "./AccountCard.css";
 import { Button } from "@/components/ui/button";
+import { getApiUrl } from "@/lib/api";
 import { IAccount } from "@/models/account";
 import { useState } from "react";
 
@@ -59,7 +60,7 @@ export default function AccountCard({
 
     setIsDebugging(true);
     try {
-      const response = await fetch("/api/debug/upstox", {
+      const response = await fetch(getApiUrl("/api/debug/upstox"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

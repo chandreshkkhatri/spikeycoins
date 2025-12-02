@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { getApiUrl } from "@/lib/api";
 import { ChevronDown, Search, X } from "lucide-react";
 import { memo, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -85,7 +86,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
       if (selectedSegment !== "ALL")
         queryParams += `&segment=${encodeURIComponent(selectedSegment)}`;
 
-      const response = await fetch(`/api/search/symbols?${queryParams}`);
+      const response = await fetch(getApiUrl(`/api/search/symbols?${queryParams}`));
       const data = await response.json();
       if (data.success) {
         setSearchResults(data.results);
