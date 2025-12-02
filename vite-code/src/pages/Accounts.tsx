@@ -6,6 +6,7 @@ import EnhancedCard from "@/components/enhanced-card";
 import PageLayout from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { useAuth } from "@/lib/auth-context";
 import { IAccount } from "@/models/account";
 
 export default function AccountsPage() {
@@ -16,7 +17,9 @@ export default function AccountsPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<IAccount | null>(null);
 
-  const userId = "default_user";
+  const { user } = useAuth();
+  // Use authenticated user ID if logged in, otherwise fall back to default_user
+  const userId = user?._id || "default_user";
 
   useEffect(() => {
     fetchAccounts();
