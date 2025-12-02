@@ -7,6 +7,7 @@ import PageLayout from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useAuth } from "@/lib/auth-context";
+import { getApiUrl } from "@/lib/constants";
 import { IAccount } from "@/models/account";
 
 export default function AccountsPage() {
@@ -17,18 +18,30 @@ export default function AccountsPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<IAccount | null>(null);
 
-  const { user } = useAuth();
+  const { user, getAccessToken } = useAuth();
   // Use authenticated user ID if logged in, otherwise fall back to default_user
   const userId = user?._id || "default_user";
 
+  // Helper to get auth headers
+  const getAuthHeaders = (): HeadersInit => {
+    const headers: HeadersInit = { "Content-Type": "application/json" };
+    const token = getAccessToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
   useEffect(() => {
     fetchAccounts();
-  }, []);
+  }, [userId]);
 
   const fetchAccounts = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/accounts?userId=${userId}`);
+      const response = await fetch(getApiUrl(`/api/accounts?userId=${userId}`), {
+        headers: getAuthHeaders(),
+      });
       const data = await response.json();
 
       if (data.success) {
@@ -56,9 +69,9 @@ export default function AccountsPage() {
         metadata.sandbox = accountData.redirectUri === "sandbox";
       }
 
-      const response = await fetch("/api/accounts", {
+      const response = await fetch(getApiUrl("/api/accounts"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           userId,
           accountType: accountData.accountType,
@@ -93,9 +106,9 @@ export default function AccountsPage() {
     updates: Partial<IAccount>
   ) => {
     try {
-      const response = await fetch(`/api/accounts/${accountId}`, {
+      const response = await fetch(getApiUrl(`/api/accounts/${accountId}`), {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify(updates),
       });
 
@@ -120,8 +133,9 @@ export default function AccountsPage() {
     }
 
     try {
-      const response = await fetch(`/api/accounts/${accountId}`, {
+      const response = await fetch(getApiUrl(`/api/accounts/${accountId}`), {
         method: "DELETE",
+        headers: getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -178,9 +192,9 @@ export default function AccountsPage() {
         requestBody.accessToken = token.trim();
       }
 
-      const response = await fetch(authEndpoint, {
+      const response = await fetch(getApiUrl(authEndpoint), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify(requestBody),
       });
 
