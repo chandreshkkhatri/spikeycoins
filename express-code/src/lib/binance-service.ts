@@ -11,6 +11,13 @@ class BinanceService {
   private spotClient: AxiosInstance;
   private futuresClient: AxiosInstance;
   private testnet: boolean = false;
+  
+  // Cache for exchange info to avoid excessive API calls
+  private futuresExchangeInfoCache: any = null;
+  private futuresExchangeInfoCacheTime: number = 0;
+  private spotExchangeInfoCache: any = null;
+  private spotExchangeInfoCacheTime: number = 0;
+  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
   // Base URLs according to Binance API docs
   private readonly SPOT_BASE_URL = "https://api.binance.com";
@@ -515,17 +522,36 @@ class BinanceService {
   }
 
   /**
-   * Get Futures exchange info (all symbols)
+   * Get Futures exchange info (all symbols) - CACHED to reduce API weight
    */
   async getFuturesExchangeInfo() {
     try {
+      const now = Date.now();
+      
+      // Return cached data if still valid
+      if (this.futuresExchangeInfoCache && (now - this.futuresExchangeInfoCacheTime) < this.CACHE_TTL) {
+        return this.futuresExchangeInfoCache;
+      }
+      
       const response = await this.futuresClient.get("/fapi/v1/exchangeInfo");
+      
+      // Cache the response
+      this.futuresExchangeInfoCache = response.data;
+      this.futuresExchangeInfoCacheTime = now;
+      
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getExchangeInfo error:",
         error.response?.data || error.message
       );
+      
+      // Return cached data if available even if expired (better than failing)
+      if (this.futuresExchangeInfoCache) {
+        console.warn("Returning stale cached exchange info");
+        return this.futuresExchangeInfoCache;
+      }
+      
       throw new Error(
         error.response?.data?.msg ||
           "Failed to fetch Binance Futures exchange info"
