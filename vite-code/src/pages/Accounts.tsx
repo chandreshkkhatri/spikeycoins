@@ -6,13 +6,19 @@ import EnhancedCard from "@/components/enhanced-card";
 import PageLayout from "@/components/layout/PageLayout";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { useAccount } from "@/lib/account-context";
 import { useAuth } from "@/lib/auth-context";
 import { getApiUrl } from "@/lib/constants";
 import { IAccount } from "@/models/account";
 
 export default function AccountsPage() {
-  const [accounts, setAccounts] = useState<IAccount[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Use the shared account context - this keeps Header and Accounts page in sync
+  const { accounts: contextAccounts, loadingAccounts, fetchAccounts: refreshContextAccounts } = useAccount();
+  
+  // Convert TradingAccount[] to IAccount[] for display (they have compatible shapes)
+  const accounts = contextAccounts as unknown as IAccount[];
+  const loading = loadingAccounts;
+  
   const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -32,29 +38,12 @@ export default function AccountsPage() {
     return headers;
   };
 
-  useEffect(() => {
-    fetchAccounts();
-  }, [userId]);
-
-  const fetchAccounts = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(getApiUrl(`/api/accounts?userId=${userId}`), {
-        headers: getAuthHeaders(),
-      });
-      const data = await response.json();
-
-      if (data.success) {
-        setAccounts(data.accounts);
-      } else {
-        setError(data.error || "Failed to fetch accounts");
-      }
-    } catch (error) {
-      console.error("Error fetching accounts:", error);
-      setError("Failed to fetch accounts");
-    } finally {
-      setLoading(false);
-    }
+  // Clear session cache and refresh accounts from server
+  const refreshAccounts = async () => {
+    // Clear the session cache so we get fresh data
+    sessionStorage.removeItem('accountsCache');
+    sessionStorage.removeItem('accountsCacheTime');
+    await refreshContextAccounts();
   };
 
   const handleAddAccount = async (accountData: any) => {
@@ -85,7 +74,7 @@ export default function AccountsPage() {
       const data = await response.json();
 
       if (data.success) {
-        await fetchAccounts();
+        await refreshAccounts();
         setShowAddModal(false);
       } else {
         throw new Error(data.error || "Failed to create account");
@@ -115,7 +104,7 @@ export default function AccountsPage() {
       const data = await response.json();
 
       if (data.success) {
-        await fetchAccounts();
+        await refreshAccounts();
         setShowEditModal(false);
         setEditingAccount(null);
       } else {
@@ -141,7 +130,7 @@ export default function AccountsPage() {
       const data = await response.json();
 
       if (data.success) {
-        await fetchAccounts();
+        await refreshAccounts();
       } else {
         throw new Error(data.error || "Failed to delete account");
       }
@@ -204,7 +193,7 @@ export default function AccountsPage() {
         if (data.loginUrl && account.accountType !== "binance") {
           window.location.href = data.loginUrl;
         } else {
-          await fetchAccounts();
+          await refreshAccounts();
           alert(`${account.accountType} account authenticated successfully!`);
         }
       } else {

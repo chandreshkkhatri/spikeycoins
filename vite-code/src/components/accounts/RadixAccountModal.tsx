@@ -19,6 +19,7 @@ interface RadixAccountModalProps {
     apiKey: string;
     apiSecret: string;
     redirectUri?: string;
+    tradingSegment?: 'spot' | 'usdm';
   }) => void;
 }
 
@@ -31,6 +32,7 @@ export default function RadixAccountModal({ isOpen, onClose, onSubmit }: RadixAc
     apiKey: '',
     apiSecret: '',
     redirectUri: '',
+    tradingSegment: 'usdm' as 'spot' | 'usdm',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -87,6 +89,7 @@ export default function RadixAccountModal({ isOpen, onClose, onSubmit }: RadixAc
         apiKey: formData.apiKey.trim(),
         apiSecret: formData.apiSecret.trim(),
         ...(formData.redirectUri && { redirectUri: formData.redirectUri.trim() }),
+        ...(selectedBroker === 'binance' && { tradingSegment: formData.tradingSegment }),
       });
 
       resetForm();
@@ -104,6 +107,7 @@ export default function RadixAccountModal({ isOpen, onClose, onSubmit }: RadixAc
       apiKey: '',
       apiSecret: '',
       redirectUri: '',
+      tradingSegment: 'usdm',
     });
     setErrors({});
   };
@@ -272,6 +276,25 @@ export default function RadixAccountModal({ isOpen, onClose, onSubmit }: RadixAc
                   <p className="text-destructive text-sm mt-1">{errors.apiSecret}</p>
                 )}
               </div>
+
+              {selectedBroker === 'binance' && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Trading Segment *</label>
+                  <select
+                    value={formData.tradingSegment}
+                    onChange={e => handleChange('tradingSegment', e.target.value)}
+                    className="w-full px-3 py-2 border border-input rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
+                  >
+                    <option value="usdm">USD(S)-M Futures</option>
+                    <option value="spot">Spot Trading</option>
+                  </select>
+                  <p className="text-muted-foreground text-sm mt-1">
+                    {formData.tradingSegment === 'usdm'
+                      ? 'USD(S)-M Futures: Trade perpetual and quarterly futures contracts with USDT as collateral'
+                      : 'Spot trading: Buy and sell cryptocurrencies at current market prices'}
+                  </p>
+                </div>
+              )}
 
               {selectedBroker === 'binance' && (
                 <div className="flex items-center space-x-2">

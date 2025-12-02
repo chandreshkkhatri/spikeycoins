@@ -56,7 +56,9 @@ router.get("/", async (req: Request, res: Response) => {
         orders = [];
       }
     } else if (account.accountType === "binance") {
+      console.log(`[Orders] Binance account ${account._id} metadata:`, account.metadata);
       const tradingSegment = account.metadata?.tradingSegment || "spot";
+      console.log(`[Orders] Using trading segment: ${tradingSegment}`);
       const isTestnet = account.metadata?.testnet || false;
 
       binanceService.initializeWithCredentials(
@@ -256,7 +258,59 @@ router.post("/place", async (req: Request, res: Response) => {
         }
       } else {
         // Spot
-        result = await binanceService.placeSpotOrder(orderParams);
+        const {
+          symbol,
+          side,
+          type,
+          quantity,
+          price,
+          stopPrice,
+          timeInForce,
+        } = orderParams;
+
+        if (!symbol || !side || !type || !quantity) {
+          return res.status(400).json({
+            error:
+              "symbol, side, type and quantity are required for Binance spot orders",
+          });
+        }
+
+        const cleanSpotOrder: any = {
+          symbol,
+          side,
+          type,
+          quantity,
+        };
+
+        const tif = timeInForce || "GTC";
+
+        if (type === "LIMIT") {
+          if (!price) {
+            return res
+              .status(400)
+              .json({ error: "price is required for LIMIT orders" });
+          }
+          cleanSpotOrder.price = price;
+          cleanSpotOrder.timeInForce = tif;
+        } else if (
+          type === "STOP_LOSS_LIMIT" ||
+          type === "TAKE_PROFIT_LIMIT"
+        ) {
+          if (!price || !stopPrice) {
+            return res.status(400).json({
+              error: "price and stopPrice are required for stop/TP limit orders",
+            });
+          }
+          cleanSpotOrder.price = price;
+          cleanSpotOrder.stopPrice = stopPrice;
+          cleanSpotOrder.timeInForce = tif;
+        } else if (type !== "MARKET") {
+          return res.status(400).json({
+            error: `Unsupported order type for Binance spot: ${type}`,
+          });
+        }
+
+        result = await binanceService.placeSpotOrder(cleanSpotOrder);
       }
     } else {
       return res

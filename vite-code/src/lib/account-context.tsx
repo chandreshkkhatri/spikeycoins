@@ -9,7 +9,7 @@ import React, {
   useState,
 } from 'react';
 import { useAuth } from './auth-context';
-import { API_ROUTES } from './constants';
+import { API_ROUTES, getApiUrl } from './constants';
 
 interface TradingAccount {
   _id: string;
@@ -102,7 +102,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
         while (attempt <= maxRetries) {
           try {
-            response = await axios.get(`${API_ROUTES.accounts.getAccounts}?userId=${userId}`, {
+            response = await axios.get(getApiUrl(`${API_ROUTES.accounts.getAccounts}?userId=${userId}`), {
               timeout: 12000,
               headers,
             });

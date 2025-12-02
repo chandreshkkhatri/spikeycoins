@@ -48,9 +48,17 @@ router.get("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) =
 // POST /api/accounts - Create a new account
 router.post("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    console.log("[Accounts] Creating account with body:", JSON.stringify(req.body, null, 2));
     // Get userId from auth or request body
     const userId = req.user?.id || req.body.userId;
-    const { accountType, accountName, apiKey, apiSecret, redirectUri } = req.body;
+    const {
+      accountType,
+      accountName,
+      apiKey,
+      apiSecret,
+      redirectUri,
+      metadata: incomingMetadata = {},
+    } = req.body;
 
     if (!userId || !accountType || !accountName || !apiKey || !apiSecret) {
       return res.status(400).json({
@@ -73,22 +81,25 @@ router.post("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) 
       isActive: true,
       metadata: {
         ...(redirectUri && { redirectUri }),
+        ...incomingMetadata,
       },
     };
 
     console.log("Creating account with API key length:", apiKey.trim().length);
 
     // Handle special fields based on account type
-    let metadata = {};
+    let metadata = {
+      ...incomingMetadata,
+    };
 
     // For Binance, check testnet flag
     if (accountType === "binance" && redirectUri === "testnet") {
-      metadata = { testnet: true };
+      metadata.testnet = true;
     }
 
     // For Upstox, check sandbox flag
     if (accountType === "upstox" && redirectUri === "sandbox") {
-      metadata = { sandbox: true };
+      metadata.sandbox = true;
     }
 
     const finalAccountData = {
