@@ -1,6 +1,9 @@
 import axios from 'axios';
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState, useRef } from 'react';
 
+// API Base URL - use env var in production, relative path in development
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
 // Storage keys
 const ACCESS_TOKEN_KEY = 'flipSafe_accessToken';
 const REFRESH_TOKEN_KEY = 'flipSafe_refreshToken';
@@ -260,7 +263,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Redirect to Google OAuth
   const loginWithGoogle = useCallback(() => {
-    window.location.href = '/api/auth/google';
+    window.location.href = `${API_BASE_URL}/api/auth/google`;
   }, []);
 
   // Logout
