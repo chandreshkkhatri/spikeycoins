@@ -5,6 +5,7 @@ import {
   UTCTimestamp,
 } from "lightweight-charts";
 import React, { useEffect, useRef, useState } from "react";
+import { getApiUrl } from "@/lib/api";
 
 interface TradingChartProps {
   symbol: string;
@@ -116,7 +117,7 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
         // Determine vendor based on symbol (USDT = Binance, others = Kite)
         const vendor = symbol.endsWith("USDT") ? "binance" : "kite";
         const response = await fetch(
-          `/api/historical-data?vendor=${vendor}&symbol=${symbol}&interval=${timeframe}`
+          getApiUrl(`/api/historical-data?vendor=${vendor}&symbol=${symbol}&interval=${timeframe}`)
         );
         if (!response.ok) {
           throw new Error("Failed to fetch historical data");

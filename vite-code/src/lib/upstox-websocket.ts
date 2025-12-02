@@ -1,4 +1,5 @@
 import * as protobuf from "protobufjs";
+import { getApiUrl } from "./api";
 
 // Client-side WebSocket manager for Upstox Market Data Feed v3
 // Uses server API routes to authorize and to resolve instrument keys
@@ -232,7 +233,7 @@ export class UpstoxWebSocket implements WebSocketManager {
     if (!symbols.length) return;
 
     try {
-      const resp = await fetch("/api/upstox/instruments/resolve", {
+      const resp = await fetch(getApiUrl("/api/upstox/instruments/resolve"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ symbols }),
@@ -290,7 +291,7 @@ export class UpstoxWebSocket implements WebSocketManager {
       const instrumentKeys = Array.from(this.subscribedSymbols.values());
       if (instrumentKeys.length) {
         console.log("📈 Market is open - fetching initial quotes for seeding");
-        const resp = await fetch("/api/upstox/market-data/quotes", {
+        const resp = await fetch(getApiUrl("/api/upstox/market-data/quotes"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ accountId: this.accountId, instrumentKeys }),

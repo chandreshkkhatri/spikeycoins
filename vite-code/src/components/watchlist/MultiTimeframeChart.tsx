@@ -6,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { getApiUrl } from "@/lib/api";
 import {
   CandlestickData,
   CandlestickSeries,
@@ -449,7 +450,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             params.append("marketType", marketType);
           }
 
-          const url = `/api/historical-data?${params.toString()}`;
+          const url = getApiUrl(`/api/historical-data?${params.toString()}`);
 
           const response = await fetch(url);
 
