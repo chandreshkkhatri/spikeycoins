@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import AccountCard from "@/components/accounts/AccountCard";
 import EditAccountModal from "@/components/accounts/EditAccountModal";
 import RadixAccountModal from "@/components/accounts/RadixAccountModal";
@@ -13,13 +13,12 @@ import { IAccount } from "@/models/account";
 
 export default function AccountsPage() {
   // Use the shared account context - this keeps Header and Accounts page in sync
-  const { accounts: contextAccounts, loadingAccounts, fetchAccounts: refreshContextAccounts } = useAccount();
+  const { accounts: contextAccounts, loadingAccounts, fetchAccounts: refreshContextAccounts, error } = useAccount();
   
   // Convert TradingAccount[] to IAccount[] for display (they have compatible shapes)
   const accounts = contextAccounts as unknown as IAccount[];
   const loading = loadingAccounts;
   
-  const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<IAccount | null>(null);
