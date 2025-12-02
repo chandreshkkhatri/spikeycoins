@@ -1,4 +1,5 @@
 import connectDB from "../lib/mongodb";
+import { encrypt, decrypt } from "../lib/encryption";
 import mongoose from "mongoose";
 
 export interface IAccount {
@@ -81,6 +82,89 @@ accountSchema.index(
   { userId: 1, accountType: 1, accountName: 1 },
   { unique: true }
 );
+
+// Pre-save middleware: encrypt apiKey and apiSecret before saving
+accountSchema.pre('save', function (next) {
+  if (this.isModified('apiKey') && this.apiKey && !this.apiKey.includes(':')) {
+    this.apiKey = encrypt(this.apiKey);
+  }
+  if (this.isModified('apiSecret') && this.apiSecret && !this.apiSecret.includes(':')) {
+    this.apiSecret = encrypt(this.apiSecret);
+  }
+  next();
+});
+
+// Pre-save middleware for findByIdAndUpdate: encrypt apiKey and apiSecret
+accountSchema.pre('findByIdAndUpdate', function (next) {
+  const update = this.getUpdate() as any;
+  if (update.apiKey && !update.apiKey.includes(':')) {
+    update.apiKey = encrypt(update.apiKey);
+  }
+  if (update.apiSecret && !update.apiSecret.includes(':')) {
+    update.apiSecret = encrypt(update.apiSecret);
+  }
+  next();
+});
+
+// Post-retrieval middleware: decrypt apiKey and apiSecret after finding
+accountSchema.post('find', function (docs: any[]) {
+  docs.forEach(doc => {
+    if (doc && doc.apiKey && doc.apiKey.includes(':')) {
+      try {
+        doc.apiKey = decrypt(doc.apiKey);
+      } catch (error) {
+        console.error('Failed to decrypt apiKey:', error);
+      }
+    }
+    if (doc && doc.apiSecret && doc.apiSecret.includes(':')) {
+      try {
+        doc.apiSecret = decrypt(doc.apiSecret);
+      } catch (error) {
+        console.error('Failed to decrypt apiSecret:', error);
+      }
+    }
+  });
+});
+
+// Post-retrieval middleware: decrypt apiKey and apiSecret after findOne
+accountSchema.post('findOne', function (doc: any) {
+  if (doc) {
+    if (doc.apiKey && doc.apiKey.includes(':')) {
+      try {
+        doc.apiKey = decrypt(doc.apiKey);
+      } catch (error) {
+        console.error('Failed to decrypt apiKey:', error);
+      }
+    }
+    if (doc.apiSecret && doc.apiSecret.includes(':')) {
+      try {
+        doc.apiSecret = decrypt(doc.apiSecret);
+      } catch (error) {
+        console.error('Failed to decrypt apiSecret:', error);
+      }
+    }
+  }
+});
+
+// Post-retrieval middleware: decrypt apiKey and apiSecret after findOneAndUpdate
+accountSchema.post('findOneAndUpdate', function (doc: any) {
+  if (doc) {
+    if (doc.apiKey && doc.apiKey.includes(':')) {
+      try {
+        doc.apiKey = decrypt(doc.apiKey);
+      } catch (error) {
+        console.error('Failed to decrypt apiKey:', error);
+      }
+    }
+    if (doc.apiSecret && doc.apiSecret.includes(':')) {
+      try {
+        doc.apiSecret = decrypt(doc.apiSecret);
+      } catch (error) {
+        console.error('Failed to decrypt apiSecret:', error);
+      }
+    }
+  }
+});
 
 const Account =
   mongoose.models.Account || mongoose.model<IAccount>("Account", accountSchema);
