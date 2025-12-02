@@ -110,6 +110,8 @@ router.get("/", async (req: Request, res: Response) => {
 router.post("/place", async (req: Request, res: Response) => {
   try {
     const { accountId, ...orderParams } = req.body;
+    
+    console.log("[Orders/Place] Request body:", JSON.stringify(req.body, null, 2));
 
     if (!accountId) {
       return res.status(400).json({ error: "accountId is required" });
@@ -118,8 +120,16 @@ router.post("/place", async (req: Request, res: Response) => {
     const account = await getAccountById(accountId);
 
     if (!account) {
+      console.log("[Orders/Place] Account not found:", accountId);
       return res.status(404).json({ error: "Account not found" });
     }
+    
+    console.log("[Orders/Place] Account found:", { 
+      id: account._id, 
+      type: account.accountType, 
+      segment: account.metadata?.tradingSegment,
+      testnet: account.metadata?.testnet 
+    });
 
     let result;
 

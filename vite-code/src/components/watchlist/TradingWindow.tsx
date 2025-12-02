@@ -543,7 +543,9 @@ const TradingWindow = memo(function TradingWindow({
     } catch (err: any) {
       // eslint-disable-next-line no-console -- surfaced during order error handling
       console.error("Order placement error:", err);
-      setError(err.response?.data?.error || "Failed to place order");
+      const errorData = err.response?.data;
+      const errorMessage = errorData?.details || errorData?.error || err.message || "Failed to place order";
+      setError(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
