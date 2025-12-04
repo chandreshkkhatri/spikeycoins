@@ -114,8 +114,9 @@ const TradingChart: React.FC<TradingChartProps> = ({ symbol }) => {
       if (!chartRef.current) return;
 
       try {
-        // Determine vendor based on symbol (USDT = Binance, others = Kite)
-        const vendor = symbol.endsWith("USDT") ? "binance" : "kite";
+        // Determine vendor based on symbol (USDT/USDC/BUSD = Binance, others = Kite)
+        const isBinance = symbol.endsWith("USDT") || symbol.endsWith("USDC") || symbol.endsWith("BUSD");
+        const vendor = isBinance ? "binance" : "kite";
         const response = await fetch(
           getApiUrl(`/api/historical-data?vendor=${vendor}&symbol=${symbol}&interval=${timeframe}`)
         );

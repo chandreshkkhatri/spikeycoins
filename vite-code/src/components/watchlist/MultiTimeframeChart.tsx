@@ -428,9 +428,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       async (interval: string): Promise<CandlestickData[]> => {
         try {
           // Use accountType if provided, otherwise try to detect from symbol
+          // Include USDC for Binance symbols like 1000BONKUSDC
           const vendor =
             accountType ||
             (displaySymbol.endsWith("USDT") ||
+            displaySymbol.endsWith("USDC") ||
             displaySymbol.endsWith("BUSD") ||
             displaySymbol.endsWith("BTC")
               ? "binance"
