@@ -56,7 +56,6 @@ router.get("/", async (req: Request, res: Response) => {
         holdings = [];
       }
     } else if (account.accountType === "binance") {
-      const tradingSegment = account.metadata?.tradingSegment || "spot";
       const isTestnet = account.metadata?.testnet || false;
 
       binanceService.initializeWithCredentials(
@@ -65,14 +64,8 @@ router.get("/", async (req: Request, res: Response) => {
         isTestnet
       );
 
-      if (tradingSegment === "spot") {
-        // Spot - Get balances (holdings in crypto terms)
-        holdings = await binanceService.getSpotBalances();
-      } else {
-        // USD(S)-M Futures - Holdings concept doesn't apply
-        // Return empty array for futures accounts
-        holdings = [];
-      }
+      // Always fetch spot balances for holdings regardless of trading segment metadata
+      holdings = await binanceService.getSpotBalances();
     } else {
       return res
         .status(400)

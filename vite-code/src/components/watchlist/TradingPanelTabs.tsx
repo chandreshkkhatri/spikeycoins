@@ -13,7 +13,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 
 interface TradingAccount {
   _id: string;
@@ -93,19 +93,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   const [orderHistory, setOrderHistory] = useState<OrderHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // Track which tabs have been loaded to avoid redundant fetches
-  const loadedTabs = useRef<Set<string>>(new Set());
-  const lastAccountId = useRef<string | null>(null);
 
-  const fetchData = useCallback(async (forceRefresh = false) => {
+  const fetchData = useCallback(async () => {
     if (!selectedAccount) return;
-    
-    // Skip if this tab was already loaded and this isn't a forced refresh
-    const tabKey = `${activeTab}-${selectedAccount._id}`;
-    if (!forceRefresh && loadedTabs.current.has(tabKey)) {
-      return;
-    }
 
     setLoading(true);
     setError(null);
@@ -206,9 +196,6 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           );
         }
       }
-      // Mark this tab as loaded
-      const tabKey = `${activeTab}-${selectedAccount._id}`;
-      loadedTabs.current.add(tabKey);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch data";
       setError(errorMessage);
@@ -217,25 +204,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     }
   }, [selectedAccount, activeTab, symbol]);
 
-  // Reset loaded tabs when account changes
-  useEffect(() => {
-    if (selectedAccount && lastAccountId.current !== selectedAccount._id) {
-      loadedTabs.current.clear();
-      lastAccountId.current = selectedAccount._id;
-    }
-  }, [selectedAccount]);
-
-  // Initial fetch for the active tab (only once per tab per account)
   useEffect(() => {
     fetchData();
-  }, [activeTab, selectedAccount?._id]);
-  
-  // Force refresh when refreshTrigger changes (e.g., after placing an order)
-  useEffect(() => {
-    if (refreshTrigger && refreshTrigger > 0) {
-      fetchData(true);
-    }
-  }, [refreshTrigger]);
+  }, [fetchData, refreshTrigger]);
 
   const handleCancelOrder = async (orderId: string, orderSymbol: string) => {
     if (!selectedAccount) return;
@@ -247,7 +218,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           symbol: orderSymbol,
         },
       });
-      fetchData(true); // Force refresh after canceling
+      fetchData();
     } catch (err) {
       console.error("Failed to cancel order:", err);
     }
@@ -295,9 +266,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => fetchData(true)}
+            onClick={fetchData}
             disabled={loading}
-            title="Refresh data"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
           </Button>

@@ -331,8 +331,9 @@ export default function HoldingsCard({
           <p className="text-muted-foreground">No holdings in your portfolio</p>
         </div>
       ) : (
-        <div className="holdings-table-container">
-          <table className="holdings-table">
+        <div className="holdings-table-viewport">
+          <div className="holdings-table-container">
+            <table className="holdings-table">
             <thead>
               <tr>
                 <th>Symbol</th>
@@ -449,8 +450,9 @@ export default function HoldingsCard({
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </EnhancedCard>

@@ -8,8 +8,8 @@ import {
 } from "@/components/ui/tooltip";
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
-import { HelpCircle } from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { HelpCircle, RefreshCw } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
 import TradingPanelTabs from "./TradingPanelTabs";
@@ -45,6 +45,8 @@ interface OrderForm {
   stopLoss: string;
   takeProfit: string;
 }
+
+const DETAILS_REFRESH_INTERVAL = 60000; // 60 seconds between automatic refreshes
 
 const TradingWindow = memo(function TradingWindow({
   symbol,
@@ -82,6 +84,8 @@ const TradingWindow = memo(function TradingWindow({
   const [stepSize, setStepSize] = useState<string>("0.001");
   const [isExponentialSlider, setIsExponentialSlider] = useState(false);
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
+  const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
+  const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(null);
   
   // User-defined max leverage (stored in localStorage)
   const [userMaxLeverage, setUserMaxLeverage] = useState<number>(() => {
@@ -250,83 +254,80 @@ const TradingWindow = memo(function TradingWindow({
     }
   }, [defaultTakeProfitPercent, orderForm.price, orderForm.side, tickSize, hasUserEditedTP]);
 
-  // Fetch account balance and details when account changes or symbol changes
-  useEffect(() => {
-    const fetchDetails = async () => {
-      if (!selectedAccount) return;
+  const fetchAccountAndPositionDetails = useCallback(async () => {
+    if (!selectedAccount) return;
 
-      try {
-        // If Binance account, use the detailed endpoint
-        if (selectedAccount.accountType === "binance") {
-          const response = await api.get("/binance/position-details", {
-            params: {
-              accountId: selectedAccount._id,
-              symbol: symbol,
-            },
-          });
+    setIsRefreshingDetails(true);
+    try {
+      if (selectedAccount.accountType === "binance") {
+        const response = await api.get("/binance/position-details", {
+          params: {
+            accountId: selectedAccount._id,
+            symbol,
+          },
+        });
 
-          if (response.data && response.data.success) {
-            setAccountDetails(response.data.account);
-            setPositionDetails(response.data.position);
-            
-            // Set exchange max leverage from symbol info
-            let newExchangeMaxLeverage = 125; // default
-            if (response.data.symbolInfo?.maxLeverage) {
-              newExchangeMaxLeverage = response.data.symbolInfo.maxLeverage;
-            } else if (response.data.position?.maxLeverage) {
-              newExchangeMaxLeverage = response.data.position.maxLeverage;
-            }
-            setExchangeMaxLeverage(newExchangeMaxLeverage);
-            
-            // Set tick size and step size for price/quantity inputs
-            if (response.data.symbolInfo?.tickSize) {
-              setTickSize(response.data.symbolInfo.tickSize);
-            }
-            if (response.data.symbolInfo?.stepSize) {
-              setStepSize(response.data.symbolInfo.stepSize);
-            }
-            
-            // Calculate effective max leverage
-            const effectiveMaxLeverage = Math.min(newExchangeMaxLeverage, userMaxLeverage);
-            
-            // Set default leverage to effective max (or current position leverage if exists)
-            const currentPositionLeverage = response.data.position?.leverage;
-            const defaultLeverage = currentPositionLeverage 
-              ? Math.min(currentPositionLeverage, effectiveMaxLeverage)
-              : effectiveMaxLeverage;
-            setOrderForm(prev => ({
-              ...prev,
-              leverage: String(defaultLeverage)
-            }));
+        if (response.data && response.data.success) {
+          setAccountDetails(response.data.account);
+          setPositionDetails(response.data.position);
 
-            // Use available balance for new orders, fallback to equity
-            const equity = response.data.account.equity || 0;
-            const available = response.data.account.availableBalance || equity;
-            setAvailableBalance(available);
+          let newExchangeMaxLeverage = 125;
+          if (response.data.symbolInfo?.maxLeverage) {
+            newExchangeMaxLeverage = response.data.symbolInfo.maxLeverage;
+          } else if (response.data.position?.maxLeverage) {
+            newExchangeMaxLeverage = response.data.position.maxLeverage;
           }
-        } else {
-          // Fallback for other account types
-          const response = await api.get(
-            `/funds?accountId=${selectedAccount._id}`
-          );
-          if (response.data && response.data.available) {
-            setAvailableBalance(parseFloat(response.data.available) || 0);
-          } else if (response.data && response.data.data) {
-            const balance =
-              response.data.data.availableCash || response.data.data.net || 0;
-            setAvailableBalance(parseFloat(balance));
+          setExchangeMaxLeverage(newExchangeMaxLeverage);
+
+          if (response.data.symbolInfo?.tickSize) {
+            setTickSize(response.data.symbolInfo.tickSize);
           }
+          if (response.data.symbolInfo?.stepSize) {
+            setStepSize(response.data.symbolInfo.stepSize);
+          }
+
+          const effectiveMaxLeverage = Math.min(newExchangeMaxLeverage, userMaxLeverage);
+          const currentPositionLeverage = response.data.position?.leverage;
+          const defaultLeverage = currentPositionLeverage
+            ? Math.min(currentPositionLeverage, effectiveMaxLeverage)
+            : effectiveMaxLeverage;
+          setOrderForm((prev) => ({
+            ...prev,
+            leverage: String(defaultLeverage),
+          }));
+
+          const equity = response.data.account.equity || 0;
+          const available = response.data.account.availableBalance || equity;
+          setAvailableBalance(available);
         }
-      } catch (err) {
-        console.error("Failed to fetch account details:", err);
+      } else {
+        const response = await api.get(`/funds?accountId=${selectedAccount._id}`);
+        if (response.data && response.data.available) {
+          setAvailableBalance(parseFloat(response.data.available) || 0);
+        } else if (response.data && response.data.data) {
+          const balance = response.data.data.availableCash || response.data.data.net || 0;
+          setAvailableBalance(parseFloat(balance));
+        }
       }
-    };
 
-    fetchDetails();
-    // Poll every 5 seconds
-    const interval = setInterval(fetchDetails, 5000);
+      setLastDetailsRefresh(Date.now());
+    } catch (err) {
+      console.error("Failed to fetch account details:", err);
+    } finally {
+      setIsRefreshingDetails(false);
+    }
+  }, [selectedAccount, symbol, userMaxLeverage]);
+
+  useEffect(() => {
+    if (!selectedAccount) return;
+
+    fetchAccountAndPositionDetails();
+    const interval = setInterval(() => {
+      fetchAccountAndPositionDetails();
+    }, DETAILS_REFRESH_INTERVAL);
+
     return () => clearInterval(interval);
-  }, [selectedAccount, symbol]);
+  }, [fetchAccountAndPositionDetails, selectedAccount]);
 
   const handleInputChange = (
     field: keyof OrderForm,
@@ -617,7 +618,28 @@ const TradingWindow = memo(function TradingWindow({
       />
       <div className="trading-header">
         <h3>{symbol} Trading</h3>
-        <div className="current-price">${currentPrice.toFixed(2)}</div>
+        <div className="trading-header-actions">
+          <div className="current-price">${currentPrice.toFixed(2)}</div>
+          <div className="refresh-controls">
+            {lastDetailsRefresh && (
+              <span className="last-refresh-time">
+                Updated {new Date(lastDetailsRefresh).toLocaleTimeString()}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="refresh-details-button"
+              onClick={() => fetchAccountAndPositionDetails()}
+              disabled={!selectedAccount || isRefreshingDetails}
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-1 ${isRefreshingDetails ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="trading-content">
@@ -1189,10 +1211,31 @@ const TradingWindow = memo(function TradingWindow({
           color: var(--foreground);
         }
 
+        .trading-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .refresh-controls {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
         .current-price {
           font-weight: 600;
           font-size: 1rem;
           color: #2196f3;
+        }
+
+        .last-refresh-time {
+          font-size: 0.75rem;
+          color: #6b7280;
+        }
+
+        .dark .last-refresh-time {
+          color: #a1a1aa;
         }
 
         .trading-content {
@@ -1538,6 +1581,17 @@ const TradingWindow = memo(function TradingWindow({
 
           .current-price {
             font-size: 0.85rem;
+          }
+
+          .trading-header-actions {
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+          }
+
+          .refresh-controls {
+            flex-wrap: wrap;
+            justify-content: flex-end;
           }
 
           /* Stack order summary below slider on mobile to reduce whitespace */
