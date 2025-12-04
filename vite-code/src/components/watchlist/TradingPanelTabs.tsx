@@ -36,6 +36,8 @@ interface Position {
   side: "LONG" | "SHORT";
   leverage?: number;
   liquidationPrice?: number;
+  breakEvenPrice?: number;
+  margin?: number;
   marginType?: string;
 }
 
@@ -167,6 +169,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 side: p.quantity > 0 ? "LONG" : "SHORT",
                 leverage: p.leverage,
                 liquidationPrice: p.liquidationPrice,
+                breakEvenPrice: p.breakEvenPrice,
+                margin: p.margin,
                 marginType: p.marginType,
               }))
           );
@@ -252,9 +256,19 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   };
 
   const formatPrice = (price: number) => {
-    if (price >= 1000) return price.toFixed(1);
-    if (price >= 1) return price.toFixed(2);
-    return price.toFixed(4);
+    if (price === 0) return "0";
+    const absPrice = Math.abs(price);
+    
+    // Dynamic decimal places based on price magnitude
+    // This approximates tick size behavior for most trading pairs
+    if (absPrice >= 10000) return price.toFixed(1);      // BTC: 0.1
+    if (absPrice >= 1000) return price.toFixed(2);       // ETH, etc: 0.01
+    if (absPrice >= 100) return price.toFixed(2);        // Mid-range: 0.01
+    if (absPrice >= 10) return price.toFixed(3);         // Lower: 0.001
+    if (absPrice >= 1) return price.toFixed(4);          // Sub-dollar: 0.0001
+    if (absPrice >= 0.1) return price.toFixed(5);        // Very low: 0.00001
+    if (absPrice >= 0.01) return price.toFixed(6);       // Micro: 0.000001
+    return price.toFixed(8);                              // Nano-cap: 0.00000001
   };
 
   const formatTime = (timestamp: string | number) => {
@@ -322,7 +336,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                     <th className="text-left px-2 py-1.5 font-medium">Symbol</th>
                     <th className="text-right px-2 py-1.5 font-medium">Size</th>
                     <th className="text-right px-2 py-1.5 font-medium">Entry</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Mark</th>
+                    <th className="text-right px-2 py-1.5 font-medium">B/E</th>
+                    <th className="text-right px-2 py-1.5 font-medium">Liq</th>
+                    <th className="text-right px-2 py-1.5 font-medium">Margin</th>
                     <th className="text-right px-2 py-1.5 font-medium">PNL</th>
                   </tr>
                 </thead>
@@ -350,7 +366,15 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       </td>
                       <td className="text-right px-2 py-1.5">{pos.quantity}</td>
                       <td className="text-right px-2 py-1.5">{formatPrice(pos.averagePrice)}</td>
-                      <td className="text-right px-2 py-1.5">{formatPrice(pos.lastPrice)}</td>
+                      <td className="text-right px-2 py-1.5 text-muted-foreground">
+                        {pos.breakEvenPrice ? formatPrice(pos.breakEvenPrice) : "-"}
+                      </td>
+                      <td className="text-right px-2 py-1.5 text-orange-500">
+                        {pos.liquidationPrice ? formatPrice(pos.liquidationPrice) : "-"}
+                      </td>
+                      <td className="text-right px-2 py-1.5">
+                        {pos.margin ? `$${pos.margin.toFixed(2)}` : "-"}
+                      </td>
                       <td
                         className={`text-right px-2 py-1.5 font-medium ${
                           pos.pnl >= 0 ? "text-green-500" : "text-red-500"
