@@ -81,6 +81,11 @@ export default function Login() {
       <div className="w-full max-w-md space-y-8">
         {/* Logo/Brand */}
         <div className="text-center">
+          <img 
+            src="/logo.png" 
+            alt="Flip Safe" 
+            className="h-16 w-16 mx-auto mb-4 rounded-lg object-contain"
+          />
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
             Flip Safe
           </h1>

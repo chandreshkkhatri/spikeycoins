@@ -77,11 +77,12 @@ export function Header() {
             </svg>
           </button>
           <Link to="/dashboard" className="flex items-center gap-2">
-            {/* Text-based logo - replace with actual logo when available */}
             <div className="flex items-center gap-2 px-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-lg">
-                F
-              </div>
+              <img 
+                src="/logo.png" 
+                alt="Flip Safe" 
+                className="h-8 w-8 rounded-md object-contain"
+              />
               <span className="hidden md:block font-bold text-lg">
                 Flip Safe
               </span>

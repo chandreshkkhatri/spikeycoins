@@ -54,7 +54,8 @@ export default function NavBar({
               <span className="hamburger" />
             </button>
             <Link to="/dashboard" className="brand" aria-label="Home">
-              <span className="brand-accent">⚡</span> {title}
+              <img src="/logo.png" alt="" className="brand-logo" style={{ height: '24px', width: '24px', marginRight: '8px', borderRadius: '4px' }} />
+              {title}
             </Link>
           </div>
           <nav className="nav-links">
