@@ -9,10 +9,13 @@ import {
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
 import { HelpCircle, RefreshCw } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
 import TradingPanelTabs from "./TradingPanelTabs";
+
+// Global promise cache to deduplicate simultaneous fetches
+const DETAILS_PROMISE_CACHE = new Map<string, Promise<any>>();
 
 interface TradingWindowProps {
   symbol: string;
@@ -61,7 +64,7 @@ const TradingWindow = memo(function TradingWindow({
     side: "BUY",
     type: "LIMIT",
     quantity: "0.001",
-    price: currentPrice.toFixed(2),
+    price: currentPrice.toFixed(2), // Initial value, will be updated by effect
     stopPrice: "",
     leverage: "1",
     reduceOnly: false,
@@ -85,8 +88,16 @@ const TradingWindow = memo(function TradingWindow({
   const [isExponentialSlider, setIsExponentialSlider] = useState(false);
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
+
   const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(null);
   
+  // Track if we've synced leverage from the exchange for the current session/symbol
+  const hasSyncedLeverage = useRef(false);
+
+  // Reset synced state when symbol or account changes
+  useEffect(() => {
+    hasSyncedLeverage.current = false;
+  }, [symbol, selectedAccount?._id]);
   // User-defined max leverage (stored in localStorage)
   const [userMaxLeverage, setUserMaxLeverage] = useState<number>(() => {
     try {
@@ -161,11 +172,13 @@ const TradingWindow = memo(function TradingWindow({
   };
 
   // Update price when current price changes (only if user hasn't manually edited it)
+  // Update price when current price changes (only if user hasn't manually edited it)
   useEffect(() => {
     if (orderForm.type === "LIMIT" && !hasUserEditedPrice) {
-      setOrderForm((prev) => ({ ...prev, price: currentPrice.toFixed(2) }));
+      const decimals = tickSize.includes('.') ? tickSize.split('.')[1].replace(/0+$/, '').length : 2;
+      setOrderForm((prev) => ({ ...prev, price: currentPrice.toFixed(decimals) }));
     }
-  }, [currentPrice, orderForm.type, hasUserEditedPrice]);
+  }, [currentPrice, orderForm.type, hasUserEditedPrice, tickSize]);
 
   // Auto-calculate Stop Loss based on 5% risk rule
   useEffect(() => {
@@ -259,53 +272,84 @@ const TradingWindow = memo(function TradingWindow({
 
     setIsRefreshingDetails(true);
     try {
-      if (selectedAccount.accountType === "binance") {
-        const response = await api.get("/binance/position-details", {
-          params: {
-            accountId: selectedAccount._id,
-            symbol,
-          },
-        });
+      const cacheKey = `${selectedAccount._id}-${symbol}`;
+      let promise = DETAILS_PROMISE_CACHE.get(cacheKey);
 
-        if (response.data && response.data.success) {
-          setAccountDetails(response.data.account);
-          setPositionDetails(response.data.position);
+      if (!promise) {
+        promise = (async () => {
+          try {
+            if (selectedAccount.accountType === "binance") {
+              const response = await api.get("/binance/position-details", {
+                params: {
+                  accountId: selectedAccount._id,
+                  symbol,
+                },
+              });
+              return { type: 'binance', data: response.data };
+            } else {
+              const response = await api.get(`/funds?accountId=${selectedAccount._id}`);
+              return { type: 'other', data: response.data };
+            }
+          } catch (e) {
+            throw e;
+          } finally {
+            // Clear cache after 2 seconds
+            setTimeout(() => {
+              DETAILS_PROMISE_CACHE.delete(cacheKey);
+            }, 2000);
+          }
+        })();
+        DETAILS_PROMISE_CACHE.set(cacheKey, promise);
+      }
+
+      const result = await promise;
+
+      if (result.type === 'binance') {
+        const data = result.data;
+        if (data && data.success) {
+          setAccountDetails(data.account);
+          setPositionDetails(data.position);
 
           let newExchangeMaxLeverage = 125;
-          if (response.data.symbolInfo?.maxLeverage) {
-            newExchangeMaxLeverage = response.data.symbolInfo.maxLeverage;
-          } else if (response.data.position?.maxLeverage) {
-            newExchangeMaxLeverage = response.data.position.maxLeverage;
+          if (data.symbolInfo?.maxLeverage) {
+            newExchangeMaxLeverage = data.symbolInfo.maxLeverage;
+          } else if (data.position?.maxLeverage) {
+            newExchangeMaxLeverage = data.position.maxLeverage;
           }
           setExchangeMaxLeverage(newExchangeMaxLeverage);
 
-          if (response.data.symbolInfo?.tickSize) {
-            setTickSize(response.data.symbolInfo.tickSize);
+          if (data.symbolInfo?.tickSize) {
+            setTickSize(data.symbolInfo.tickSize);
           }
-          if (response.data.symbolInfo?.stepSize) {
-            setStepSize(response.data.symbolInfo.stepSize);
+          if (data.symbolInfo?.stepSize) {
+            setStepSize(data.symbolInfo.stepSize);
           }
 
-          const effectiveMaxLeverage = Math.min(newExchangeMaxLeverage, userMaxLeverage);
-          const currentPositionLeverage = response.data.position?.leverage;
-          const defaultLeverage = currentPositionLeverage
-            ? Math.min(currentPositionLeverage, effectiveMaxLeverage)
-            : effectiveMaxLeverage;
-          setOrderForm((prev) => ({
-            ...prev,
-            leverage: String(defaultLeverage),
-          }));
+          // Only sync leverage if we haven't done so yet for this session
+          if (!hasSyncedLeverage.current) {
+            const effectiveMaxLeverage = Math.min(newExchangeMaxLeverage, userMaxLeverage);
+            const currentPositionLeverage = data.position?.leverage;
+            const defaultLeverage = currentPositionLeverage
+              ? Math.min(currentPositionLeverage, effectiveMaxLeverage)
+              : effectiveMaxLeverage;
+            
+            setOrderForm((prev) => ({
+              ...prev,
+              leverage: String(defaultLeverage),
+            }));
+            hasSyncedLeverage.current = true;
+          }
 
-          const equity = response.data.account.equity || 0;
-          const available = response.data.account.availableBalance || equity;
+          const equity = data.account.equity || 0;
+          const available = data.account.availableBalance || equity;
           setAvailableBalance(available);
         }
       } else {
-        const response = await api.get(`/funds?accountId=${selectedAccount._id}`);
-        if (response.data && response.data.available) {
-          setAvailableBalance(parseFloat(response.data.available) || 0);
-        } else if (response.data && response.data.data) {
-          const balance = response.data.data.availableCash || response.data.data.net || 0;
+        const data = result.data;
+        if (data && data.available) {
+          setAvailableBalance(parseFloat(data.available) || 0);
+        } else if (data && data.data) {
+          const balance = data.data.availableCash || data.data.net || 0;
           setAvailableBalance(parseFloat(balance));
         }
       }
@@ -327,7 +371,7 @@ const TradingWindow = memo(function TradingWindow({
     }, DETAILS_REFRESH_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [fetchAccountAndPositionDetails, selectedAccount]);
+  }, [fetchAccountAndPositionDetails, selectedAccount, symbol]);
 
   const handleInputChange = (
     field: keyof OrderForm,
@@ -535,7 +579,7 @@ const TradingWindow = memo(function TradingWindow({
       setOrderForm((prev) => ({
         ...prev,
         quantity: "0.001",
-        price: currentPrice.toFixed(2),
+        price: currentPrice.toFixed(tickSize.includes('.') ? tickSize.split('.')[1].replace(/0+$/, '').length : 2),
         stopPrice: "",
         stopLoss: "",
         takeProfit: "",
@@ -1083,62 +1127,7 @@ const TradingWindow = memo(function TradingWindow({
             </div>
           )}
 
-          {/* Position Details */}
-          {positionDetails && (
-            <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
-              <div className="font-medium text-muted-foreground mb-1 flex justify-between">
-                <span>Position: {positionDetails.symbol}</span>
-                <span
-                  className={
-                    positionDetails.size > 0 ? "text-green-500" : "text-red-500"
-                  }
-                >
-                  {positionDetails.size > 0 ? "LONG" : "SHORT"}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Size</span>
-                <span>{Math.abs(positionDetails.size)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Entry Price</span>
-                <span>{formatPrice(positionDetails.entryPrice)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Mark Price</span>
-                <span>{formatPrice(positionDetails.markPrice)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Liq. Price</span>
-                <span className="text-orange-500 font-medium">
-                  {formatPrice(positionDetails.liquidationPrice)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Margin</span>
-                <span>{formatPrice(positionDetails.margin)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">PNL (ROI)</span>
-                <span
-                  className={
-                    positionDetails.pnl >= 0
-                      ? "text-green-500 font-medium"
-                      : "text-red-500 font-medium"
-                  }
-                >
-                  {formatPrice(positionDetails.pnl)} (
-                  {formatPercent(positionDetails.roi)})
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Est. Funding</span>
-                <span className="text-yellow-500">
-                  {formatPrice(positionDetails.estFundingFee)}
-                </span>
-              </div>
-            </div>
-          )}
+
         </div>
 
         {/* Order Book - Rightmost Column */}
