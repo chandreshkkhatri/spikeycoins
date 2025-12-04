@@ -18,6 +18,12 @@ class BinanceService {
   private spotExchangeInfoCache: any = null;
   private spotExchangeInfoCacheTime: number = 0;
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
+  
+  // Rate limiting to prevent IP bans
+  private requestCount: number = 0;
+  private requestWindowStart: number = Date.now();
+  private readonly REQUEST_WINDOW = 60 * 1000; // 1 minute window
+  private readonly MAX_REQUESTS_PER_WINDOW = 1200; // Conservative limit (Binance allows 1200/min)
 
   // Base URLs according to Binance API docs
   private readonly SPOT_BASE_URL = "https://api.binance.com";
@@ -73,6 +79,29 @@ class BinanceService {
   }
 
   /**
+   * Check and enforce rate limits
+   */
+  private checkRateLimit(): void {
+    const now = Date.now();
+    
+    // Reset counter if we're in a new window
+    if (now - this.requestWindowStart >= this.REQUEST_WINDOW) {
+      this.requestCount = 0;
+      this.requestWindowStart = now;
+    }
+    
+    // Check if we've exceeded the limit
+    if (this.requestCount >= this.MAX_REQUESTS_PER_WINDOW) {
+      const waitTime = this.REQUEST_WINDOW - (now - this.requestWindowStart);
+      throw new Error(
+        `Rate limit exceeded. Please wait ${Math.ceil(waitTime / 1000)}s before making more requests. Use websocket streams for live price updates.`
+      );
+    }
+    
+    this.requestCount++;
+  }
+
+  /**
    * Generate signature for authenticated requests
    */
   private generateSignature(queryString: string): string {
@@ -103,6 +132,7 @@ class BinanceService {
    */
   async getSpotAccount() {
     try {
+      this.checkRateLimit();
       const signedParams = this.signRequest();
       const response = await this.spotClient.get(
         `/api/v3/account?${signedParams}`
@@ -192,6 +222,7 @@ class BinanceService {
     timeInForce?: "GTC" | "IOC" | "FOK";
   }) {
     try {
+      this.checkRateLimit();
       const signedParams = this.signRequest(params);
       const response = await this.spotClient.post(
         `/api/v3/order?${signedParams}`
@@ -236,6 +267,7 @@ class BinanceService {
    */
   async getFuturesAccount() {
     try {
+      this.checkRateLimit();
       const signedParams = this.signRequest();
       const response = await this.futuresClient.get(
         `/fapi/v2/account?${signedParams}`
@@ -302,6 +334,7 @@ class BinanceService {
    */
   async getFuturesOpenOrders(symbol?: string) {
     try {
+      this.checkRateLimit();
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
@@ -389,6 +422,7 @@ class BinanceService {
     reduceOnly?: boolean;
   }) {
     try {
+      this.checkRateLimit();
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.post(
         `/fapi/v1/order?${signedParams}`
@@ -431,6 +465,7 @@ class BinanceService {
    */
   async changeFuturesLeverage(symbol: string, leverage: number) {
     try {
+      this.checkRateLimit();
       const signedParams = this.signRequest({ symbol, leverage });
       const response = await this.futuresClient.post(
         `/fapi/v1/leverage?${signedParams}`
@@ -478,6 +513,7 @@ class BinanceService {
    */
   async getFuturesLeverageBrackets(symbol?: string) {
     try {
+      this.checkRateLimit();
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
@@ -563,9 +599,16 @@ class BinanceService {
 
   /**
    * Get latest price for a symbol (Spot)
+   * WARNING: This makes a REST API call and contributes to rate limits.
+   * Use binancePriceService.getPrice() for cached websocket data instead!
+   * @deprecated Use binancePriceService.getPrice() to avoid rate limits
    */
   async getSpotPrice(symbol: string) {
     try {
+      console.warn(
+        `[RATE LIMIT WARNING] getSpotPrice() called for ${symbol}. Use binancePriceService.getPrice() instead to avoid API bans!`
+      );
+      this.checkRateLimit();
       const response = await this.spotClient.get(`/api/v3/ticker/price`, {
         params: { symbol },
       });
@@ -583,9 +626,16 @@ class BinanceService {
 
   /**
    * Get latest price for a symbol (Futures)
+   * WARNING: This makes a REST API call and contributes to rate limits.
+   * Use binancePriceService.getPrice() for cached websocket data instead!
+   * @deprecated Use binancePriceService.getPrice() to avoid rate limits
    */
   async getFuturesPrice(symbol: string) {
     try {
+      console.warn(
+        `[RATE LIMIT WARNING] getFuturesPrice() called for ${symbol}. Use binancePriceService.getPrice() instead to avoid API bans!`
+      );
+      this.checkRateLimit();
       const response = await this.futuresClient.get(`/fapi/v1/ticker/price`, {
         params: { symbol },
       });

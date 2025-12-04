@@ -1,10 +1,12 @@
 import { Router, Request, Response } from "express";
 import binanceService from "../lib/binance-service";
+import binancePriceService from "../lib/binance-price-service";
 import { getAccountById } from "../models/account";
 
 const router = Router();
 
 // GET /api/binance/price - Get current price for a symbol
+// IMPORTANT: Uses websocket cache to avoid excessive API calls and rate limits
 router.get("/price", async (req: Request, res: Response) => {
   try {
     const { symbol, segment } = req.query;
@@ -13,22 +15,31 @@ router.get("/price", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "symbol is required" });
     }
 
-    const tradingSegment = (segment as string) || "spot";
+    const upperSymbol = (symbol as string).toUpperCase();
+    const tradingSegment = (segment as string) || "usdm"; // Default to futures as that's what's cached
 
-    // Initialize with default credentials (no authentication needed for public endpoints)
-    binanceService.initializeWithCredentials("", "", false);
+    // Use websocket-cached prices instead of REST API to avoid rate limits
+    const cachedPrice = binancePriceService.getPrice(upperSymbol);
 
-    let price;
-    if (tradingSegment === "usdm") {
-      price = await binanceService.getFuturesPrice(symbol as string);
-    } else {
-      price = await binanceService.getSpotPrice(symbol as string);
+    if (!cachedPrice) {
+      return res.status(404).json({
+        error: "Price not found in cache",
+        symbol: upperSymbol,
+        hint: "Symbol may not exist or price service is still initializing. Try /api/prices endpoint instead.",
+      });
     }
+
+    // Format response to match Binance API structure
+    const price = {
+      symbol: cachedPrice.symbol,
+      price: cachedPrice.lastPrice.toString(),
+    };
 
     return res.json({
       success: true,
       price,
       segment: tradingSegment,
+      source: "websocket_cache",
     });
   } catch (error: any) {
     console.error("Error fetching Binance price:", error);
@@ -40,6 +51,7 @@ router.get("/price", async (req: Request, res: Response) => {
 });
 
 // GET /api/binance/ticker - Get 24hr ticker statistics
+// IMPORTANT: Uses websocket cache to avoid excessive API calls and rate limits
 router.get("/ticker", async (req: Request, res: Response) => {
   try {
     const { symbol, segment } = req.query;
@@ -48,21 +60,37 @@ router.get("/ticker", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "symbol is required" });
     }
 
-    const tradingSegment = (segment as string) || "spot";
+    const upperSymbol = (symbol as string).toUpperCase();
+    const tradingSegment = (segment as string) || "usdm"; // Default to futures as that's what's cached
 
-    binanceService.initializeWithCredentials("", "", false);
+    // Use websocket-cached prices which include 24hr ticker data
+    const cachedPrice = binancePriceService.getPrice(upperSymbol);
 
-    let ticker;
-    if (tradingSegment === "usdm") {
-      ticker = await binanceService.getFutures24hrTicker(symbol as string);
-    } else {
-      ticker = await binanceService.getSpot24hrTicker(symbol as string);
+    if (!cachedPrice) {
+      return res.status(404).json({
+        error: "Ticker not found in cache",
+        symbol: upperSymbol,
+        hint: "Symbol may not exist or price service is still initializing.",
+      });
     }
+
+    // Format response to match Binance 24hr ticker structure
+    const ticker = {
+      symbol: cachedPrice.symbol,
+      priceChange: cachedPrice.priceChange.toString(),
+      priceChangePercent: cachedPrice.priceChangePercent.toString(),
+      lastPrice: cachedPrice.lastPrice.toString(),
+      highPrice: cachedPrice.high.toString(),
+      lowPrice: cachedPrice.low.toString(),
+      volume: cachedPrice.volume.toString(),
+      quoteVolume: cachedPrice.quoteVolume.toString(),
+    };
 
     return res.json({
       success: true,
       ticker,
       segment: tradingSegment,
+      source: "websocket_cache",
     });
   } catch (error: any) {
     console.error("Error fetching Binance ticker:", error);
