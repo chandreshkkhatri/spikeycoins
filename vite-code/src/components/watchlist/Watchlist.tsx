@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { getApiUrl } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import binanceWebSocketService from "@/lib/binance-websocket";
 import { formatPrice, formatVolume, formatPercent } from "@/lib/format-utils";
 import { upstoxWebSocket } from "@/lib/upstox-websocket";
@@ -94,6 +95,7 @@ const Watchlist = memo(function Watchlist({
   selectedAccount,
   marketType = "binance-futures",
 }: WatchlistProps) {
+  const { user } = useAuth();
   const storedWatchlistSettings = useRef(getStoredWatchlistSettings());
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -686,14 +688,14 @@ const Watchlist = memo(function Watchlist({
   }, []);
 
   const createWatchlist = async () => {
-    if (!selectedAccount || !newWatchlistName.trim()) return;
+    if (!selectedAccount || !newWatchlistName.trim() || !user?._id) return;
 
     try {
       const response = await fetch(getApiUrl("/api/watchlist"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "default_user", // Should be dynamic
+          userId: user._id,
           accountId: selectedAccount._id,
           name: newWatchlistName.trim(),
           marketType,

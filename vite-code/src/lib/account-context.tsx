@@ -48,17 +48,36 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { isLoggedIn, user, getAccessToken } = useAuth();
-  
-  // Allow the app to work without authentication (using default_user fallback)
-  const allowOfflineAccess = true;
 
   // Track in-flight requests to prevent duplicates
   const fetchInProgress = useRef(false);
   const lastFetchTime = useRef(0);
   const MIN_FETCH_INTERVAL = 2000; // Minimum 2 seconds between fetches
 
+  // Clear cache when user logs out
+  const prevIsLoggedIn = useRef(isLoggedIn);
+  useEffect(() => {
+    if (prevIsLoggedIn.current && !isLoggedIn) {
+      // User logged out - clear all cached data
+      sessionStorage.removeItem('accountsCache');
+      sessionStorage.removeItem('accountsCacheTime');
+      sessionStorage.removeItem('selectedAccountId');
+      setAccounts([]);
+      setSelectedAccountState(null);
+      setError(null);
+    }
+    prevIsLoggedIn.current = isLoggedIn;
+  }, [isLoggedIn]);
+
   const fetchAccounts = useCallback(
     async (isBackground = false) => {
+      // Require authentication - don't fetch if not logged in
+      if (!isLoggedIn || !user?._id) {
+        console.log('[AccountContext] User not logged in, skipping fetch');
+        setLoadingAccounts(false);
+        return;
+      }
+
       // Prevent duplicate fetches
       const now = Date.now();
       if (fetchInProgress.current) {
@@ -72,8 +91,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
         return;
       }
 
-      // Use authenticated user ID if logged in, otherwise fall back to default_user
-      const userId = user?._id || 'default_user';
+      // Use authenticated user ID (no more default_user fallback)
+      const userId = user._id;
 
       const cacheKey = 'accountsCache';
       const cacheTimeKey = 'accountsCacheTime';
@@ -206,7 +225,9 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   const hasInitialized = useRef(false);
   useEffect(() => {
     if (hasInitialized.current) return;
-    if (!isLoggedIn && !allowOfflineAccess) {
+    
+    // Require authentication - don't initialize if not logged in
+    if (!isLoggedIn) {
       setLoadingAccounts(false);
       return;
     }
@@ -237,7 +258,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
     // Fetch fresh data (will use cache check inside)
     fetchAccounts();
-  }, [isLoggedIn, allowOfflineAccess, fetchAccounts]);
+  }, [isLoggedIn, fetchAccounts]);
 
   // REMOVED: Second useEffect that was causing duplicate fetches
 

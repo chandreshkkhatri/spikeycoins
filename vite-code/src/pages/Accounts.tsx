@@ -23,9 +23,10 @@ export default function AccountsPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<IAccount | null>(null);
 
-  const { user, getAccessToken } = useAuth();
-  // Use authenticated user ID if logged in, otherwise fall back to default_user
-  const userId = user?._id || "default_user";
+  const { isLoggedIn, user, getAccessToken } = useAuth();
+  
+  // Require authentication - no more default_user fallback
+  const userId = user?._id;
 
   // Helper to get auth headers
   const getAuthHeaders = (): HeadersInit => {
@@ -206,6 +207,28 @@ export default function AccountsPage() {
 
   if (loading) {
     return <LoadingSpinner message="Loading accounts..." />;
+  }
+
+  // Require authentication
+  if (!isLoggedIn || !userId) {
+    return (
+      <PageLayout title="Account Management">
+        <EnhancedCard>
+          <div style={{ textAlign: "center", padding: "60px 20px" }}>
+            <div style={{ fontSize: "4rem", marginBottom: "20px" }}>🔐</div>
+            <h3 style={{ fontSize: "1.5rem", fontWeight: 600, margin: "0 0 12px 0" }}>
+              Login Required
+            </h3>
+            <p style={{ fontSize: "1rem", color: "#666", margin: "0 0 24px 0" }}>
+              Please log in to view and manage your trading accounts.
+            </p>
+            <Button onClick={() => window.location.href = "/login"} variant="trading" size="lg">
+              Go to Login
+            </Button>
+          </div>
+        </EnhancedCard>
+      </PageLayout>
+    );
   }
 
   return (

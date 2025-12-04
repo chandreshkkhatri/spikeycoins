@@ -8,14 +8,15 @@ import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 const router = Router();
 
 // Helper to get userId - uses authenticated user or falls back to query param/body
-function getUserId(req: AuthenticatedRequest, fromBody = false): string {
+// No more default_user fallback - authentication is required
+function getUserId(req: AuthenticatedRequest, fromBody = false): string | null {
   if (req.user?.id) {
     return req.user.id;
   }
   if (fromBody) {
-    return (req.body.userId as string) || "default_user";
+    return (req.body.userId as string) || null;
   }
-  return (req.query.userId as string) || "default_user";
+  return (req.query.userId as string) || null;
 }
 
 // GET /api/watchlist - Get watchlists for a user
@@ -23,6 +24,10 @@ router.get("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) =
   try {
     const userId = getUserId(req);
     const { accountId } = req.query;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
 
     await connectDB();
 
@@ -48,6 +53,10 @@ router.post("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) 
   try {
     const userId = getUserId(req, true);
     const { accountId, name, marketType, symbols } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
 
     if (!accountId || !name || !marketType) {
       return res.status(400).json({
@@ -198,8 +207,9 @@ router.get("/symbols", optionalAuth, async (req: AuthenticatedRequest, res: Resp
 });
 
 // POST /api/watchlist/symbols - Add a symbol to a watchlist
-router.post("/symbols", async (req: Request, res: Response) => {
+router.post("/symbols", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const userId = getUserId(req, true);
     const { watchlistId, symbol, accountId, marketType, item } = req.body;
 
     await connectDB();
@@ -217,10 +227,13 @@ router.post("/symbols", async (req: Request, res: Response) => {
         isDefault: true,
       });
 
-      // If no default watchlist exists, create one
+      // If no default watchlist exists, create one (requires userId)
       if (!watchlist) {
+        if (!userId) {
+          return res.status(401).json({ error: "Authentication required to create watchlist" });
+        }
         watchlist = new Watchlist({
-          userId: "default_user",
+          userId,
           accountId,
           name: `${marketType} Watchlist`,
           marketType,
