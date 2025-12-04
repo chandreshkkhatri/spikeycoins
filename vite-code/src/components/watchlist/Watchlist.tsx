@@ -95,7 +95,17 @@ const Watchlist = memo(function Watchlist({
   selectedAccount,
   marketType = "binance-futures",
 }: WatchlistProps) {
-  const { user } = useAuth();
+  const { user, getAccessToken } = useAuth();
+  
+  // Helper to get auth headers for API calls
+  const getAuthHeaders = useCallback((): HeadersInit => {
+    const headers: HeadersInit = { "Content-Type": "application/json" };
+    const token = getAccessToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return headers;
+  }, [getAccessToken]);
   const storedWatchlistSettings = useRef(getStoredWatchlistSettings());
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -223,7 +233,7 @@ const Watchlist = memo(function Watchlist({
             ? getApiUrl(`/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`)
             : getApiUrl(`/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}`);
 
-        const userRes = await fetch(userWlUrl);
+        const userRes = await fetch(userWlUrl, { headers: getAuthHeaders() });
         if (!userRes.ok) {
           const errorBody = await userRes.text();
           throw new Error(
@@ -595,7 +605,7 @@ const Watchlist = memo(function Watchlist({
 
         const response = await fetch(getApiUrl("/api/watchlist/symbols"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(),
           body: JSON.stringify(body),
         });
 
@@ -664,7 +674,7 @@ const Watchlist = memo(function Watchlist({
 
         await fetch(getApiUrl("/api/watchlist/symbols"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(),
           body: JSON.stringify(body),
         });
       } catch (err) {
@@ -693,7 +703,7 @@ const Watchlist = memo(function Watchlist({
     try {
       const response = await fetch(getApiUrl("/api/watchlist"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           userId: user._id,
           accountId: selectedAccount._id,
@@ -736,6 +746,7 @@ const Watchlist = memo(function Watchlist({
     try {
       const response = await fetch(getApiUrl(`/api/watchlist/${watchlistId}`), {
         method: "DELETE",
+        headers: getAuthHeaders(),
       });
 
       if (!response.ok) throw new Error("Failed to delete watchlist");
