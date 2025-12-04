@@ -107,7 +107,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           `/positions?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
         );
         if (response.data?.success) {
-          const posData = response.data.positions || [];
+          const posData =
+            response.data.data ||
+            response.data.positions ||
+            [];
           // Filter to only show positions with non-zero quantity
           setPositions(
             posData
@@ -151,13 +154,14 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
         }
       } else if (activeTab === "history") {
         // Fetch both order history and trade history
+        const symbolQuery = symbol ? `&symbol=${encodeURIComponent(symbol)}` : "";
         const [orderRes, tradeRes] = await Promise.all([
           api.get(
-            `/binance/order-history?accountId=${selectedAccount._id}${symbol ? `&symbol=${symbol}` : ""}&limit=30`
-          ).catch(() => ({ data: { success: false } })),
+            `/binance/order-history?accountId=${selectedAccount._id}${symbolQuery}&limit=30`
+          ),
           api.get(
-            `/binance/trade-history?accountId=${selectedAccount._id}${symbol ? `&symbol=${symbol}` : ""}&limit=30`
-          ).catch(() => ({ data: { success: false } })),
+            `/binance/trade-history?accountId=${selectedAccount._id}${symbolQuery}&limit=30`
+          ),
         ]);
 
         if (orderRes.data?.success) {

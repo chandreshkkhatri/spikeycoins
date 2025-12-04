@@ -77,8 +77,15 @@ export default function PositionsCard({
     }
 
     try {
+      const cacheBust = Date.now();
       const response = await axios.get(
-        `/api/positions?vendor=${account.accountType}&accountId=${account._id}`
+        `/api/positions?vendor=${account.accountType}&accountId=${account._id}&_=${cacheBust}`,
+        {
+          headers: {
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        }
       );
 
       if (response.data?.success) {
