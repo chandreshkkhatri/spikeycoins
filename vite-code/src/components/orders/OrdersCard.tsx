@@ -115,8 +115,12 @@ export default function OrdersCard({
           ];
         });
       } else {
+        // Check both 'error' and 'details' fields for the actual error message
         const errorMessage =
-          err.response?.data?.error || err.message || "Failed to fetch orders";
+          err.response?.data?.error ||
+          err.response?.data?.details ||
+          err.message ||
+          "Failed to fetch orders";
         setError(`${account.accountName}: ${errorMessage}`);
       }
     } finally {

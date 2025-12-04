@@ -52,8 +52,26 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   // Allow the app to work without authentication (using default_user fallback)
   const allowOfflineAccess = true;
 
+  // Track in-flight requests to prevent duplicates
+  const fetchInProgress = useRef(false);
+  const lastFetchTime = useRef(0);
+  const MIN_FETCH_INTERVAL = 2000; // Minimum 2 seconds between fetches
+
   const fetchAccounts = useCallback(
     async (isBackground = false) => {
+      // Prevent duplicate fetches
+      const now = Date.now();
+      if (fetchInProgress.current) {
+        console.log('[AccountContext] Fetch already in progress, skipping');
+        return;
+      }
+      
+      // Rate limit: don't fetch more than once every 2 seconds
+      if (now - lastFetchTime.current < MIN_FETCH_INTERVAL && !isBackground) {
+        console.log('[AccountContext] Rate limited, skipping fetch');
+        return;
+      }
+
       // Use authenticated user ID if logged in, otherwise fall back to default_user
       const userId = user?._id || 'default_user';
 
@@ -64,9 +82,10 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
       const cachedData = sessionStorage.getItem(cacheKey);
       const cacheTimestamp = sessionStorage.getItem(cacheTimeKey);
 
+      // Use cache if valid and not a background refresh
       if (cachedData && cacheTimestamp && !isBackground) {
-        const now = Date.now();
-        if (now - parseInt(cacheTimestamp) < cacheTime) {
+        const cacheAge = now - parseInt(cacheTimestamp);
+        if (cacheAge < cacheTime) {
           const cachedAccounts = JSON.parse(cachedData) as TradingAccount[];
           setAccounts(cachedAccounts);
           setLoadingAccounts(false);
@@ -78,11 +97,18 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
               setSelectedAccountState(savedAccount);
             }
           }
-
-          setTimeout(() => fetchAccounts(true), 100);
+          
+          // Only do background refresh if cache is older than 30 seconds
+          // This prevents the immediate 100ms refresh that was causing duplicate calls
+          if (cacheAge > 30000) {
+            setTimeout(() => fetchAccounts(true), 1000);
+          }
           return;
         }
       }
+
+      fetchInProgress.current = true;
+      lastFetchTime.current = now;
 
       try {
         if (!isBackground) setLoadingAccounts(true);
@@ -129,24 +155,27 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
           setAccounts(allAccounts);
 
-          if (!selectedAccount) {
+          // Use a ref to check selected account to avoid dependency issues
+          setSelectedAccountState(prev => {
+            if (prev) return prev; // Already have a selection
+            
             const savedAccountId = sessionStorage.getItem('selectedAccountId');
 
             if (savedAccountId && allAccounts.length > 0) {
               const savedAccount = allAccounts.find(acc => acc._id === savedAccountId);
               if (savedAccount) {
-                setSelectedAccountState(savedAccount);
-              } else {
-                const defaultAccount = allAccounts.find(acc => acc.isActive) || allAccounts[0];
-                setSelectedAccountState(defaultAccount);
-                sessionStorage.setItem('selectedAccountId', defaultAccount._id);
+                return savedAccount;
               }
-            } else if (allAccounts.length > 0) {
-              const defaultAccount = allAccounts.find(acc => acc.isActive) || allAccounts[0];
-              setSelectedAccountState(defaultAccount);
-              sessionStorage.setItem('selectedAccountId', defaultAccount._id);
             }
-          }
+            
+            if (allAccounts.length > 0) {
+              const defaultAccount = allAccounts.find(acc => acc.isActive) || allAccounts[0];
+              sessionStorage.setItem('selectedAccountId', defaultAccount._id);
+              return defaultAccount;
+            }
+            
+            return null;
+          });
         }
       } catch (error: any) {
         console.error('Error fetching accounts:', error);
@@ -156,10 +185,12 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
           setError(errorMessage);
         }
       } finally {
+        fetchInProgress.current = false;
         if (!isBackground) setLoadingAccounts(false);
       }
     },
-    [selectedAccount, isLoggedIn, user, getAccessToken]
+    // Remove selectedAccount from deps to prevent unnecessary re-creates
+    [user, getAccessToken]
   );
 
   const setSelectedAccount = useCallback((account: TradingAccount | null) => {
@@ -171,21 +202,26 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
     }
   }, []);
 
+  // Single initialization effect - no more duplicate useEffects
   const hasInitialized = useRef(false);
   useEffect(() => {
     if (hasInitialized.current) return;
+    if (!isLoggedIn && !allowOfflineAccess) {
+      setLoadingAccounts(false);
+      return;
+    }
+    
     hasInitialized.current = true;
 
     const cacheKey = 'accountsCache';
     const cachedData = sessionStorage.getItem(cacheKey);
     const savedAccountId = sessionStorage.getItem('selectedAccountId');
 
-    let hasCachedData = false;
+    // Load from cache immediately for fast UI
     if (cachedData) {
       try {
         const cachedAccounts = JSON.parse(cachedData) as TradingAccount[];
         setAccounts(cachedAccounts);
-        hasCachedData = true;
         setLoadingAccounts(false);
 
         if (savedAccountId && cachedAccounts.length > 0) {
@@ -199,21 +235,11 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
       }
     }
 
-    if (isLoggedIn || allowOfflineAccess) {
-      const delay = hasCachedData ? 50 : 0;
-      setTimeout(() => fetchAccounts(), delay);
-    } else {
-      if (!hasCachedData) {
-        setLoadingAccounts(false);
-      }
-    }
+    // Fetch fresh data (will use cache check inside)
+    fetchAccounts();
   }, [isLoggedIn, allowOfflineAccess, fetchAccounts]);
 
-  useEffect(() => {
-    if (isLoggedIn || allowOfflineAccess) {
-      fetchAccounts(true);
-    }
-  }, [isLoggedIn, allowOfflineAccess, fetchAccounts]);
+  // REMOVED: Second useEffect that was causing duplicate fetches
 
   const value: AccountContextType = {
     selectedAccount,

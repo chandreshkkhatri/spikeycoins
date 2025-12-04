@@ -128,10 +128,12 @@ router.get("/", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("Error fetching holdings:", error);
     // Return consistent structure even on error
+    // Include actual error message for better debugging
+    const errorMessage = error.message || "Unknown error";
     return res.status(500).json({
       success: false,
-      error: "Failed to fetch holdings",
-      details: error.message,
+      error: `Failed to fetch holdings: ${errorMessage}`,
+      details: errorMessage,
       data: [], // Ensure data is always present
     });
   }

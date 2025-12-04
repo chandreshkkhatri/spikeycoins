@@ -1,38 +1,17 @@
-import { useEffect, useState } from "react";
-import axios from "axios";
 import PageLayout from "@/components/layout/PageLayout";
 import FundsCard from "@/components/funds/FundsCard";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import { API_ROUTES } from "@/lib/constants";
+import { useAccount } from "@/lib/account-context";
 import { IAccount } from "@/models/account";
 
 export default function FundsPage() {
-  const [loading, setLoading] = useState(true);
-  const [accounts, setAccounts] = useState<IAccount[]>([]);
+  // Use the shared account context instead of making separate API calls
+  const { accounts: contextAccounts, loadingAccounts } = useAccount();
+  
+  // Cast to IAccount[] for compatibility with FundsCard
+  const accounts = contextAccounts as unknown as IAccount[];
 
-  const fetchAccounts = async () => {
-    try {
-      const userId = "default_user";
-      const response = await axios.get(
-        `${API_ROUTES.accounts.getAccounts}?userId=${userId}`
-      );
-
-      if (response.data?.success) {
-        setAccounts(response.data.accounts || []);
-      }
-    } catch (error) {
-      console.error("Error fetching accounts:", error);
-      setAccounts([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAccounts();
-  }, []);
-
-  if (loading) {
+  if (loadingAccounts) {
     return <LoadingSpinner message="Loading funds..." />;
   }
 

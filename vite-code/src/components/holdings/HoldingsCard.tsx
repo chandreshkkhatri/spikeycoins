@@ -122,8 +122,10 @@ export default function HoldingsCard({
           ];
         });
       } else {
+        // Check both 'error' and 'details' fields for the actual error message
         const errorMessage =
           err.response?.data?.error ||
+          err.response?.data?.details ||
           err.message ||
           "Failed to fetch holdings";
         setError(`${account.accountName}: ${errorMessage}`);

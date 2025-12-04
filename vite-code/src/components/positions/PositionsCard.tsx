@@ -121,6 +121,7 @@ export default function PositionsCard({
       } else {
         const errorMessage =
           err.response?.data?.error ||
+          err.response?.data?.details ||
           err.message ||
           "Failed to fetch positions";
         setError(`${account.accountName}: ${errorMessage}`);
