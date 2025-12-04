@@ -11,17 +11,17 @@
 
 .main-content {
   margin-top: 8px;
-  padding-bottom: 1rem;
+  padding-bottom: 0;
   height: calc(100vh - 72px);
-  overflow-y: auto; /* Allow vertical scrolling for content */
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .container {
   max-width: 1400px;
   margin: 0 auto;
   padding: 0 1rem;
-  /* Removed height: 100% and overflow: hidden to allow content to flow naturally */
+  height: 100%;
+  overflow: hidden;
 }
 
 @media (max-width: 960px) {

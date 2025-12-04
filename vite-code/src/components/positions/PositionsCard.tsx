@@ -10,7 +10,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface TradingAccount {
   _id?: string;
@@ -62,6 +62,7 @@ export default function PositionsCard({
   const [error, setError] = useState<string | null>(null);
   const [accountErrors, setAccountErrors] = useState<AccountError[]>([]);
   const [refreshing, setRefreshing] = useState<string | null>(null);
+  const hasInitiallyFetched = useRef(false);
 
   // Filter accounts to show - if selectedAccountId is provided, show only that account
   const accountsToShow = selectedAccountId
@@ -163,11 +164,12 @@ export default function PositionsCard({
   };
 
   useEffect(() => {
-    // Only fetch if we have accounts to show
-    if (accountsToShow.length > 0) {
+    // Only fetch once on initial mount when we have accounts
+    if (accountsToShow.length > 0 && !hasInitiallyFetched.current) {
+      hasInitiallyFetched.current = true;
       fetchAllPositions();
     }
-  }, [JSON.stringify(accounts.map((a) => a._id)), selectedAccountId]); // Use stable stringified IDs
+  }, [accountsToShow.length]); // Only depend on whether we have accounts
 
   const formatCurrency = (amount: number | undefined | null) => {
     if (amount === undefined || amount === null || isNaN(amount)) {
@@ -226,8 +228,24 @@ export default function PositionsCard({
     );
   }
 
+  const cardTitle = (
+    <div className="flex items-center justify-between w-full">
+      <span>Positions</span>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={fetchAllPositions}
+        disabled={loading}
+        title="Refresh positions"
+        className="h-6 px-2"
+      >
+        <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+      </Button>
+    </div>
+  );
+
   return (
-    <EnhancedCard title="Positions" className={className}>
+    <EnhancedCard title={cardTitle} className={className}>
       {/* Summary when multiple positions */}
       {positionsData.length > 0 && (
         <div className="positions-summary">
