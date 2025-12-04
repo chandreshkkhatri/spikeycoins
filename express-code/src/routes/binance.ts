@@ -4,6 +4,50 @@ import binancePriceService from "../lib/binance-price-service";
 import { getAccountById } from "../models/account";
 
 const router = Router();
+const AGGREGATED_HISTORY_SYMBOL_LIMIT = 5;
+
+const normalizeSymbol = (symbol?: string) =>
+  typeof symbol === "string" ? symbol.trim().toUpperCase() : undefined;
+
+const deriveHistorySymbols = async (preferredSymbol?: string) => {
+  if (preferredSymbol) {
+    return [preferredSymbol];
+  }
+
+  try {
+    const positions = await binanceService.getFuturesPositions();
+    if (Array.isArray(positions)) {
+      const positionSymbols = Array.from(
+        new Set(
+          positions
+            .filter((p: any) => parseFloat(p.positionAmt) !== 0)
+            .map((p: any) => p.symbol)
+        )
+      );
+      if (positionSymbols.length > 0) {
+        return positionSymbols.slice(0, AGGREGATED_HISTORY_SYMBOL_LIMIT);
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to derive history symbols from positions:", err);
+  }
+
+  try {
+    const openOrders = await binanceService.getFuturesOpenOrders();
+    if (Array.isArray(openOrders)) {
+      const orderSymbols = Array.from(
+        new Set(openOrders.map((o: any) => o.symbol))
+      );
+      if (orderSymbols.length > 0) {
+        return orderSymbols.slice(0, AGGREGATED_HISTORY_SYMBOL_LIMIT);
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to derive history symbols from open orders:", err);
+  }
+
+  return [];
+};
 
 // GET /api/binance/price - Get current price for a symbol
 // IMPORTANT: Uses websocket cache to avoid excessive API calls and rate limits
@@ -392,21 +436,62 @@ router.get("/order-history", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Binance account not found" });
     }
 
+    const tradingSegment = account.metadata?.tradingSegment || "spot";
+    if (tradingSegment !== "usdm") {
+      return res.status(400).json({
+        error: "Order history is only available for Binance futures accounts",
+      });
+    }
+
     binanceService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
       account.metadata?.testnet ?? false
     );
 
-    const orders = await binanceService.getFuturesAllOrders(
-      symbol as string | undefined,
-      parseInt(limit as string) || 50
+    const limitValue = parseInt(limit as string, 10) || 50;
+    const symbolsToFetch = await deriveHistorySymbols(
+      normalizeSymbol(symbol as string | undefined)
     );
 
-    // Filter to filled/cancelled orders (not NEW status)
-    const historyOrders = orders.filter(
-      (o: any) => o.status === "FILLED" || o.status === "CANCELED" || o.status === "EXPIRED"
+    if (symbolsToFetch.length === 0) {
+      return res.json({
+        success: true,
+        orders: [],
+        message: "No symbols with activity found. Select a symbol to fetch history.",
+      });
+    }
+
+    const perSymbolLimit = Math.max(
+      10,
+      Math.round(limitValue / symbolsToFetch.length)
     );
+
+    const allOrders: any[] = [];
+    for (const sym of symbolsToFetch) {
+      try {
+        const symbolOrders = await binanceService.getFuturesAllOrders(
+          sym,
+          perSymbolLimit
+        );
+        allOrders.push(...symbolOrders);
+      } catch (err: any) {
+        console.warn(`Failed to fetch order history for ${sym}:`, err?.message || err);
+      }
+    }
+
+    const historyOrders = allOrders
+      .filter(
+        (o: any) =>
+          o.status === "FILLED" ||
+          o.status === "CANCELED" ||
+          o.status === "EXPIRED"
+      )
+      .sort(
+        (a: any, b: any) =>
+          (b.updateTime || b.time || 0) - (a.updateTime || a.time || 0)
+      )
+      .slice(0, limitValue);
 
     return res.json({
       success: true,
@@ -447,20 +532,57 @@ router.get("/trade-history", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Binance account not found" });
     }
 
+    const tradingSegment = account.metadata?.tradingSegment || "spot";
+    if (tradingSegment !== "usdm") {
+      return res.status(400).json({
+        error: "Trade history is only available for Binance futures accounts",
+      });
+    }
+
     binanceService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
       account.metadata?.testnet ?? false
     );
 
-    const trades = await binanceService.getFuturesUserTrades(
-      symbol as string | undefined,
-      parseInt(limit as string) || 50
+    const limitValue = parseInt(limit as string, 10) || 50;
+    const symbolsToFetch = await deriveHistorySymbols(
+      normalizeSymbol(symbol as string | undefined)
     );
+
+    if (symbolsToFetch.length === 0) {
+      return res.json({
+        success: true,
+        trades: [],
+        message: "No symbols with activity found. Select a symbol to fetch history.",
+      });
+    }
+
+    const perSymbolLimit = Math.max(
+      10,
+      Math.round(limitValue / symbolsToFetch.length)
+    );
+
+    const allTrades: any[] = [];
+    for (const sym of symbolsToFetch) {
+      try {
+        const symbolTrades = await binanceService.getFuturesUserTrades(
+          sym,
+          perSymbolLimit
+        );
+        allTrades.push(...symbolTrades);
+      } catch (err: any) {
+        console.warn(`Failed to fetch trade history for ${sym}:`, err?.message || err);
+      }
+    }
+
+    const normalizedTrades = allTrades
+      .sort((a: any, b: any) => (b.time || 0) - (a.time || 0))
+      .slice(0, limitValue);
 
     return res.json({
       success: true,
-      trades: trades.map((t: any) => ({
+      trades: normalizedTrades.map((t: any) => ({
         id: t.id,
         symbol: t.symbol,
         side: t.side,

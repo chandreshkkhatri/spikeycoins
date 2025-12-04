@@ -129,6 +129,12 @@
 }
 
 /* Holdings Table */
+.holdings-table-viewport {
+  max-height: min(70vh, 800px);
+  overflow-y: auto;
+  padding-right: 0.25rem; /* allow scrollbar without covering content */
+}
+
 .holdings-table-container {
   overflow-x: auto;
   border-radius: 0.5rem;
@@ -303,6 +309,12 @@
   }
 
   /* On mobile, make table scrollable horizontally */
+  .holdings-table-viewport {
+    max-height: none;
+    overflow-y: visible;
+    padding-right: 0;
+  }
+
   .holdings-table-container {
     border-radius: 0.375rem;
   }
