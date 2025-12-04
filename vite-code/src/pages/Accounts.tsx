@@ -41,8 +41,8 @@ export default function AccountsPage() {
   // Clear session cache and refresh accounts from server
   const refreshAccounts = async () => {
     // Clear the session cache so we get fresh data
-    sessionStorage.removeItem('accountsCache');
-    sessionStorage.removeItem('accountsCacheTime');
+    localStorage.removeItem('accountsCache');
+    localStorage.removeItem('accountsCacheTime');
     await refreshContextAccounts();
   };
 

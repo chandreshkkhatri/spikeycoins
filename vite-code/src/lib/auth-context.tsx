@@ -96,9 +96,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.removeItem(USER_KEY);
     sessionStorage.removeItem('authStatusCache');
     sessionStorage.removeItem('authStatusCacheTime');
-    sessionStorage.removeItem('accountsCache');
-    sessionStorage.removeItem('accountsCacheTime');
-    sessionStorage.removeItem('selectedAccountId');
+    localStorage.removeItem('accountsCache');
+    localStorage.removeItem('accountsCacheTime');
+    localStorage.removeItem('selectedAccountId');
     setUser(null);
   }, []);
 

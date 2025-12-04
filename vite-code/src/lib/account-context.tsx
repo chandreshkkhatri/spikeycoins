@@ -59,9 +59,9 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   useEffect(() => {
     if (prevIsLoggedIn.current && !isLoggedIn) {
       // User logged out - clear all cached data
-      sessionStorage.removeItem('accountsCache');
-      sessionStorage.removeItem('accountsCacheTime');
-      sessionStorage.removeItem('selectedAccountId');
+      localStorage.removeItem('accountsCache');
+      localStorage.removeItem('accountsCacheTime');
+      localStorage.removeItem('selectedAccountId');
       setAccounts([]);
       setSelectedAccountState(null);
       setError(null);
@@ -98,8 +98,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
       const cacheTimeKey = 'accountsCacheTime';
       const cacheTime = 120000; // 2 minutes
 
-      const cachedData = sessionStorage.getItem(cacheKey);
-      const cacheTimestamp = sessionStorage.getItem(cacheTimeKey);
+      const cachedData = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(cacheTimeKey);
 
       // Use cache if valid and not a background refresh
       if (cachedData && cacheTimestamp && !isBackground) {
@@ -109,7 +109,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
           setAccounts(cachedAccounts);
           setLoadingAccounts(false);
 
-          const savedAccountId = sessionStorage.getItem('selectedAccountId');
+          const savedAccountId = localStorage.getItem('selectedAccountId');
           if (savedAccountId && cachedAccounts.length > 0) {
             const savedAccount = cachedAccounts.find(acc => acc._id === savedAccountId);
             if (savedAccount) {
@@ -169,8 +169,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
         if (response.data?.success) {
           const allAccounts = response.data.accounts as TradingAccount[];
 
-          sessionStorage.setItem(cacheKey, JSON.stringify(allAccounts));
-          sessionStorage.setItem(cacheTimeKey, Date.now().toString());
+          localStorage.setItem(cacheKey, JSON.stringify(allAccounts));
+          localStorage.setItem(cacheTimeKey, Date.now().toString());
 
           setAccounts(allAccounts);
 
@@ -178,7 +178,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
           setSelectedAccountState(prev => {
             if (prev) return prev; // Already have a selection
             
-            const savedAccountId = sessionStorage.getItem('selectedAccountId');
+            const savedAccountId = localStorage.getItem('selectedAccountId');
 
             if (savedAccountId && allAccounts.length > 0) {
               const savedAccount = allAccounts.find(acc => acc._id === savedAccountId);
@@ -189,7 +189,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
             
             if (allAccounts.length > 0) {
               const defaultAccount = allAccounts.find(acc => acc.isActive) || allAccounts[0];
-              sessionStorage.setItem('selectedAccountId', defaultAccount._id);
+              localStorage.setItem('selectedAccountId', defaultAccount._id);
               return defaultAccount;
             }
             
@@ -215,9 +215,9 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   const setSelectedAccount = useCallback((account: TradingAccount | null) => {
     setSelectedAccountState(account);
     if (account) {
-      sessionStorage.setItem('selectedAccountId', account._id);
+      localStorage.setItem('selectedAccountId', account._id);
     } else {
-      sessionStorage.removeItem('selectedAccountId');
+      localStorage.removeItem('selectedAccountId');
     }
   }, []);
 
@@ -235,8 +235,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
     hasInitialized.current = true;
 
     const cacheKey = 'accountsCache';
-    const cachedData = sessionStorage.getItem(cacheKey);
-    const savedAccountId = sessionStorage.getItem('selectedAccountId');
+    const cachedData = localStorage.getItem(cacheKey);
+    const savedAccountId = localStorage.getItem('selectedAccountId');
 
     // Load from cache immediately for fast UI
     if (cachedData) {
