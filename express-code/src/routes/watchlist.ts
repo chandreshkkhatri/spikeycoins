@@ -108,8 +108,11 @@ router.get("/symbols", optionalAuth, async (req: AuthenticatedRequest, res: Resp
         isDefault: true,
       });
 
-      // If no default watchlist exists, create one
+      // If no default watchlist exists, create one (requires authentication)
       if (!watchlist) {
+        if (!userId) {
+          return res.status(401).json({ error: "Authentication required to create watchlist" });
+        }
         watchlist = new Watchlist({
           userId,
           accountId,
