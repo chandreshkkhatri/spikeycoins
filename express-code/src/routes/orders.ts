@@ -158,8 +158,13 @@ router.post("/place", async (req: Request, res: Response) => {
       upstoxService.setAccessToken(account.accessToken);
       result = await upstoxService.placeOrder(orderParams);
     } else if (account.accountType === "binance") {
-      const tradingSegment = account.metadata?.tradingSegment || "spot";
+      // Detect trading segment from metadata, or infer from order params
+      // If leverage, stopLoss, or takeProfit is set, it's a futures order
+      const hasFuturesParams = orderParams.leverage || orderParams.stopLoss || orderParams.takeProfit;
+      const tradingSegment = account.metadata?.tradingSegment || (hasFuturesParams ? "usdm" : "spot");
       const isTestnet = account.metadata?.testnet || false;
+      
+      console.log(`[Orders/Place] Detected trading segment: ${tradingSegment} (metadata: ${account.metadata?.tradingSegment}, hasFuturesParams: ${hasFuturesParams})`);
 
       binanceService.initializeWithCredentials(
         account.apiKey,
