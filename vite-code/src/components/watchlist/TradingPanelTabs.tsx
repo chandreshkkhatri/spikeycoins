@@ -15,6 +15,9 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useEffect, useState } from "react";
 
+// Global promise cache to deduplicate simultaneous fetches
+const TABS_DATA_CACHE = new Map<string, Promise<any>>();
+
 interface TradingAccount {
   _id: string;
   accountName: string;
@@ -101,15 +104,53 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     setError(null);
 
     try {
-      // Fetch based on active tab
-      if (activeTab === "positions") {
-        const response = await api.get(
-          `/positions?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
-        );
-        if (response.data?.success) {
+      const cacheKey = `${selectedAccount._id}-${activeTab}-${symbol || ''}`;
+      let promise = TABS_DATA_CACHE.get(cacheKey);
+
+      if (!promise) {
+        promise = (async () => {
+          try {
+            // Fetch based on active tab
+            if (activeTab === "positions") {
+              const response = await api.get(
+                `/positions?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
+              );
+              return { type: 'positions', data: response.data };
+            } else if (activeTab === "orders") {
+              const response = await api.get(
+                `/orders?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
+              );
+              return { type: 'orders', data: response.data };
+            } else if (activeTab === "history") {
+              // Fetch both order history and trade history
+              const symbolQuery = symbol ? `&symbol=${encodeURIComponent(symbol)}` : "";
+              const [orderRes, tradeRes] = await Promise.all([
+                api.get(
+                  `/binance/order-history?accountId=${selectedAccount._id}${symbolQuery}&limit=30`
+                ),
+                api.get(
+                  `/binance/trade-history?accountId=${selectedAccount._id}${symbolQuery}&limit=30`
+                ),
+              ]);
+              return { type: 'history', orderData: orderRes.data, tradeData: tradeRes.data };
+            }
+          } finally {
+            // Clear cache after 2 seconds
+            setTimeout(() => {
+              TABS_DATA_CACHE.delete(cacheKey);
+            }, 2000);
+          }
+        })();
+        TABS_DATA_CACHE.set(cacheKey, promise);
+      }
+
+      const result = await promise;
+
+      if (activeTab === "positions" && result?.type === 'positions') {
+        if (result.data?.success) {
           const posData =
-            response.data.data ||
-            response.data.positions ||
+            result.data.data ||
+            result.data.positions ||
             [];
           // Filter to only show positions with non-zero quantity
           setPositions(
@@ -130,14 +171,11 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
               }))
           );
         }
-      } else if (activeTab === "orders") {
-        const response = await api.get(
-          `/orders?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
-        );
-        if (response.data?.success) {
+      } else if (activeTab === "orders" && result?.type === 'orders') {
+        if (result.data?.success) {
           // Filter to only open orders
           setOrders(
-            (response.data.orders || [])
+            (result.data.orders || [])
               .filter((o: any) => o.status === "NEW" || o.status === "PARTIALLY_FILLED")
               .map((o: any) => ({
                 id: o.id || o.orderId,
@@ -152,21 +190,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
               }))
           );
         }
-      } else if (activeTab === "history") {
-        // Fetch both order history and trade history
-        const symbolQuery = symbol ? `&symbol=${encodeURIComponent(symbol)}` : "";
-        const [orderRes, tradeRes] = await Promise.all([
-          api.get(
-            `/binance/order-history?accountId=${selectedAccount._id}${symbolQuery}&limit=30`
-          ),
-          api.get(
-            `/binance/trade-history?accountId=${selectedAccount._id}${symbolQuery}&limit=30`
-          ),
-        ]);
-
-        if (orderRes.data?.success) {
+      } else if (activeTab === "history" && result?.type === 'history') {
+        if (result.orderData?.success) {
           setOrderHistory(
-            (orderRes.data.orders || []).map((o: Record<string, unknown>) => ({
+            (result.orderData.orders || []).map((o: Record<string, unknown>) => ({
               id: o.id,
               symbol: o.symbol,
               side: o.side,
@@ -181,9 +208,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           );
         }
 
-        if (tradeRes.data?.success) {
+        if (result.tradeData?.success) {
           setTrades(
-            (tradeRes.data.trades || []).slice(0, 30).map((t: Record<string, unknown>) => ({
+            (result.tradeData.trades || []).slice(0, 30).map((t: Record<string, unknown>) => ({
               id: t.id,
               symbol: t.symbol,
               quantity: t.qty,
