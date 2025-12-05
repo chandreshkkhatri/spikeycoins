@@ -13,7 +13,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState, useRef } from "react";
 
 // Global promise cache to deduplicate simultaneous fetches
 const TABS_DATA_CACHE = new Map<string, Promise<any>>();
@@ -82,6 +82,8 @@ interface TradingPanelTabsProps {
   symbol?: string;
   onSymbolSelect?: (symbol: string) => void;
   refreshTrigger?: number;
+  orderBookPrice?: string | null;
+  onOrderBookPriceApplied?: () => void;
 }
 
 const TradingPanelTabs = memo(function TradingPanelTabs({
@@ -89,6 +91,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   symbol,
   onSymbolSelect,
   refreshTrigger,
+  orderBookPrice,
+  onOrderBookPriceApplied,
 }: TradingPanelTabsProps) {
   const [activeTab, setActiveTab] = useState("positions");
   const [historySubTab, setHistorySubTab] = useState<"orders" | "trades">("orders");
@@ -102,7 +106,11 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   // State for close position inputs per symbol
   const [closeInputs, setCloseInputs] = useState<Record<string, { price: string; quantity: string }>>({});
   const [activeQuantityInput, setActiveQuantityInput] = useState<string | null>(null);
+  const [activePriceInput, setActivePriceInput] = useState<string | null>(null);
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
+  
+  // Refs for price inputs to refocus after order book price is applied
+  const priceInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const fetchData = useCallback(async () => {
     if (!selectedAccount) return;
@@ -182,9 +190,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
         }
       } else if (activeTab === "orders" && result?.type === 'orders') {
         if (result.data?.success) {
-          // Filter to only open orders
+          // Filter to only open orders - check both 'orders' and 'data' arrays
+          const ordersArray = result.data.orders || result.data.data || [];
           setOrders(
-            (result.data.orders || [])
+            ordersArray
               .filter((o: any) => o.status === "NEW" || o.status === "PARTIALLY_FILLED")
               .map((o: any) => ({
                 id: o.id || o.orderId,
@@ -260,20 +269,39 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     }
   };
 
-  const formatPrice = (price: number) => {
-    if (price === 0) return "0";
-    const absPrice = Math.abs(price);
+  const formatPrice = (price: number | string) => {
+    const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+    if (!numPrice || numPrice === 0 || isNaN(numPrice)) return "0";
+    const absPrice = Math.abs(numPrice);
     
     // Dynamic decimal places based on price magnitude
     // This approximates tick size behavior for most trading pairs
-    if (absPrice >= 10000) return price.toFixed(1);      // BTC: 0.1
-    if (absPrice >= 1000) return price.toFixed(2);       // ETH, etc: 0.01
-    if (absPrice >= 100) return price.toFixed(2);        // Mid-range: 0.01
-    if (absPrice >= 10) return price.toFixed(3);         // Lower: 0.001
-    if (absPrice >= 1) return price.toFixed(4);          // Sub-dollar: 0.0001
-    if (absPrice >= 0.1) return price.toFixed(5);        // Very low: 0.00001
-    if (absPrice >= 0.01) return price.toFixed(6);       // Micro: 0.000001
-    return price.toFixed(8);                              // Nano-cap: 0.00000001
+    if (absPrice >= 10000) return numPrice.toFixed(1);      // BTC: 0.1
+    if (absPrice >= 1000) return numPrice.toFixed(2);       // ETH, etc: 0.01
+    if (absPrice >= 100) return numPrice.toFixed(2);        // Mid-range: 0.01
+    if (absPrice >= 10) return numPrice.toFixed(3);         // Lower: 0.001
+    if (absPrice >= 1) return numPrice.toFixed(4);          // Sub-dollar: 0.0001
+    if (absPrice >= 0.1) return numPrice.toFixed(5);        // Very low: 0.00001
+    if (absPrice >= 0.01) return numPrice.toFixed(6);       // Micro: 0.000001
+    if (absPrice >= 0.001) return numPrice.toFixed(7);      // Sub-micro: 0.0000001
+    return numPrice.toFixed(8);                              // Nano-cap: 0.00000001
+  };
+
+  const getTickSize = (price: number | string) => {
+    const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+    if (!numPrice || numPrice === 0 || isNaN(numPrice)) return "1";
+    const absPrice = Math.abs(numPrice);
+    
+    // Return tick size based on price magnitude (matches formatPrice decimals)
+    if (absPrice >= 10000) return "0.1";
+    if (absPrice >= 1000) return "0.01";
+    if (absPrice >= 100) return "0.01";
+    if (absPrice >= 10) return "0.001";
+    if (absPrice >= 1) return "0.0001";
+    if (absPrice >= 0.1) return "0.00001";
+    if (absPrice >= 0.01) return "0.000001";
+    if (absPrice >= 0.001) return "0.0000001";
+    return "0.00000001";
   };
 
   const formatTime = (timestamp: string | number) => {
@@ -298,6 +326,25 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
       setCloseInputs((prev) => ({ ...prev, ...newInputs }));
     }
   }, [positions]);
+
+  // Apply order book price to active price input
+  useEffect(() => {
+    if (orderBookPrice && activePriceInput) {
+      const symbolToUpdate = activePriceInput;
+      setCloseInputs((prev) => ({
+        ...prev,
+        [symbolToUpdate]: {
+          ...prev[symbolToUpdate],
+          price: orderBookPrice,
+        },
+      }));
+      // Refocus the input after a short delay
+      setTimeout(() => {
+        priceInputRefs.current[symbolToUpdate]?.focus();
+      }, 10);
+      onOrderBookPriceApplied?.();
+    }
+  }, [orderBookPrice, activePriceInput, onOrderBookPriceApplied]);
 
   const handleCloseInputChange = (symbol: string, field: 'price' | 'quantity', value: string) => {
     setCloseInputs((prev) => ({
@@ -421,37 +468,37 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     <div className="w-full bg-card rounded-md border shadow-sm">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="flex items-center justify-between px-2 border-b">
-          <TabsList className="h-10 bg-transparent p-0 rounded-none">
+          <TabsList className="h-12 bg-transparent p-0 rounded-none">
             <TabsTrigger
               value="positions"
-              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-sm"
+              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-base"
             >
-              <Package className="w-4 h-4 mr-2" />
+              <Package className="w-5 h-5 mr-2" />
               Positions ({positions.length})
             </TabsTrigger>
             <TabsTrigger
               value="orders"
-              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-sm"
+              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-base"
             >
-              <Receipt className="w-4 h-4 mr-2" />
+              <Receipt className="w-5 h-5 mr-2" />
               Orders ({orders.length})
             </TabsTrigger>
             <TabsTrigger
               value="history"
-              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-sm"
+              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-base"
             >
-              <Clock className="w-4 h-4 mr-2" />
+              <Clock className="w-5 h-5 mr-2" />
               History
             </TabsTrigger>
           </TabsList>
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6"
+            className="h-8 w-8"
             onClick={fetchData}
             disabled={loading}
           >
-            <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
         </div>
 
@@ -463,15 +510,15 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 <LoadingSpinner />
               </div>
             ) : error ? (
-              <div className="flex items-center justify-center py-4 text-sm text-destructive">
-                <AlertTriangle className="w-4 h-4 mr-1" /> {error}
+              <div className="flex items-center justify-center py-4 text-base text-destructive">
+                <AlertTriangle className="w-5 h-5 mr-1" /> {error}
               </div>
             ) : positions.length === 0 ? (
-              <div className="text-center py-4 text-sm text-muted-foreground">
+              <div className="text-center py-4 text-base text-muted-foreground">
                 No open positions
               </div>
             ) : (
-              <table className="w-full text-sm mb-24">
+              <table className="w-full text-base mb-24">
                 <thead className="bg-muted/50 sticky top-0 z-10">
                   <tr>
                     <th className="text-left px-2 py-2 font-medium">Symbol</th>
@@ -481,12 +528,12 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                     <th className="text-right px-2 py-2 font-medium">Liq</th>
                     <th className="text-right px-2 py-2 font-medium">Margin</th>
                     <th className="text-right px-2 py-2 font-medium">PNL</th>
-                    <th className="text-center px-2 py-2 font-medium min-w-[140px]">Price / Qty</th>
+                    <th className="text-center px-2 py-2 font-medium min-w-[160px]">Price / Qty</th>
                     <th className="text-center px-2 py-2 font-medium">
                       <Button
                         variant="destructive"
                         size="sm"
-                        className="h-7 text-xs px-3 shadow-sm hover:brightness-110 transition-all"
+                        className="h-8 text-sm px-3 shadow-sm hover:brightness-110 transition-all"
                         onClick={handleCloseAllPositions}
                         disabled={closingPosition !== null}
                       >
@@ -504,13 +551,13 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       <td className="px-2 py-2 cursor-pointer" onClick={() => onSymbolSelect?.(pos.symbol)}>
                         <div className="flex items-center gap-1">
                           {pos.side === "LONG" ? (
-                            <TrendingUp className="w-4 h-4 text-green-500" />
+                            <TrendingUp className="w-5 h-5 text-green-500" />
                           ) : (
-                            <TrendingDown className="w-4 h-4 text-red-500" />
+                            <TrendingDown className="w-5 h-5 text-red-500" />
                           )}
                           <span className="font-medium">{pos.symbol}</span>
                           {pos.leverage && (
-                            <Badge variant="neutral" className="text-xs px-1.5 py-0.5">
+                            <Badge variant="neutral" className="text-sm px-1.5 py-0.5">
                               {pos.leverage}x
                             </Badge>
                           )}
@@ -537,13 +584,16 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       <td className="px-1 py-2">
                         <div className="relative flex gap-1">
                           <input
+                            ref={(el) => { priceInputRefs.current[pos.symbol] = el; }}
                             type="number"
                             value={closeInputs[pos.symbol]?.price || ''}
                             onChange={(e) => handleCloseInputChange(pos.symbol, 'price', e.target.value)}
                             onClick={(e) => e.stopPropagation()}
-                            className="w-20 h-7 text-xs px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary"
+                            onFocus={() => setActivePriceInput(pos.symbol)}
+                            onBlur={() => setTimeout(() => setActivePriceInput(null), 200)}
+                            className="w-48 h-8 text-sm px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             placeholder="Price"
-                            step="any"
+                            step={getTickSize(pos.lastPrice)}
                           />
                           <input
                             type="number"
@@ -552,7 +602,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                             onClick={(e) => e.stopPropagation()}
                             onFocus={() => setActiveQuantityInput(pos.symbol)}
                             onBlur={() => setTimeout(() => setActiveQuantityInput(null), 200)}
-                            className="w-16 h-7 text-xs px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary"
+                            className="w-40 h-8 text-sm px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             placeholder="Qty"
                             step="any"
                           />
@@ -562,7 +612,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                                 <button
                                   key={pct}
                                   type="button"
-                                  className="px-2 py-1 text-xs font-medium bg-muted hover:bg-primary hover:text-primary-foreground rounded transition-colors"
+                                  className="px-2 py-1 text-sm font-medium bg-muted hover:bg-primary hover:text-primary-foreground rounded transition-colors"
                                   onMouseDown={(e) => {
                                     e.preventDefault();
                                     handleQuantityPercentage(pos.symbol, pct);
@@ -580,7 +630,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                           <Button
                             variant="destructive"
                             size="sm"
-                            className="h-7 text-xs px-3 shadow-sm hover:brightness-110 transition-all"
+                            className="h-8 text-sm px-3 shadow-sm hover:brightness-110 transition-all"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleClosePosition(pos.symbol, 'MARKET');
@@ -592,7 +642,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-xs px-3 border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white shadow-sm transition-all"
+                            className="h-8 text-sm px-3 border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white shadow-sm transition-all"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleClosePosition(pos.symbol, 'LIMIT');
@@ -619,15 +669,15 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 <LoadingSpinner />
               </div>
             ) : error ? (
-              <div className="flex items-center justify-center py-4 text-sm text-destructive">
-                <AlertTriangle className="w-4 h-4 mr-1" /> {error}
+              <div className="flex items-center justify-center py-4 text-base text-destructive">
+                <AlertTriangle className="w-5 h-5 mr-1" /> {error}
               </div>
             ) : orders.length === 0 ? (
-              <div className="text-center py-4 text-sm text-muted-foreground">
+              <div className="text-center py-4 text-base text-muted-foreground">
                 No open orders
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-base">
                 <thead className="bg-muted/50 sticky top-0 z-10">
                   <tr>
                     <th className="text-left px-2 py-2 font-medium">Symbol</th>
@@ -665,10 +715,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
                           onClick={() => handleCancelOrder(order.id, order.symbol)}
                         >
-                          <X className="w-4 h-4" />
+                          <X className="w-5 h-5" />
                         </Button>
                       </td>
                     </tr>
@@ -682,7 +732,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
         {/* History Tab */}
         <TabsContent value="history" className="m-0 p-0">
           {/* Sub-tabs for Orders vs Trades */}
-          <div className="flex border-b px-2 gap-2 text-sm">
+          <div className="flex border-b px-2 gap-2 text-base">
             <button
               className={`py-2 px-2 ${historySubTab === "orders" ? "border-b-2 border-primary font-medium" : "text-muted-foreground"}`}
               onClick={() => setHistorySubTab("orders")}
@@ -702,16 +752,16 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 <LoadingSpinner />
               </div>
             ) : error ? (
-              <div className="flex items-center justify-center py-4 text-sm text-destructive">
-                <AlertTriangle className="w-4 h-4 mr-1" /> {error}
+              <div className="flex items-center justify-center py-4 text-base text-destructive">
+                <AlertTriangle className="w-5 h-5 mr-1" /> {error}
               </div>
             ) : historySubTab === "orders" ? (
               orderHistory.length === 0 ? (
-                <div className="text-center py-4 text-sm text-muted-foreground">
+                <div className="text-center py-4 text-base text-muted-foreground">
                   No order history
                 </div>
               ) : (
-                <table className="w-full text-sm">
+                <table className="w-full text-base">
                   <thead className="bg-muted/50 sticky top-0 z-10">
                     <tr>
                       <th className="text-left px-2 py-2 font-medium">Time</th>
@@ -750,7 +800,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         <td className="text-right px-2 py-2">
                           <Badge
                             variant={order.status === "FILLED" ? "success" : order.status === "CANCELED" ? "danger" : "neutral"}
-                            className="text-xs px-1.5 py-0.5"
+                            className="text-sm px-1.5 py-0.5"
                           >
                             {order.status}
                           </Badge>
@@ -761,11 +811,11 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 </table>
               )
             ) : trades.length === 0 ? (
-              <div className="text-center py-4 text-sm text-muted-foreground">
+              <div className="text-center py-4 text-base text-muted-foreground">
                 No trade history
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-base">
                 <thead className="bg-muted/50 sticky top-0 z-10">
                   <tr>
                     <th className="text-left px-2 py-2 font-medium">Time</th>

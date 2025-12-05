@@ -176,23 +176,34 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
           // Use a ref to check selected account to avoid dependency issues
           setSelectedAccountState(prev => {
-            if (prev) return prev; // Already have a selection
-            
+            // ALWAYS check localStorage first for the saved selection
             const savedAccountId = localStorage.getItem('selectedAccountId');
 
-            if (savedAccountId && allAccounts.length > 0) {
+            // If we have a saved account ID, try to find it in the fresh list
+            if (savedAccountId) {
               const savedAccount = allAccounts.find(acc => acc._id === savedAccountId);
               if (savedAccount) {
                 return savedAccount;
               }
             }
+
+            // If prev exists and matches an account in the new list, keep it
+            if (prev) {
+              const prevMatch = allAccounts.find(acc => acc._id === prev._id);
+              if (prevMatch) {
+                localStorage.setItem('selectedAccountId', prevMatch._id);
+                return prevMatch;
+              }
+            }
             
+            // Fallback to an active account or the first available
             if (allAccounts.length > 0) {
               const defaultAccount = allAccounts.find(acc => acc.isActive) || allAccounts[0];
               localStorage.setItem('selectedAccountId', defaultAccount._id);
               return defaultAccount;
             }
             
+            localStorage.removeItem('selectedAccountId');
             return null;
           });
         }
@@ -223,7 +234,15 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
   // Single initialization effect - no more duplicate useEffects
   const hasInitialized = useRef(false);
+  const lastUserId = useRef<string | null>(null);
+  
   useEffect(() => {
+    // Reset initialization if user changes
+    if (user?._id !== lastUserId.current) {
+      hasInitialized.current = false;
+      lastUserId.current = user?._id || null;
+    }
+    
     if (hasInitialized.current) return;
     
     // Require authentication - don't initialize if not logged in
@@ -258,7 +277,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
     // Fetch fresh data (will use cache check inside)
     fetchAccounts();
-  }, [isLoggedIn, fetchAccounts]);
+  }, [isLoggedIn, user?._id, fetchAccounts]);
 
   // REMOVED: Second useEffect that was causing duplicate fetches
 

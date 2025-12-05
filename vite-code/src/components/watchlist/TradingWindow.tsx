@@ -88,6 +88,7 @@ const TradingWindow = memo(function TradingWindow({
   const [isExponentialSlider, setIsExponentialSlider] = useState(false);
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
+  const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
 
   const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(null);
   
@@ -390,6 +391,11 @@ const TradingWindow = memo(function TradingWindow({
     }
     setError(null);
     setSuccess(null);
+  };
+
+  const handleOrderBookPriceSelect = (price: string) => {
+    handleInputChange("price", price);
+    setOrderBookPrice(price);
   };
 
   const handleSliderChange = (value: number[]) => {
@@ -1135,7 +1141,7 @@ const TradingWindow = memo(function TradingWindow({
           <MarketDepth
             symbol={symbol}
             currentPrice={currentPrice}
-            onPriceSelect={(price) => handleInputChange("price", price)}
+            onPriceSelect={handleOrderBookPriceSelect}
             accountType={selectedAccount?.accountType}
             marketType={
               marketType === "futures" ? "binance-futures" : "binance-spot"
@@ -1150,6 +1156,8 @@ const TradingWindow = memo(function TradingWindow({
           selectedAccount={selectedAccount}
           symbol={symbol}
           refreshTrigger={orderRefreshTrigger}
+          orderBookPrice={orderBookPrice}
+          onOrderBookPriceApplied={() => setOrderBookPrice(null)}
         />
       </div>
 
