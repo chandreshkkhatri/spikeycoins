@@ -81,7 +81,6 @@ const TradingWindow = memo(function TradingWindow({
   const [hasUserEditedSL, setHasUserEditedSL] = useState(false);
   const [hasUserEditedTP, setHasUserEditedTP] = useState(false);
   const [accountDetails, setAccountDetails] = useState<any>(null);
-  const [positionDetails, setPositionDetails] = useState<any>(null);
   const [exchangeMaxLeverage, setExchangeMaxLeverage] = useState<number>(125);
   const [tickSize, setTickSize] = useState<string>("0.01");
   const [stepSize, setStepSize] = useState<string>("0.001");
@@ -318,7 +317,6 @@ const TradingWindow = memo(function TradingWindow({
         const data = result.data;
         if (data && data.success) {
           setAccountDetails(data.account);
-          setPositionDetails(data.position);
 
           let newExchangeMaxLeverage = 125;
           if (data.symbolInfo?.maxLeverage) {
