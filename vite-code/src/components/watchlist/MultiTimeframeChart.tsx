@@ -7,6 +7,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getApiUrl } from "@/lib/api";
+import { formatPrice } from "@/lib/format-utils";
 import {
   CandlestickData,
   CandlestickSeries,
@@ -65,6 +66,8 @@ interface ChartSettings {
   isCollapsed: boolean;
   collapsedCharts: { [interval: string]: boolean };
 }
+
+const PRICE_SCALE_ID: "left" | "right" = "left";
 
 const getStoredSettings = (): ChartSettings | null => {
   try {
@@ -356,11 +359,22 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               labelBackgroundColor: isDarkMode ? "#27272a" : "#f4f4f5",
             },
           },
-          rightPriceScale: {
+          localization: {
+            priceFormatter: (price: number) => formatPrice(price ?? 0),
+          },
+          leftPriceScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
             scaleMargins: { top: 0.08, bottom: 0.08 },
             mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal
             borderVisible: false,
+            visible: true,
+          },
+          rightPriceScale: {
+            borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
+            scaleMargins: { top: 0.08, bottom: 0.08 },
+            mode: isLogScale ? 1 : 0,
+            borderVisible: false,
+            visible: false,
           },
           timeScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
@@ -418,6 +432,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           borderUpColor: "#22c55e",
           wickDownColor: "#ef4444",
           wickUpColor: "#22c55e",
+          priceScaleId: PRICE_SCALE_ID,
         };
 
         const series = chart.addSeries(CandlestickSeries, candlestickOptions);
@@ -739,7 +754,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               if (!container) return;
 
               // Update scale mode
-              const priceScale = chart.priceScale("right");
+              const priceScale = chart.priceScale(PRICE_SCALE_ID);
               if (priceScale) {
                 priceScale.applyOptions({
                   mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal
