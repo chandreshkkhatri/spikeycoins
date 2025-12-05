@@ -12,6 +12,9 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+// Global promise cache to deduplicate simultaneous fetches
+const POSITIONS_PROMISE_CACHE = new Map<string, Promise<any>>();
+
 interface TradingAccount {
   _id?: string;
   accountName: string;
@@ -77,16 +80,39 @@ export default function PositionsCard({
     }
 
     try {
-      const cacheBust = Date.now();
-      const response = await axios.get(
-        `/api/positions?vendor=${account.accountType}&accountId=${account._id}&_=${cacheBust}`,
-        {
-          headers: {
-            "Cache-Control": "no-cache",
-            Pragma: "no-cache",
-          },
+      const cacheKey = `${account._id}-${isRefresh}`;
+      
+      // If refreshing, bypass cache. Otherwise check cache.
+      let promise = !isRefresh ? POSITIONS_PROMISE_CACHE.get(cacheKey) : null;
+
+      if (!promise) {
+        promise = (async () => {
+          try {
+            const cacheBust = Date.now();
+            const response = await axios.get(
+              `/api/positions?vendor=${account.accountType}&accountId=${account._id}&_=${cacheBust}`,
+              {
+                headers: {
+                  "Cache-Control": "no-cache",
+                  Pragma: "no-cache",
+                },
+              }
+            );
+            return response;
+          } finally {
+            // Clear cache after 2 seconds to allow subsequent fetches
+            setTimeout(() => {
+              POSITIONS_PROMISE_CACHE.delete(cacheKey);
+            }, 2000);
+          }
+        })();
+        
+        if (!isRefresh) {
+          POSITIONS_PROMISE_CACHE.set(cacheKey, promise);
         }
-      );
+      }
+
+      const response = await promise;
 
       if (response.data?.success) {
         // Ensure data is an array before spreading

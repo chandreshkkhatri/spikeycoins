@@ -59,9 +59,9 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   useEffect(() => {
     if (prevIsLoggedIn.current && !isLoggedIn) {
       // User logged out - clear all cached data
-      sessionStorage.removeItem('accountsCache');
-      sessionStorage.removeItem('accountsCacheTime');
-      sessionStorage.removeItem('selectedAccountId');
+      localStorage.removeItem('accountsCache');
+      localStorage.removeItem('accountsCacheTime');
+      localStorage.removeItem('selectedAccountId');
       setAccounts([]);
       setSelectedAccountState(null);
       setError(null);
@@ -98,8 +98,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
       const cacheTimeKey = 'accountsCacheTime';
       const cacheTime = 120000; // 2 minutes
 
-      const cachedData = sessionStorage.getItem(cacheKey);
-      const cacheTimestamp = sessionStorage.getItem(cacheTimeKey);
+      const cachedData = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(cacheTimeKey);
 
       // Use cache if valid and not a background refresh
       if (cachedData && cacheTimestamp && !isBackground) {
@@ -109,7 +109,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
           setAccounts(cachedAccounts);
           setLoadingAccounts(false);
 
-          const savedAccountId = sessionStorage.getItem('selectedAccountId');
+          const savedAccountId = localStorage.getItem('selectedAccountId');
           if (savedAccountId && cachedAccounts.length > 0) {
             const savedAccount = cachedAccounts.find(acc => acc._id === savedAccountId);
             if (savedAccount) {
@@ -169,30 +169,41 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
         if (response.data?.success) {
           const allAccounts = response.data.accounts as TradingAccount[];
 
-          sessionStorage.setItem(cacheKey, JSON.stringify(allAccounts));
-          sessionStorage.setItem(cacheTimeKey, Date.now().toString());
+          localStorage.setItem(cacheKey, JSON.stringify(allAccounts));
+          localStorage.setItem(cacheTimeKey, Date.now().toString());
 
           setAccounts(allAccounts);
 
           // Use a ref to check selected account to avoid dependency issues
           setSelectedAccountState(prev => {
-            if (prev) return prev; // Already have a selection
-            
-            const savedAccountId = sessionStorage.getItem('selectedAccountId');
+            // ALWAYS check localStorage first for the saved selection
+            const savedAccountId = localStorage.getItem('selectedAccountId');
 
-            if (savedAccountId && allAccounts.length > 0) {
+            // If we have a saved account ID, try to find it in the fresh list
+            if (savedAccountId) {
               const savedAccount = allAccounts.find(acc => acc._id === savedAccountId);
               if (savedAccount) {
                 return savedAccount;
               }
             }
+
+            // If prev exists and matches an account in the new list, keep it
+            if (prev) {
+              const prevMatch = allAccounts.find(acc => acc._id === prev._id);
+              if (prevMatch) {
+                localStorage.setItem('selectedAccountId', prevMatch._id);
+                return prevMatch;
+              }
+            }
             
+            // Fallback to an active account or the first available
             if (allAccounts.length > 0) {
               const defaultAccount = allAccounts.find(acc => acc.isActive) || allAccounts[0];
-              sessionStorage.setItem('selectedAccountId', defaultAccount._id);
+              localStorage.setItem('selectedAccountId', defaultAccount._id);
               return defaultAccount;
             }
             
+            localStorage.removeItem('selectedAccountId');
             return null;
           });
         }
@@ -215,15 +226,23 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   const setSelectedAccount = useCallback((account: TradingAccount | null) => {
     setSelectedAccountState(account);
     if (account) {
-      sessionStorage.setItem('selectedAccountId', account._id);
+      localStorage.setItem('selectedAccountId', account._id);
     } else {
-      sessionStorage.removeItem('selectedAccountId');
+      localStorage.removeItem('selectedAccountId');
     }
   }, []);
 
   // Single initialization effect - no more duplicate useEffects
   const hasInitialized = useRef(false);
+  const lastUserId = useRef<string | null>(null);
+  
   useEffect(() => {
+    // Reset initialization if user changes
+    if (user?._id !== lastUserId.current) {
+      hasInitialized.current = false;
+      lastUserId.current = user?._id || null;
+    }
+    
     if (hasInitialized.current) return;
     
     // Require authentication - don't initialize if not logged in
@@ -235,8 +254,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
     hasInitialized.current = true;
 
     const cacheKey = 'accountsCache';
-    const cachedData = sessionStorage.getItem(cacheKey);
-    const savedAccountId = sessionStorage.getItem('selectedAccountId');
+    const cachedData = localStorage.getItem(cacheKey);
+    const savedAccountId = localStorage.getItem('selectedAccountId');
 
     // Load from cache immediately for fast UI
     if (cachedData) {
@@ -258,7 +277,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
     // Fetch fresh data (will use cache check inside)
     fetchAccounts();
-  }, [isLoggedIn, fetchAccounts]);
+  }, [isLoggedIn, user?._id, fetchAccounts]);
 
   // REMOVED: Second useEffect that was causing duplicate fetches
 

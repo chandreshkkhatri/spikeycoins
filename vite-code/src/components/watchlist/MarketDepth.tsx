@@ -36,8 +36,8 @@ const aggregateOrders = (orders: OrderBookItem[], tickSize: number, type: 'ask' 
     const priceKey = Math.floor(order.price * factor + 0.0000001) / factor;
     
     // Normalize to avoid 0.30000000004
-    // Count decimals in tickSize
-    const decimals = Math.max(0, Math.round(-Math.log10(tickSize)));
+    // Count decimals in tickSize, but cap at 8 to avoid toFixed() errors
+    const decimals = Math.min(8, Math.max(0, Math.round(-Math.log10(tickSize))));
     const normalizedPrice = parseFloat(priceKey.toFixed(decimals));
 
     const existing = grouped.get(normalizedPrice);
@@ -95,12 +95,13 @@ const MarketDepth = memo(function MarketDepth({
       // Fallback: use current price to determine decimals
       if (currentPrice > 0) {
         const priceStr = currentPrice.toString();
-        const decimals = priceStr.includes('.') ? priceStr.split('.')[1].length : 0;
+        const decimals = Math.min(8, priceStr.includes('.') ? priceStr.split('.')[1].length : 0);
         const steps: number[] = [];
         for (let i = 0; i < 5; i++) {
+          const decimalPlaces = Math.min(8, Math.max(0, decimals - i));
           const p = Math.pow(10, -(decimals - i));
           if (p > currentPrice) break;
-          steps.push(parseFloat(p.toFixed(decimals - i)));
+          steps.push(parseFloat(p.toFixed(decimalPlaces)));
         }
         if (steps.length > 0) {
           setAvailablePrecisions(steps);
@@ -125,17 +126,18 @@ const MarketDepth = memo(function MarketDepth({
     if (minDiff !== Infinity && minDiff > 0) {
       // Determine number of decimals in the tick size
       const tickStr = minDiff.toFixed(10);
-      const tickDecimals = tickStr.includes('.') ? tickStr.replace(/0+$/, '').split('.')[1]?.length || 0 : 0;
+      const tickDecimals = Math.min(8, tickStr.includes('.') ? tickStr.replace(/0+$/, '').split('.')[1]?.length || 0 : 0);
       
       // Generate precision steps starting from minDiff
       const steps: number[] = [];
-      const baseTickSize = parseFloat(minDiff.toFixed(tickDecimals));
+      const baseTickSize = parseFloat(minDiff.toFixed(Math.min(8, tickDecimals)));
       
       // Add base tick and multiples (1x, 10x, 100x, 1000x, 10000x)
       for (let i = 0; i < 5; i++) {
         const step = baseTickSize * Math.pow(10, i);
         if (step > currentPrice) break;
-        steps.push(parseFloat(step.toFixed(Math.max(0, tickDecimals - i))));
+        const decimalPlaces = Math.min(8, Math.max(0, tickDecimals - i));
+        steps.push(parseFloat(step.toFixed(decimalPlaces)));
       }
 
       if (steps.length > 0) {

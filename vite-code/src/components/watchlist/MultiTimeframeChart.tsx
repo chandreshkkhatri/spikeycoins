@@ -7,6 +7,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getApiUrl } from "@/lib/api";
+import { formatPrice } from "@/lib/format-utils";
 import {
   CandlestickData,
   CandlestickSeries,
@@ -28,6 +29,9 @@ import {
   X,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+
+// Global promise cache to deduplicate simultaneous fetches
+const CHART_PROMISE_CACHE = new Map<string, Promise<CandlestickData[]>>();
 
 interface PriceLine {
   price: number;
@@ -62,6 +66,8 @@ interface ChartSettings {
   isCollapsed: boolean;
   collapsedCharts: { [interval: string]: boolean };
 }
+
+const PRICE_SCALE_ID: "left" | "right" = "left";
 
 const getStoredSettings = (): ChartSettings | null => {
   try {
@@ -353,11 +359,22 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               labelBackgroundColor: isDarkMode ? "#27272a" : "#f4f4f5",
             },
           },
-          rightPriceScale: {
+          localization: {
+            priceFormatter: (price: number) => formatPrice(price ?? 0),
+          },
+          leftPriceScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
             scaleMargins: { top: 0.08, bottom: 0.08 },
             mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal
             borderVisible: false,
+            visible: true,
+          },
+          rightPriceScale: {
+            borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
+            scaleMargins: { top: 0.08, bottom: 0.08 },
+            mode: isLogScale ? 1 : 0,
+            borderVisible: false,
+            visible: false,
           },
           timeScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
@@ -415,6 +432,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           borderUpColor: "#22c55e",
           wickDownColor: "#ef4444",
           wickUpColor: "#22c55e",
+          priceScaleId: PRICE_SCALE_ID,
         };
 
         const series = chart.addSeries(CandlestickSeries, candlestickOptions);
@@ -426,82 +444,98 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
     const fetchChartData = useCallback(
       async (interval: string): Promise<CandlestickData[]> => {
-        try {
-          // Use accountType if provided, otherwise try to detect from symbol
-          // Include USDC for Binance symbols like 1000BONKUSDC
-          const vendor =
-            accountType ||
-            (displaySymbol.endsWith("USDT") ||
-            displaySymbol.endsWith("USDC") ||
-            displaySymbol.endsWith("BUSD") ||
-            displaySymbol.endsWith("BTC")
-              ? "binance"
-              : "upstox");
+        const cacheKey = `${displaySymbol}-${accountId || ''}-${accountType || ''}-${marketType || ''}-${interval}`;
+        
+        if (CHART_PROMISE_CACHE.has(cacheKey)) {
+          return CHART_PROMISE_CACHE.get(cacheKey)!;
+        }
 
-          const params = new URLSearchParams({
-            vendor,
-            symbol: displaySymbol,
-            interval,
-          });
+        const promise = (async () => {
+          try {
+            // Use accountType if provided, otherwise try to detect from symbol
+            // Include USDC for Binance symbols like 1000BONKUSDC
+            const vendor =
+              accountType ||
+              (displaySymbol.endsWith("USDT") ||
+              displaySymbol.endsWith("USDC") ||
+              displaySymbol.endsWith("BUSD") ||
+              displaySymbol.endsWith("BTC")
+                ? "binance"
+                : "upstox");
 
-          if (accountId) {
-            params.append("accountId", accountId);
-          }
+            const params = new URLSearchParams({
+              vendor,
+              symbol: displaySymbol,
+              interval,
+            });
 
-          if (marketType) {
-            params.append("marketType", marketType);
-          }
-
-          const url = getApiUrl(`/api/historical-data?${params.toString()}`);
-
-          const response = await fetch(url);
-
-          if (!response.ok) {
-            const errorText = await response.text().catch(() => "");
-            let errorMessage = `Failed to fetch ${interval} data: ${response.status}`;
-
-            try {
-              const errorData = JSON.parse(errorText);
-              if (errorData.error) {
-                errorMessage = errorData.error;
-              }
-            } catch {
-              if (errorText) {
-                errorMessage += ` - ${errorText}`;
-              }
+            if (accountId) {
+              params.append("accountId", accountId);
             }
 
-            throw new Error(errorMessage);
+            if (marketType) {
+              params.append("marketType", marketType);
+            }
+
+            const url = getApiUrl(`/api/historical-data?${params.toString()}`);
+
+            const response = await fetch(url);
+
+            if (!response.ok) {
+              const errorText = await response.text().catch(() => "");
+              let errorMessage = `Failed to fetch ${interval} data: ${response.status}`;
+
+              try {
+                const errorData = JSON.parse(errorText);
+                if (errorData.error) {
+                  errorMessage = errorData.error;
+                }
+              } catch {
+                if (errorText) {
+                  errorMessage += ` - ${errorText}`;
+                }
+              }
+
+              throw new Error(errorMessage);
+            }
+
+            const result = await response.json();
+
+            // Handle API response format - check if data is in result.data or directly in result
+            const data = result.data || result;
+
+            if (!Array.isArray(data) || data.length === 0) {
+              return [];
+            }
+
+            return data.map(
+              (d: {
+                date: string | number;
+                open: number;
+                high: number;
+                low: number;
+                close: number;
+              }) => ({
+                time: (new Date(d.date).getTime() / 1000) as UTCTimestamp,
+                open: d.open,
+                high: d.high,
+                low: d.low,
+                close: d.close,
+              })
+            );
+          } catch (error) {
+            console.error(`Error fetching chart data for ${interval}:`, error);
+            throw error;
+          } finally {
+            // Clear cache after 2 seconds to allow refetching
+            setTimeout(() => {
+              CHART_PROMISE_CACHE.delete(cacheKey);
+            }, 2000);
           }
+        })();
 
-          const result = await response.json();
-
-          // Handle API response format - check if data is in result.data or directly in result
-          const data = result.data || result;
-
-          if (!Array.isArray(data) || data.length === 0) {
-            return [];
-          }
-
-          return data.map(
-            (d: {
-              date: string | number;
-              open: number;
-              high: number;
-              low: number;
-              close: number;
-            }) => ({
-              time: (new Date(d.date).getTime() / 1000) as UTCTimestamp,
-              open: d.open,
-              high: d.high,
-              low: d.low,
-              close: d.close,
-            })
-          );
-        } catch (error) {
-          console.error(`Error fetching chart data for ${interval}:`, error);
-          throw error;
-        }
+        CHART_PROMISE_CACHE.set(cacheKey, promise);
+        return promise;
       },
       [displaySymbol, accountId, accountType, marketType]
     );
@@ -720,7 +754,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               if (!container) return;
 
               // Update scale mode
-              const priceScale = chart.priceScale("right");
+              const priceScale = chart.priceScale(PRICE_SCALE_ID);
               if (priceScale) {
                 priceScale.applyOptions({
                   mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal

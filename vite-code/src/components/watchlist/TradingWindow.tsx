@@ -9,10 +9,13 @@ import {
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
 import { HelpCircle, RefreshCw } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
 import TradingPanelTabs from "./TradingPanelTabs";
+
+// Global promise cache to deduplicate simultaneous fetches
+const DETAILS_PROMISE_CACHE = new Map<string, Promise<any>>();
 
 interface TradingWindowProps {
   symbol: string;
@@ -61,7 +64,7 @@ const TradingWindow = memo(function TradingWindow({
     side: "BUY",
     type: "LIMIT",
     quantity: "0.001",
-    price: currentPrice.toFixed(2),
+    price: currentPrice.toFixed(2), // Initial value, will be updated by effect
     stopPrice: "",
     leverage: "1",
     reduceOnly: false,
@@ -78,15 +81,23 @@ const TradingWindow = memo(function TradingWindow({
   const [hasUserEditedSL, setHasUserEditedSL] = useState(false);
   const [hasUserEditedTP, setHasUserEditedTP] = useState(false);
   const [accountDetails, setAccountDetails] = useState<any>(null);
-  const [positionDetails, setPositionDetails] = useState<any>(null);
   const [exchangeMaxLeverage, setExchangeMaxLeverage] = useState<number>(125);
   const [tickSize, setTickSize] = useState<string>("0.01");
   const [stepSize, setStepSize] = useState<string>("0.001");
   const [isExponentialSlider, setIsExponentialSlider] = useState(false);
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
+  const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
+
   const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(null);
   
+  // Track if we've synced leverage from the exchange for the current session/symbol
+  const hasSyncedLeverage = useRef(false);
+
+  // Reset synced state when symbol or account changes
+  useEffect(() => {
+    hasSyncedLeverage.current = false;
+  }, [symbol, selectedAccount?._id]);
   // User-defined max leverage (stored in localStorage)
   const [userMaxLeverage, setUserMaxLeverage] = useState<number>(() => {
     try {
@@ -97,10 +108,17 @@ const TradingWindow = memo(function TradingWindow({
     }
   });
   
-  // User-defined default risk amount
-  const [defaultRiskAmount, setDefaultRiskAmount] = useState<string>(() => {
-    return localStorage.getItem("flipSafe_defaultRiskAmount") || "";
+  // User-defined default risk percentage (default 1%)
+  const [defaultRiskPercent, setDefaultRiskPercent] = useState<string>(() => {
+    return localStorage.getItem("flipSafe_defaultRiskPercent") || "1";
   });
+
+  // Derived: current default risk amount in dollars (if balance known)
+  const defaultRiskAmount = useMemo(() => {
+    const pct = parseFloat(defaultRiskPercent || "0");
+    if (!availableBalance || isNaN(pct) || pct <= 0) return null;
+    return (availableBalance * pct) / 100;
+  }, [availableBalance, defaultRiskPercent]);
 
   // User-defined default take profit percentage (optional)
   const [defaultTakeProfitPercent, setDefaultTakeProfitPercent] = useState<string>(() => {
@@ -130,13 +148,13 @@ const TradingWindow = memo(function TradingWindow({
     }
   };
 
-  // Save default risk amount to localStorage
+  // Save default risk percentage to localStorage
   const handleDefaultRiskChange = (value: string) => {
-    setDefaultRiskAmount(value);
+    setDefaultRiskPercent(value);
     if (value) {
-      localStorage.setItem("flipSafe_defaultRiskAmount", value);
+      localStorage.setItem("flipSafe_defaultRiskPercent", value);
     } else {
-      localStorage.removeItem("flipSafe_defaultRiskAmount");
+      localStorage.removeItem("flipSafe_defaultRiskPercent");
     }
   };
 
@@ -161,11 +179,13 @@ const TradingWindow = memo(function TradingWindow({
   };
 
   // Update price when current price changes (only if user hasn't manually edited it)
+  // Update price when current price changes (only if user hasn't manually edited it)
   useEffect(() => {
     if (orderForm.type === "LIMIT" && !hasUserEditedPrice) {
-      setOrderForm((prev) => ({ ...prev, price: currentPrice.toFixed(2) }));
+      const decimals = tickSize.includes('.') ? tickSize.split('.')[1].replace(/0+$/, '').length : 2;
+      setOrderForm((prev) => ({ ...prev, price: currentPrice.toFixed(decimals) }));
     }
-  }, [currentPrice, orderForm.type, hasUserEditedPrice]);
+  }, [currentPrice, orderForm.type, hasUserEditedPrice, tickSize]);
 
   // Auto-calculate Stop Loss based on 5% risk rule
   useEffect(() => {
@@ -193,17 +213,19 @@ const TradingWindow = memo(function TradingWindow({
     }
   }, [orderForm.quantity, orderForm.price, orderForm.side, currentPrice, availableBalance, hasUserEditedSL]);
 
-  // Update SL when defaultRiskAmount, quantity, price, or side changes
+  // Update SL when defaultRiskPercent, quantity, price, or side changes
   useEffect(() => {
-    if (!defaultRiskAmount || !orderForm.quantity || !orderForm.price) return;
+    if (!defaultRiskPercent || !orderForm.quantity || !orderForm.price || !availableBalance) return;
     
-    const risk = parseFloat(defaultRiskAmount);
+    const riskPercent = parseFloat(defaultRiskPercent);
     const qty = parseFloat(orderForm.quantity);
     const price = parseFloat(orderForm.price);
     
-    if (isNaN(risk) || isNaN(qty) || isNaN(price) || qty === 0) return;
+    if (isNaN(riskPercent) || isNaN(qty) || isNaN(price) || qty === 0 || riskPercent <= 0) return;
     
-    const riskPerUnit = risk / qty;
+    // Calculate risk amount as percentage of available balance
+    const riskAmount = (availableBalance * riskPercent) / 100;
+    const riskPerUnit = riskAmount / qty;
     let newSL = 0;
     
     if (orderForm.side === "BUY") {
@@ -222,7 +244,7 @@ const TradingWindow = memo(function TradingWindow({
         setOrderForm(prev => ({ ...prev, stopLoss: roundedSL.toFixed(calculatePriceDecimals(price)) }));
       }
     }
-  }, [defaultRiskAmount, orderForm.quantity, orderForm.price, orderForm.side, tickSize]);
+  }, [defaultRiskPercent, orderForm.quantity, orderForm.price, orderForm.side, tickSize, availableBalance]);
 
   // Auto-calculate Take Profit based on default percentage
   useEffect(() => {
@@ -259,53 +281,83 @@ const TradingWindow = memo(function TradingWindow({
 
     setIsRefreshingDetails(true);
     try {
-      if (selectedAccount.accountType === "binance") {
-        const response = await api.get("/binance/position-details", {
-          params: {
-            accountId: selectedAccount._id,
-            symbol,
-          },
-        });
+      const cacheKey = `${selectedAccount._id}-${symbol}`;
+      let promise = DETAILS_PROMISE_CACHE.get(cacheKey);
 
-        if (response.data && response.data.success) {
-          setAccountDetails(response.data.account);
-          setPositionDetails(response.data.position);
+      if (!promise) {
+        promise = (async () => {
+          try {
+            if (selectedAccount.accountType === "binance") {
+              const response = await api.get("/binance/position-details", {
+                params: {
+                  accountId: selectedAccount._id,
+                  symbol,
+                },
+              });
+              return { type: 'binance', data: response.data };
+            } else {
+              const response = await api.get(`/funds?accountId=${selectedAccount._id}`);
+              return { type: 'other', data: response.data };
+            }
+          } catch (e) {
+            throw e;
+          } finally {
+            // Clear cache after 2 seconds
+            setTimeout(() => {
+              DETAILS_PROMISE_CACHE.delete(cacheKey);
+            }, 2000);
+          }
+        })();
+        DETAILS_PROMISE_CACHE.set(cacheKey, promise);
+      }
+
+      const result = await promise;
+
+      if (result.type === 'binance') {
+        const data = result.data;
+        if (data && data.success) {
+          setAccountDetails(data.account);
 
           let newExchangeMaxLeverage = 125;
-          if (response.data.symbolInfo?.maxLeverage) {
-            newExchangeMaxLeverage = response.data.symbolInfo.maxLeverage;
-          } else if (response.data.position?.maxLeverage) {
-            newExchangeMaxLeverage = response.data.position.maxLeverage;
+          if (data.symbolInfo?.maxLeverage) {
+            newExchangeMaxLeverage = data.symbolInfo.maxLeverage;
+          } else if (data.position?.maxLeverage) {
+            newExchangeMaxLeverage = data.position.maxLeverage;
           }
           setExchangeMaxLeverage(newExchangeMaxLeverage);
 
-          if (response.data.symbolInfo?.tickSize) {
-            setTickSize(response.data.symbolInfo.tickSize);
+          if (data.symbolInfo?.tickSize) {
+            setTickSize(data.symbolInfo.tickSize);
           }
-          if (response.data.symbolInfo?.stepSize) {
-            setStepSize(response.data.symbolInfo.stepSize);
+          if (data.symbolInfo?.stepSize) {
+            setStepSize(data.symbolInfo.stepSize);
           }
 
-          const effectiveMaxLeverage = Math.min(newExchangeMaxLeverage, userMaxLeverage);
-          const currentPositionLeverage = response.data.position?.leverage;
-          const defaultLeverage = currentPositionLeverage
-            ? Math.min(currentPositionLeverage, effectiveMaxLeverage)
-            : effectiveMaxLeverage;
-          setOrderForm((prev) => ({
-            ...prev,
-            leverage: String(defaultLeverage),
-          }));
+          // Only sync leverage if we haven't done so yet for this session
+          if (!hasSyncedLeverage.current) {
+            const effectiveMaxLeverage = Math.min(newExchangeMaxLeverage, userMaxLeverage);
+            const currentPositionLeverage = data.position?.leverage;
+            const defaultLeverage = currentPositionLeverage
+              ? Math.min(currentPositionLeverage, effectiveMaxLeverage)
+              : effectiveMaxLeverage;
+            
+            setOrderForm((prev) => ({
+              ...prev,
+              leverage: String(defaultLeverage),
+            }));
+            hasSyncedLeverage.current = true;
+          }
 
-          const equity = response.data.account.equity || 0;
-          const available = response.data.account.availableBalance || equity;
+          const equity = data.account.equity || 0;
+          const available = data.account.availableBalance || equity;
           setAvailableBalance(available);
         }
       } else {
-        const response = await api.get(`/funds?accountId=${selectedAccount._id}`);
-        if (response.data && response.data.available) {
-          setAvailableBalance(parseFloat(response.data.available) || 0);
-        } else if (response.data && response.data.data) {
-          const balance = response.data.data.availableCash || response.data.data.net || 0;
+        const data = result.data;
+        if (data && data.available) {
+          setAvailableBalance(parseFloat(data.available) || 0);
+        } else if (data && data.data) {
+          const balance = data.data.availableCash || data.data.net || 0;
           setAvailableBalance(parseFloat(balance));
         }
       }
@@ -327,7 +379,7 @@ const TradingWindow = memo(function TradingWindow({
     }, DETAILS_REFRESH_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [fetchAccountAndPositionDetails, selectedAccount]);
+  }, [fetchAccountAndPositionDetails, selectedAccount, symbol]);
 
   const handleInputChange = (
     field: keyof OrderForm,
@@ -346,6 +398,11 @@ const TradingWindow = memo(function TradingWindow({
     }
     setError(null);
     setSuccess(null);
+  };
+
+  const handleOrderBookPriceSelect = (price: string) => {
+    handleInputChange("price", price);
+    setOrderBookPrice(price);
   };
 
   const handleSliderChange = (value: number[]) => {
@@ -535,7 +592,7 @@ const TradingWindow = memo(function TradingWindow({
       setOrderForm((prev) => ({
         ...prev,
         quantity: "0.001",
-        price: currentPrice.toFixed(2),
+        price: currentPrice.toFixed(tickSize.includes('.') ? tickSize.split('.')[1].replace(/0+$/, '').length : 2),
         stopPrice: "",
         stopLoss: "",
         takeProfit: "",
@@ -572,7 +629,7 @@ const TradingWindow = memo(function TradingWindow({
         color: orderForm.side === "BUY" ? "#22c55e" : "#ef4444", // Green for buy, red for sell
         lineWidth: 2,
         lineStyle: 0, // Solid
-        title: `${orderForm.side} @ ${price}`,
+        title: `${orderForm.side} @ ${formatPrice(price, "$")}`,
       });
     }
   }
@@ -586,7 +643,7 @@ const TradingWindow = memo(function TradingWindow({
         color: "#f97316", // Orange
         lineWidth: 1,
         lineStyle: 2, // Dashed
-        title: `SL ${slPrice}`,
+        title: `SL ${formatPrice(slPrice, "$")}`,
       });
     }
   }
@@ -600,7 +657,7 @@ const TradingWindow = memo(function TradingWindow({
         color: "#3b82f6", // Blue
         lineWidth: 1,
         lineStyle: 2, // Dashed
-        title: `TP ${tpPrice}`,
+        title: `TP ${formatPrice(tpPrice, "$")}`,
       });
     }
   }
@@ -935,10 +992,10 @@ const TradingWindow = memo(function TradingWindow({
             <div className="font-medium text-muted-foreground mb-2 text-[1rem]">
               Config
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div className="form-group mb-0">
-                <label className="text-[10px] mb-1 flex items-center gap-1 text-muted-foreground">
-                  Max Lev.
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="text-[10px] text-muted-foreground">Max Lev.</span>
                   <TooltipProvider delayDuration={100}>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -950,7 +1007,7 @@ const TradingWindow = memo(function TradingWindow({
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                </label>
+                </div>
                 <input
                   type="number"
                   value={userMaxLeverage}
@@ -962,33 +1019,39 @@ const TradingWindow = memo(function TradingWindow({
                 />
               </div>
               <div className="form-group mb-0">
-                <label className="text-[10px] mb-1 flex items-center gap-1 text-muted-foreground">
-                  Def. Risk ($)
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="text-[10px] text-muted-foreground">Def. Risk (%)</span>
                   <TooltipProvider delayDuration={100}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
                       </TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[200px]">
-                        <p className="text-xs"><strong>Default Risk Amount</strong></p>
-                        <p className="text-xs text-muted-foreground">The default amount you're willing to risk per trade. Used to auto-calculate position size based on stop loss.</p>
+                        <p className="text-xs"><strong>Default Risk Percentage</strong></p>
+                        <p className="text-xs text-muted-foreground">The percentage of your account balance you're willing to risk per trade. Used to auto-calculate stop loss price.</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                </label>
-                <input
-                  type="number"
-                  value={defaultRiskAmount}
-                  onChange={(e) => handleDefaultRiskChange(e.target.value)}
-                  className="form-input w-full text-left px-2 py-1 h-7 text-xs"
-                  placeholder="Auto SL"
-                  min="0"
-                  step="1"
-                />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={defaultRiskPercent}
+                    onChange={(e) => handleDefaultRiskChange(e.target.value)}
+                    className="form-input w-full text-left px-2 py-1 h-7 text-xs"
+                    placeholder="1"
+                    min="0.1"
+                    max="100"
+                    step="0.1"
+                  />
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                    {defaultRiskAmount !== null ? `≈ $${defaultRiskAmount.toFixed(2)}` : ""}
+                  </span>
+                </div>
               </div>
-              <div className="form-group mb-0 col-span-2">
-                <label className="text-[10px] mb-1 flex items-center gap-1 text-muted-foreground">
-                  Def. TP (%)
+              <div className="form-group mb-0">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="text-[10px] text-muted-foreground">Def. TP (%)</span>
                   <TooltipProvider delayDuration={100}>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1000,7 +1063,7 @@ const TradingWindow = memo(function TradingWindow({
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                </label>
+                </div>
                 <div className="flex gap-2 items-center">
                   <input
                     type="number"
@@ -1012,20 +1075,33 @@ const TradingWindow = memo(function TradingWindow({
                     max="100"
                     step="0.5"
                   />
-                  <span className="text-muted-foreground text-xs">%</span>
-                  {defaultTakeProfitPercent && (
-                    <button
-                      type="button"
-                      onClick={() => handleDefaultTakeProfitChange("")}
-                      className="text-muted-foreground hover:text-destructive text-xs px-1"
-                      title="Clear"
-                    >
-                      ✕
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleDefaultTakeProfitChange("")}
+                    className="text-muted-foreground hover:text-destructive text-xs px-1"
+                    title="Clear TP value"
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full mt-2 h-7 text-xs"
+              onClick={() => {
+                // All config values are already saved to localStorage on change
+                // This button provides visual feedback
+                const toast = document.createElement('div');
+                toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md text-sm z-50 animate-fade-in';
+                toast.textContent = 'Config saved!';
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 2000);
+              }}
+            >
+              Save Config
+            </Button>
           </div>
 
           {/* Account Details */}
@@ -1083,62 +1159,7 @@ const TradingWindow = memo(function TradingWindow({
             </div>
           )}
 
-          {/* Position Details */}
-          {positionDetails && (
-            <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
-              <div className="font-medium text-muted-foreground mb-1 flex justify-between">
-                <span>Position: {positionDetails.symbol}</span>
-                <span
-                  className={
-                    positionDetails.size > 0 ? "text-green-500" : "text-red-500"
-                  }
-                >
-                  {positionDetails.size > 0 ? "LONG" : "SHORT"}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Size</span>
-                <span>{Math.abs(positionDetails.size)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Entry Price</span>
-                <span>{formatPrice(positionDetails.entryPrice)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Mark Price</span>
-                <span>{formatPrice(positionDetails.markPrice)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Liq. Price</span>
-                <span className="text-orange-500 font-medium">
-                  {formatPrice(positionDetails.liquidationPrice)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Margin</span>
-                <span>{formatPrice(positionDetails.margin)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">PNL (ROI)</span>
-                <span
-                  className={
-                    positionDetails.pnl >= 0
-                      ? "text-green-500 font-medium"
-                      : "text-red-500 font-medium"
-                  }
-                >
-                  {formatPrice(positionDetails.pnl)} (
-                  {formatPercent(positionDetails.roi)})
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Est. Funding</span>
-                <span className="text-yellow-500">
-                  {formatPrice(positionDetails.estFundingFee)}
-                </span>
-              </div>
-            </div>
-          )}
+
         </div>
 
         {/* Order Book - Rightmost Column */}
@@ -1146,7 +1167,7 @@ const TradingWindow = memo(function TradingWindow({
           <MarketDepth
             symbol={symbol}
             currentPrice={currentPrice}
-            onPriceSelect={(price) => handleInputChange("price", price)}
+            onPriceSelect={handleOrderBookPriceSelect}
             accountType={selectedAccount?.accountType}
             marketType={
               marketType === "futures" ? "binance-futures" : "binance-spot"
@@ -1161,6 +1182,8 @@ const TradingWindow = memo(function TradingWindow({
           selectedAccount={selectedAccount}
           symbol={symbol}
           refreshTrigger={orderRefreshTrigger}
+          orderBookPrice={orderBookPrice}
+          onOrderBookPriceApplied={() => setOrderBookPrice(null)}
         />
       </div>
 

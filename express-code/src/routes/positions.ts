@@ -43,6 +43,18 @@ const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
     position.displaySymbol ||
     "UNKNOWN_SYMBOL";
 
+  // Additional fields for futures positions
+  const liquidationPrice = toNumber(position.liquidationPrice);
+  const initialMargin = toNumber(position.initialMargin); // Margin used by position
+  const leverage = toNumber(position.leverage);
+  
+  // Break Even Price calculation (entry price + trading fees)
+  // Using 0.04% taker fee (entry + exit = 0.08% total)
+  const TAKER_FEE = 0.0004;
+  const breakEvenPrice = quantity > 0 
+    ? averagePrice * (1 + TAKER_FEE * 2) // Long: entry + 2x fee
+    : averagePrice * (1 - TAKER_FEE * 2); // Short: entry - 2x fee
+
   return {
     ...position,
     id: `${account._id}-${symbol}-${position.positionSide || "BOTH"}`,
@@ -53,6 +65,11 @@ const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
     lastPrice,
     pnl,
     pnlPercentage,
+    leverage,
+    liquidationPrice,
+    breakEvenPrice,
+    margin: initialMargin,
+    marginType: position.marginType,
     product: `Futures (${(position.marginType || "cross").toUpperCase()})`,
     vendor: account.accountType,
     accountId: account._id,
