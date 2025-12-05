@@ -98,6 +98,11 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   const [orderHistory, setOrderHistory] = useState<OrderHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // State for close position inputs per symbol
+  const [closeInputs, setCloseInputs] = useState<Record<string, { price: string; quantity: string }>>({});
+  const [activeQuantityInput, setActiveQuantityInput] = useState<string | null>(null);
+  const [closingPosition, setClosingPosition] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!selectedAccount) return;
@@ -276,30 +281,166 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
+  // Initialize close inputs when positions change
+  useEffect(() => {
+    const newInputs: Record<string, { price: string; quantity: string }> = {};
+    positions.forEach((pos) => {
+      if (!closeInputs[pos.symbol]) {
+        newInputs[pos.symbol] = {
+          price: formatPrice(pos.lastPrice),
+          quantity: String(pos.quantity),
+        };
+      } else {
+        newInputs[pos.symbol] = closeInputs[pos.symbol];
+      }
+    });
+    if (Object.keys(newInputs).length > 0) {
+      setCloseInputs((prev) => ({ ...prev, ...newInputs }));
+    }
+  }, [positions]);
+
+  const handleCloseInputChange = (symbol: string, field: 'price' | 'quantity', value: string) => {
+    setCloseInputs((prev) => ({
+      ...prev,
+      [symbol]: {
+        ...prev[symbol],
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleQuantityPercentage = (symbol: string, percentage: number) => {
+    const position = positions.find((p) => p.symbol === symbol);
+    if (!position) return;
+    
+    const quantityValue = Math.floor(position.quantity * (percentage / 100) * 1000) / 1000; // Round down to 3 decimals
+    setCloseInputs((prev) => ({
+      ...prev,
+      [symbol]: {
+        ...prev[symbol],
+        quantity: String(quantityValue),
+      },
+    }));
+    setActiveQuantityInput(null);
+  };
+
+  const handleClosePosition = async (posSymbol: string, orderType: 'MARKET' | 'LIMIT') => {
+    if (!selectedAccount) return;
+    
+    const position = positions.find((p) => p.symbol === posSymbol);
+    if (!position) return;
+    
+    const inputs = closeInputs[posSymbol];
+    if (!inputs) return;
+    
+    const quantity = parseFloat(inputs.quantity);
+    if (isNaN(quantity) || quantity <= 0) {
+      alert('Please enter a valid quantity');
+      return;
+    }
+    
+    if (orderType === 'LIMIT') {
+      const price = parseFloat(inputs.price);
+      if (isNaN(price) || price <= 0) {
+        alert('Please enter a valid price for limit order');
+        return;
+      }
+    }
+    
+    const confirmMsg = orderType === 'MARKET'
+      ? `Close ${quantity} ${posSymbol} at MARKET price?`
+      : `Close ${quantity} ${posSymbol} at LIMIT price ${inputs.price}?`;
+    
+    if (!confirm(confirmMsg)) return;
+    
+    setClosingPosition(posSymbol);
+    
+    try {
+      // Close position = opposite side order
+      const closeSide = position.side === 'LONG' ? 'SELL' : 'BUY';
+      
+      const orderData: any = {
+        accountId: selectedAccount._id,
+        symbol: posSymbol,
+        side: closeSide,
+        type: orderType,
+        quantity: quantity,
+        reduceOnly: true,
+      };
+      
+      if (orderType === 'LIMIT') {
+        orderData.price = parseFloat(inputs.price);
+      }
+      
+      await api.post('/orders/place', orderData);
+      
+      // Refresh positions
+      fetchData();
+    } catch (err: any) {
+      console.error('Failed to close position:', err);
+      alert(err.response?.data?.error || err.message || 'Failed to close position');
+    } finally {
+      setClosingPosition(null);
+    }
+  };
+
+  const handleCloseAllPositions = async () => {
+    if (!selectedAccount || positions.length === 0) return;
+    
+    const confirmMsg = `Close ALL ${positions.length} positions at MARKET price? This cannot be undone.`;
+    if (!confirm(confirmMsg)) return;
+    
+    setClosingPosition('all');
+    
+    try {
+      // Close all positions sequentially
+      for (const position of positions) {
+        const closeSide = position.side === 'LONG' ? 'SELL' : 'BUY';
+        
+        await api.post('/orders/place', {
+          accountId: selectedAccount._id,
+          symbol: position.symbol,
+          side: closeSide,
+          type: 'MARKET',
+          quantity: position.quantity,
+          reduceOnly: true,
+        });
+      }
+      
+      // Refresh positions
+      fetchData();
+    } catch (err: any) {
+      console.error('Failed to close all positions:', err);
+      alert(err.response?.data?.error || err.message || 'Failed to close all positions');
+    } finally {
+      setClosingPosition(null);
+    }
+  };
+
   return (
     <div className="w-full bg-card rounded-md border shadow-sm">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="flex items-center justify-between px-2 border-b">
-          <TabsList className="h-9 bg-transparent p-0 rounded-none">
+          <TabsList className="h-10 bg-transparent p-0 rounded-none">
             <TabsTrigger
               value="positions"
-              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-3 py-2 text-xs"
+              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-sm"
             >
-              <Package className="w-3 h-3 mr-1" />
+              <Package className="w-4 h-4 mr-2" />
               Positions ({positions.length})
             </TabsTrigger>
             <TabsTrigger
               value="orders"
-              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-3 py-2 text-xs"
+              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-sm"
             >
-              <Receipt className="w-3 h-3 mr-1" />
+              <Receipt className="w-4 h-4 mr-2" />
               Orders ({orders.length})
             </TabsTrigger>
             <TabsTrigger
               value="history"
-              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-3 py-2 text-xs"
+              className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-sm"
             >
-              <Clock className="w-3 h-3 mr-1" />
+              <Clock className="w-4 h-4 mr-2" />
               History
             </TabsTrigger>
           </TabsList>
@@ -316,71 +457,151 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
         {/* Positions Tab */}
         <TabsContent value="positions" className="m-0 p-0">
-          <div className="max-h-[200px] overflow-y-auto">
+          <div className="h-[400px] overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-4">
                 <LoadingSpinner />
               </div>
             ) : error ? (
-              <div className="flex items-center justify-center py-4 text-xs text-destructive">
+              <div className="flex items-center justify-center py-4 text-sm text-destructive">
                 <AlertTriangle className="w-4 h-4 mr-1" /> {error}
               </div>
             ) : positions.length === 0 ? (
-              <div className="text-center py-4 text-xs text-muted-foreground">
+              <div className="text-center py-4 text-sm text-muted-foreground">
                 No open positions
               </div>
             ) : (
-              <table className="w-full text-xs">
-                <thead className="bg-muted/50 sticky top-0">
+              <table className="w-full text-sm mb-24">
+                <thead className="bg-muted/50 sticky top-0 z-10">
                   <tr>
-                    <th className="text-left px-2 py-1.5 font-medium">Symbol</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Size</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Entry</th>
-                    <th className="text-right px-2 py-1.5 font-medium">B/E</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Liq</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Margin</th>
-                    <th className="text-right px-2 py-1.5 font-medium">PNL</th>
+                    <th className="text-left px-2 py-2 font-medium">Symbol</th>
+                    <th className="text-right px-2 py-2 font-medium">Size</th>
+                    <th className="text-right px-2 py-2 font-medium">Entry</th>
+                    <th className="text-right px-2 py-2 font-medium">B/E</th>
+                    <th className="text-right px-2 py-2 font-medium">Liq</th>
+                    <th className="text-right px-2 py-2 font-medium">Margin</th>
+                    <th className="text-right px-2 py-2 font-medium">PNL</th>
+                    <th className="text-center px-2 py-2 font-medium min-w-[140px]">Price / Qty</th>
+                    <th className="text-center px-2 py-2 font-medium">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="h-7 text-xs px-3 shadow-sm hover:brightness-110 transition-all"
+                        onClick={handleCloseAllPositions}
+                        disabled={closingPosition !== null}
+                      >
+                        {closingPosition === 'all' ? '...' : 'Close All'}
+                      </Button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {positions.map((pos) => (
                     <tr
                       key={pos.id}
-                      className="border-b border-border/50 hover:bg-muted/30 cursor-pointer"
-                      onClick={() => onSymbolSelect?.(pos.symbol)}
+                      className="border-b border-border/50 hover:bg-muted/30"
                     >
-                      <td className="px-2 py-1.5">
+                      <td className="px-2 py-2 cursor-pointer" onClick={() => onSymbolSelect?.(pos.symbol)}>
                         <div className="flex items-center gap-1">
                           {pos.side === "LONG" ? (
-                            <TrendingUp className="w-3 h-3 text-green-500" />
+                            <TrendingUp className="w-4 h-4 text-green-500" />
                           ) : (
-                            <TrendingDown className="w-3 h-3 text-red-500" />
+                            <TrendingDown className="w-4 h-4 text-red-500" />
                           )}
                           <span className="font-medium">{pos.symbol}</span>
                           {pos.leverage && (
-                            <Badge variant="neutral" className="text-[10px] px-1 py-0">
+                            <Badge variant="neutral" className="text-xs px-1.5 py-0.5">
                               {pos.leverage}x
                             </Badge>
                           )}
                         </div>
                       </td>
-                      <td className="text-right px-2 py-1.5">{pos.quantity}</td>
-                      <td className="text-right px-2 py-1.5">{formatPrice(pos.averagePrice)}</td>
-                      <td className="text-right px-2 py-1.5 text-muted-foreground">
+                      <td className="text-right px-2 py-2">{pos.quantity}</td>
+                      <td className="text-right px-2 py-2">{formatPrice(pos.averagePrice)}</td>
+                      <td className="text-right px-2 py-2 text-muted-foreground">
                         {pos.breakEvenPrice ? formatPrice(pos.breakEvenPrice) : "-"}
                       </td>
-                      <td className="text-right px-2 py-1.5 text-orange-500">
+                      <td className="text-right px-2 py-2 text-orange-500">
                         {pos.liquidationPrice ? formatPrice(pos.liquidationPrice) : "-"}
                       </td>
-                      <td className="text-right px-2 py-1.5">
+                      <td className="text-right px-2 py-2">
                         {pos.margin ? `$${pos.margin.toFixed(2)}` : "-"}
                       </td>
                       <td
-                        className={`text-right px-2 py-1.5 font-medium ${
+                        className={`text-right px-2 py-2 font-medium ${
                           pos.pnl >= 0 ? "text-green-500" : "text-red-500"
                         }`}
                       >
                         ${pos.pnl.toFixed(2)}
+                      </td>
+                      <td className="px-1 py-2">
+                        <div className="relative flex gap-1">
+                          <input
+                            type="number"
+                            value={closeInputs[pos.symbol]?.price || ''}
+                            onChange={(e) => handleCloseInputChange(pos.symbol, 'price', e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-20 h-7 text-xs px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary"
+                            placeholder="Price"
+                            step="any"
+                          />
+                          <input
+                            type="number"
+                            value={closeInputs[pos.symbol]?.quantity || ''}
+                            onChange={(e) => handleCloseInputChange(pos.symbol, 'quantity', e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onFocus={() => setActiveQuantityInput(pos.symbol)}
+                            onBlur={() => setTimeout(() => setActiveQuantityInput(null), 200)}
+                            className="w-16 h-7 text-xs px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary"
+                            placeholder="Qty"
+                            step="any"
+                          />
+                          {activeQuantityInput === pos.symbol && (
+                            <div className="absolute top-full right-0 mt-1 z-50 flex gap-0.5 bg-popover border rounded-md shadow-lg p-1 animate-in fade-in zoom-in-95 duration-100">
+                              {[0, 25, 50, 75, 100].map((pct) => (
+                                <button
+                                  key={pct}
+                                  type="button"
+                                  className="px-2 py-1 text-xs font-medium bg-muted hover:bg-primary hover:text-primary-foreground rounded transition-colors"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    handleQuantityPercentage(pos.symbol, pct);
+                                  }}
+                                >
+                                  {pct}%
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-1 py-2">
+                        <div className="flex gap-1 justify-center">
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-7 text-xs px-3 shadow-sm hover:brightness-110 transition-all"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleClosePosition(pos.symbol, 'MARKET');
+                            }}
+                            disabled={closingPosition !== null}
+                          >
+                            {closingPosition === pos.symbol ? '...' : 'Mkt'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs px-3 border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white shadow-sm transition-all"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleClosePosition(pos.symbol, 'LIMIT');
+                            }}
+                            disabled={closingPosition !== null}
+                          >
+                            Lmt
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -392,35 +613,35 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
         {/* Orders Tab */}
         <TabsContent value="orders" className="m-0 p-0">
-          <div className="max-h-[200px] overflow-y-auto">
+          <div className="h-[400px] overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-4">
                 <LoadingSpinner />
               </div>
             ) : error ? (
-              <div className="flex items-center justify-center py-4 text-xs text-destructive">
+              <div className="flex items-center justify-center py-4 text-sm text-destructive">
                 <AlertTriangle className="w-4 h-4 mr-1" /> {error}
               </div>
             ) : orders.length === 0 ? (
-              <div className="text-center py-4 text-xs text-muted-foreground">
+              <div className="text-center py-4 text-sm text-muted-foreground">
                 No open orders
               </div>
             ) : (
-              <table className="w-full text-xs">
-                <thead className="bg-muted/50 sticky top-0">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 sticky top-0 z-10">
                   <tr>
-                    <th className="text-left px-2 py-1.5 font-medium">Symbol</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Type</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Side</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Price</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Qty</th>
-                    <th className="text-center px-2 py-1.5 font-medium"></th>
+                    <th className="text-left px-2 py-2 font-medium">Symbol</th>
+                    <th className="text-right px-2 py-2 font-medium">Type</th>
+                    <th className="text-right px-2 py-2 font-medium">Side</th>
+                    <th className="text-right px-2 py-2 font-medium">Price</th>
+                    <th className="text-right px-2 py-2 font-medium">Qty</th>
+                    <th className="text-center px-2 py-2 font-medium"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {orders.map((order) => (
                     <tr key={order.id} className="border-b border-border/50 hover:bg-muted/30">
-                      <td className="px-2 py-1.5">
+                      <td className="px-2 py-2">
                         <span
                           className="font-medium cursor-pointer hover:text-primary"
                           onClick={() => onSymbolSelect?.(order.symbol)}
@@ -428,26 +649,26 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                           {order.symbol}
                         </span>
                       </td>
-                      <td className="text-right px-2 py-1.5">{order.orderType}</td>
+                      <td className="text-right px-2 py-2">{order.orderType}</td>
                       <td
-                        className={`text-right px-2 py-1.5 ${
+                        className={`text-right px-2 py-2 ${
                           order.side === "BUY" ? "text-green-500" : "text-red-500"
                         }`}
                       >
                         {order.side}
                       </td>
-                      <td className="text-right px-2 py-1.5">{formatPrice(order.price)}</td>
-                      <td className="text-right px-2 py-1.5">
+                      <td className="text-right px-2 py-2">{formatPrice(order.price)}</td>
+                      <td className="text-right px-2 py-2">
                         {order.filledQuantity}/{order.quantity}
                       </td>
-                      <td className="text-center px-2 py-1.5">
+                      <td className="text-center px-2 py-2">
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-5 w-5 text-muted-foreground hover:text-destructive"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
                           onClick={() => handleCancelOrder(order.id, order.symbol)}
                         >
-                          <X className="w-3 h-3" />
+                          <X className="w-4 h-4" />
                         </Button>
                       </td>
                     </tr>
@@ -461,53 +682,53 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
         {/* History Tab */}
         <TabsContent value="history" className="m-0 p-0">
           {/* Sub-tabs for Orders vs Trades */}
-          <div className="flex border-b px-2 gap-2 text-xs">
+          <div className="flex border-b px-2 gap-2 text-sm">
             <button
-              className={`py-1.5 px-2 ${historySubTab === "orders" ? "border-b-2 border-primary font-medium" : "text-muted-foreground"}`}
+              className={`py-2 px-2 ${historySubTab === "orders" ? "border-b-2 border-primary font-medium" : "text-muted-foreground"}`}
               onClick={() => setHistorySubTab("orders")}
             >
               Order History ({orderHistory.length})
             </button>
             <button
-              className={`py-1.5 px-2 ${historySubTab === "trades" ? "border-b-2 border-primary font-medium" : "text-muted-foreground"}`}
+              className={`py-2 px-2 ${historySubTab === "trades" ? "border-b-2 border-primary font-medium" : "text-muted-foreground"}`}
               onClick={() => setHistorySubTab("trades")}
             >
               Trades ({trades.length})
             </button>
           </div>
-          <div className="max-h-[180px] overflow-y-auto">
+          <div className="h-[400px] overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center py-4">
                 <LoadingSpinner />
               </div>
             ) : error ? (
-              <div className="flex items-center justify-center py-4 text-xs text-destructive">
+              <div className="flex items-center justify-center py-4 text-sm text-destructive">
                 <AlertTriangle className="w-4 h-4 mr-1" /> {error}
               </div>
             ) : historySubTab === "orders" ? (
               orderHistory.length === 0 ? (
-                <div className="text-center py-4 text-xs text-muted-foreground">
+                <div className="text-center py-4 text-sm text-muted-foreground">
                   No order history
                 </div>
               ) : (
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/50 sticky top-0">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 sticky top-0 z-10">
                     <tr>
-                      <th className="text-left px-2 py-1.5 font-medium">Time</th>
-                      <th className="text-left px-2 py-1.5 font-medium">Symbol</th>
-                      <th className="text-right px-2 py-1.5 font-medium">Side</th>
-                      <th className="text-right px-2 py-1.5 font-medium">Type</th>
-                      <th className="text-right px-2 py-1.5 font-medium">Filled</th>
-                      <th className="text-right px-2 py-1.5 font-medium">Status</th>
+                      <th className="text-left px-2 py-2 font-medium">Time</th>
+                      <th className="text-left px-2 py-2 font-medium">Symbol</th>
+                      <th className="text-right px-2 py-2 font-medium">Side</th>
+                      <th className="text-right px-2 py-2 font-medium">Type</th>
+                      <th className="text-right px-2 py-2 font-medium">Filled</th>
+                      <th className="text-right px-2 py-2 font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {orderHistory.map((order) => (
                       <tr key={order.id} className="border-b border-border/50 hover:bg-muted/30">
-                        <td className="px-2 py-1.5 text-muted-foreground">
+                        <td className="px-2 py-2 text-muted-foreground">
                           {formatTime(order.time)}
                         </td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-2 py-2">
                           <span
                             className="font-medium cursor-pointer hover:text-primary"
                             onClick={() => onSymbolSelect?.(order.symbol)}
@@ -516,20 +737,20 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                           </span>
                         </td>
                         <td
-                          className={`text-right px-2 py-1.5 ${
+                          className={`text-right px-2 py-2 ${
                             order.side === "BUY" ? "text-green-500" : "text-red-500"
                           }`}
                         >
                           {order.side}
                         </td>
-                        <td className="text-right px-2 py-1.5">{order.type}</td>
-                        <td className="text-right px-2 py-1.5">
+                        <td className="text-right px-2 py-2">{order.type}</td>
+                        <td className="text-right px-2 py-2">
                           {order.executedQty}/{order.quantity}
                         </td>
-                        <td className="text-right px-2 py-1.5">
+                        <td className="text-right px-2 py-2">
                           <Badge
                             variant={order.status === "FILLED" ? "success" : order.status === "CANCELED" ? "danger" : "neutral"}
-                            className="text-[10px] px-1 py-0"
+                            className="text-xs px-1.5 py-0.5"
                           >
                             {order.status}
                           </Badge>
@@ -540,28 +761,28 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 </table>
               )
             ) : trades.length === 0 ? (
-              <div className="text-center py-4 text-xs text-muted-foreground">
+              <div className="text-center py-4 text-sm text-muted-foreground">
                 No trade history
               </div>
             ) : (
-              <table className="w-full text-xs">
-                <thead className="bg-muted/50 sticky top-0">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 sticky top-0 z-10">
                   <tr>
-                    <th className="text-left px-2 py-1.5 font-medium">Time</th>
-                    <th className="text-left px-2 py-1.5 font-medium">Symbol</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Side</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Price</th>
-                    <th className="text-right px-2 py-1.5 font-medium">Qty</th>
-                    <th className="text-right px-2 py-1.5 font-medium">PNL</th>
+                    <th className="text-left px-2 py-2 font-medium">Time</th>
+                    <th className="text-left px-2 py-2 font-medium">Symbol</th>
+                    <th className="text-right px-2 py-2 font-medium">Side</th>
+                    <th className="text-right px-2 py-2 font-medium">Price</th>
+                    <th className="text-right px-2 py-2 font-medium">Qty</th>
+                    <th className="text-right px-2 py-2 font-medium">PNL</th>
                   </tr>
                 </thead>
                 <tbody>
                   {trades.map((trade) => (
                     <tr key={trade.id} className="border-b border-border/50 hover:bg-muted/30">
-                      <td className="px-2 py-1.5 text-muted-foreground">
+                      <td className="px-2 py-2 text-muted-foreground">
                         {formatTime(trade.timestamp)}
                       </td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-2 py-2">
                         <span
                           className="font-medium cursor-pointer hover:text-primary"
                           onClick={() => onSymbolSelect?.(trade.symbol)}
@@ -570,16 +791,16 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         </span>
                       </td>
                       <td
-                        className={`text-right px-2 py-1.5 ${
+                        className={`text-right px-2 py-2 ${
                           trade.side === "BUY" ? "text-green-500" : "text-red-500"
                         }`}
                       >
                         {trade.side}
                       </td>
-                      <td className="text-right px-2 py-1.5">{formatPrice(trade.price)}</td>
-                      <td className="text-right px-2 py-1.5">{trade.quantity}</td>
+                      <td className="text-right px-2 py-2">{formatPrice(trade.price)}</td>
+                      <td className="text-right px-2 py-2">{trade.quantity}</td>
                       <td
-                        className={`text-right px-2 py-1.5 font-medium ${
+                        className={`text-right px-2 py-2 font-medium ${
                           trade.realizedPnl >= 0 ? "text-green-500" : "text-red-500"
                         }`}
                       >
