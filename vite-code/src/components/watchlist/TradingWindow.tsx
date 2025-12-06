@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
-import { HelpCircle, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, HelpCircle, RefreshCw } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
@@ -90,7 +90,7 @@ const TradingWindow = memo(function TradingWindow({
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
   const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
-  const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
+  const [isInfoPanelCollapsed, setIsInfoPanelCollapsed] = useState(true);
 
   const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(null);
   
@@ -699,24 +699,6 @@ const TradingWindow = memo(function TradingWindow({
               />
               Refresh
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="md:hidden h-7 px-2 text-xs"
-              onClick={() => setIsInfoPanelOpen(!isInfoPanelOpen)}
-            >
-              {isInfoPanelOpen ? (
-                <>
-                  <ChevronUp className="h-3 w-3 mr-1" />
-                  Hide Info
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="h-3 w-3 mr-1" />
-                  Show Info
-                </>
-              )}
-            </Button>
           </div>
         </div>
       </div>
@@ -965,27 +947,44 @@ const TradingWindow = memo(function TradingWindow({
         </TooltipProvider>
 
         {/* Right Side - Account Info and Position Details */}
-        <div className={`trading-info-panel ${isInfoPanelOpen ? 'block' : 'hidden md:flex'}`}>
-          {/* Order Side - At Top of Info Panel */}
-          <div className="form-group full-width mb-4">
-            <label>Side</label>
-            <div className="button-group">
-              <Button
-                type="button"
-                variant={orderForm.side === "BUY" ? "success" : "outline"}
-                size="sm"
-                onClick={() => handleInputChange("side", "BUY")}
-              >
-                Buy
-              </Button>
-              <Button
-                type="button"
-                variant={orderForm.side === "SELL" ? "danger" : "outline"}
-                size="sm"
-                onClick={() => handleInputChange("side", "SELL")}
-              >
-                Sell
-              </Button>
+        <div className={`trading-info-panel ${isInfoPanelCollapsed ? 'collapsed' : ''}`}>
+          {/* Mobile Toggle Button */}
+          <button
+            className="info-panel-toggle md:hidden"
+            onClick={() => setIsInfoPanelCollapsed(!isInfoPanelCollapsed)}
+          >
+            <span className="text-sm font-medium">
+              {isInfoPanelCollapsed ? 'Show Config & Account Info' : 'Hide Config & Account Info'}
+            </span>
+            {isInfoPanelCollapsed ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronUp className="h-4 w-4" />
+            )}
+          </button>
+
+          {/* Collapsible Content */}
+          <div className={`info-panel-content ${isInfoPanelCollapsed ? 'hidden md:block' : ''}`}>
+            {/* Order Side - At Top of Info Panel */}
+            <div className="form-group full-width mb-4">
+              <label>Side</label>
+              <div className="button-group">
+                <Button
+                  type="button"
+                  variant={orderForm.side === "BUY" ? "success" : "outline"}
+                  size="sm"
+                  onClick={() => handleInputChange("side", "BUY")}
+                >
+                  Buy
+                </Button>
+                <Button
+                  type="button"
+                  variant={orderForm.side === "SELL" ? "danger" : "outline"}
+                  size="sm"
+                  onClick={() => handleInputChange("side", "SELL")}
+                >
+                  Sell
+                </Button>
             </div>
           </div>
 
@@ -1181,11 +1180,11 @@ const TradingWindow = memo(function TradingWindow({
             </div>
           )}
 
-
+          </div>
         </div>
 
         {/* Order Book - Rightmost Column */}
-        <div className={`market-depth-panel ${isInfoPanelOpen ? 'block' : 'hidden md:flex'}`}>
+        <div className="market-depth-panel">
           <MarketDepth
             symbol={symbol}
             currentPrice={currentPrice}
@@ -1333,6 +1332,30 @@ const TradingWindow = memo(function TradingWindow({
           padding: 16px;
           background: #f8f9fa;
           border-right: 1px solid #e9ecef;
+        }
+
+        .info-panel-toggle {
+          display: none;
+          width: 100%;
+          padding: 12px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          cursor: pointer;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 8px;
+        }
+
+        .dark .info-panel-toggle {
+          background: #27272a;
+          border-color: #3f3f46;
+        }
+
+        .info-panel-content {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
         }
 
         .dark .trading-info-panel {
@@ -1603,6 +1626,14 @@ const TradingWindow = memo(function TradingWindow({
             max-width: 100%;
             padding: 8px;
             border-right: none;
+          }
+
+          .trading-info-panel.collapsed .info-panel-content {
+            display: none;
+          }
+
+          .info-panel-toggle {
+            display: flex;
           }
 
           .market-depth-panel {
