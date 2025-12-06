@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
-import { HelpCircle, RefreshCw } from "lucide-react";
+import { HelpCircle, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
@@ -90,6 +90,7 @@ const TradingWindow = memo(function TradingWindow({
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
   const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
+  const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(false);
 
   const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(null);
   
@@ -698,6 +699,24 @@ const TradingWindow = memo(function TradingWindow({
               />
               Refresh
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="md:hidden h-7 px-2 text-xs"
+              onClick={() => setIsInfoPanelOpen(!isInfoPanelOpen)}
+            >
+              {isInfoPanelOpen ? (
+                <>
+                  <ChevronUp className="h-3 w-3 mr-1" />
+                  Hide Info
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3 w-3 mr-1" />
+                  Show Info
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </div>
@@ -946,7 +965,7 @@ const TradingWindow = memo(function TradingWindow({
         </TooltipProvider>
 
         {/* Right Side - Account Info and Position Details */}
-        <div className="trading-info-panel">
+        <div className={`trading-info-panel ${isInfoPanelOpen ? 'block' : 'hidden md:flex'}`}>
           {/* Order Side - At Top of Info Panel */}
           <div className="form-group full-width mb-4">
             <label>Side</label>
@@ -1166,7 +1185,7 @@ const TradingWindow = memo(function TradingWindow({
         </div>
 
         {/* Order Book - Rightmost Column */}
-        <div className="market-depth-panel">
+        <div className={`market-depth-panel ${isInfoPanelOpen ? 'block' : 'hidden md:flex'}`}>
           <MarketDepth
             symbol={symbol}
             currentPrice={currentPrice}
