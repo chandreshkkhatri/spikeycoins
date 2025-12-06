@@ -467,8 +467,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   return (
     <div className="w-full bg-card rounded-md border shadow-sm">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <div className="flex items-center justify-between px-2 border-b">
-          <TabsList className="h-12 bg-transparent p-0 rounded-none">
+        <div className="flex items-center justify-between px-2 border-b overflow-x-auto">
+          <TabsList className="h-12 bg-transparent p-0 rounded-none flex-shrink-0">
             <TabsTrigger
               value="positions"
               className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-4 py-2 text-base"
