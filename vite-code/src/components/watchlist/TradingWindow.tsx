@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
-import { HelpCircle, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronUp, HelpCircle, RefreshCw } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
@@ -90,6 +90,8 @@ const TradingWindow = memo(function TradingWindow({
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
   const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
+  const [isInfoPanelCollapsed, setIsInfoPanelCollapsed] = useState(true);
+  const [isOrderBookCollapsed, setIsOrderBookCollapsed] = useState(true);
 
   const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(null);
   
@@ -946,27 +948,44 @@ const TradingWindow = memo(function TradingWindow({
         </TooltipProvider>
 
         {/* Right Side - Account Info and Position Details */}
-        <div className="trading-info-panel">
-          {/* Order Side - At Top of Info Panel */}
-          <div className="form-group full-width mb-4">
-            <label>Side</label>
-            <div className="button-group">
-              <Button
-                type="button"
-                variant={orderForm.side === "BUY" ? "success" : "outline"}
-                size="sm"
-                onClick={() => handleInputChange("side", "BUY")}
-              >
-                Buy
-              </Button>
-              <Button
-                type="button"
-                variant={orderForm.side === "SELL" ? "danger" : "outline"}
-                size="sm"
-                onClick={() => handleInputChange("side", "SELL")}
-              >
-                Sell
-              </Button>
+        <div className={`trading-info-panel ${isInfoPanelCollapsed ? 'collapsed' : ''}`}>
+          {/* Mobile Toggle Button */}
+          <button
+            className="info-panel-toggle md:hidden"
+            onClick={() => setIsInfoPanelCollapsed(!isInfoPanelCollapsed)}
+          >
+            <span className="text-sm font-medium">
+              {isInfoPanelCollapsed ? 'Show Config & Account Info' : 'Hide Config & Account Info'}
+            </span>
+            {isInfoPanelCollapsed ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronUp className="h-4 w-4" />
+            )}
+          </button>
+
+          {/* Collapsible Content */}
+          <div className={`info-panel-content ${isInfoPanelCollapsed ? 'hidden md:block' : ''}`}>
+            {/* Order Side - At Top of Info Panel */}
+            <div className="form-group full-width mb-4">
+              <label>Side</label>
+              <div className="button-group">
+                <Button
+                  type="button"
+                  variant={orderForm.side === "BUY" ? "success" : "outline"}
+                  size="sm"
+                  onClick={() => handleInputChange("side", "BUY")}
+                >
+                  Buy
+                </Button>
+                <Button
+                  type="button"
+                  variant={orderForm.side === "SELL" ? "danger" : "outline"}
+                  size="sm"
+                  onClick={() => handleInputChange("side", "SELL")}
+                >
+                  Sell
+                </Button>
             </div>
           </div>
 
@@ -1162,20 +1181,37 @@ const TradingWindow = memo(function TradingWindow({
             </div>
           )}
 
-
+          </div>
         </div>
 
         {/* Order Book - Rightmost Column */}
-        <div className="market-depth-panel">
-          <MarketDepth
-            symbol={symbol}
-            currentPrice={currentPrice}
-            onPriceSelect={handleOrderBookPriceSelect}
-            accountType={selectedAccount?.accountType}
-            marketType={
-              marketType === "futures" ? "binance-futures" : "binance-spot"
-            }
-          />
+        <div className={`market-depth-panel ${isOrderBookCollapsed ? 'collapsed' : ''}`}>
+          {/* Mobile Toggle Button */}
+          <button
+            className="orderbook-toggle md:hidden"
+            onClick={() => setIsOrderBookCollapsed(!isOrderBookCollapsed)}
+          >
+            <span className="text-sm font-medium">
+              {isOrderBookCollapsed ? 'Show Order Book' : 'Hide Order Book'}
+            </span>
+            {isOrderBookCollapsed ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronUp className="h-4 w-4" />
+            )}
+          </button>
+
+          <div className={`orderbook-content ${isOrderBookCollapsed ? 'hidden md:block' : ''}`}>
+            <MarketDepth
+              symbol={symbol}
+              currentPrice={currentPrice}
+              onPriceSelect={handleOrderBookPriceSelect}
+              accountType={selectedAccount?.accountType}
+              marketType={
+                marketType === "futures" ? "binance-futures" : "binance-spot"
+              }
+            />
+          </div>
         </div>
       </div>
 
@@ -1287,6 +1323,24 @@ const TradingWindow = memo(function TradingWindow({
           background: #ffffff;
         }
 
+        .orderbook-toggle {
+          display: none;
+          width: calc(100% - 16px);
+          padding: 12px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          cursor: pointer;
+          align-items: center;
+          justify-content: space-between;
+          margin: 8px;
+        }
+
+        .dark .orderbook-toggle {
+          background: #27272a;
+          border-color: #3f3f46;
+        }
+
         .dark .market-depth-panel {
           border-left: 1px solid #27272a;
           background: #09090b;
@@ -1314,6 +1368,30 @@ const TradingWindow = memo(function TradingWindow({
           padding: 16px;
           background: #f8f9fa;
           border-right: 1px solid #e9ecef;
+        }
+
+        .info-panel-toggle {
+          display: none;
+          width: calc(100% - 16px);
+          padding: 12px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          cursor: pointer;
+          align-items: center;
+          justify-content: space-between;
+          margin: 8px;
+        }
+
+        .dark .info-panel-toggle {
+          background: #27272a;
+          border-color: #3f3f46;
+        }
+
+        .info-panel-content {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
         }
 
         .dark .trading-info-panel {
@@ -1586,10 +1664,27 @@ const TradingWindow = memo(function TradingWindow({
             border-right: none;
           }
 
+          .trading-info-panel.collapsed .info-panel-content {
+            display: none;
+          }
+
+          .info-panel-toggle {
+            display: flex;
+          }
+
           .market-depth-panel {
             flex: 1;
             max-width: 100%;
             border-left: none;
+            padding: 8px;
+          }
+
+          .market-depth-panel.collapsed .orderbook-content {
+            display: none;
+          }
+
+          .orderbook-toggle {
+            display: flex;
           }
 
           .form-grid {
