@@ -1135,6 +1135,7 @@ const Watchlist = memo(function Watchlist({
             selectedAccount={selectedAccount}
             marketType={marketType?.includes("spot") ? "spot" : "futures"}
             onOrderPlaced={handleOrderPlaced}
+            onSymbolSelect={setSelectedSymbol}
           />
         </div>
       </div>
@@ -1186,6 +1187,7 @@ const Watchlist = memo(function Watchlist({
             selectedAccount={selectedAccount}
             marketType={marketType?.includes("spot") ? "spot" : "futures"}
             onOrderPlaced={handleOrderPlaced}
+            onSymbolSelect={setSelectedSymbol}
           />
         </div>
       </div>

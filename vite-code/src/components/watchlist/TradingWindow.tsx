@@ -34,6 +34,7 @@ interface TradingWindowProps {
   } | null;
   marketType?: "spot" | "futures";
   onOrderPlaced: () => void;
+  onSymbolSelect?: (symbol: string) => void;
 }
 
 interface OrderForm {
@@ -58,6 +59,7 @@ const TradingWindow = memo(function TradingWindow({
   selectedAccount,
   marketType = "futures",
   onOrderPlaced,
+  onSymbolSelect,
 }: TradingWindowProps) {
   const [orderForm, setOrderForm] = useState<OrderForm>({
     accountId: selectedAccount?._id || accounts[0]?._id || "",
@@ -97,6 +99,7 @@ const TradingWindow = memo(function TradingWindow({
   // Reset synced state when symbol or account changes
   useEffect(() => {
     hasSyncedLeverage.current = false;
+    setHasUserEditedPrice(false);
   }, [symbol, selectedAccount?._id]);
   // User-defined max leverage (stored in localStorage)
   const [userMaxLeverage, setUserMaxLeverage] = useState<number>(() => {
@@ -702,6 +705,75 @@ const TradingWindow = memo(function TradingWindow({
       <div className="trading-content">
         <TooltipProvider>
           <div className="trading-form">
+            {/* Position Sizing Slider */}
+            <div className="form-group mb-4">
+              <div className="flex justify-between items-center mb-1">
+                <label className="mb-0">Position Size: <span className="slider-value-display">{positionSizePercentage}%</span></label>
+                <div className="flex items-center gap-1.5">
+                  <input 
+                    type="checkbox" 
+                    id="expSlider" 
+                    checked={isExponentialSlider} 
+                    onChange={(e) => setIsExponentialSlider(e.target.checked)} 
+                    className="form-checkbox w-3 h-3"
+                  />
+                  <label htmlFor="expSlider" className="text-[10px] cursor-pointer text-muted-foreground mb-0">Exp. Spacing</label>
+                </div>
+              </div>
+              <div className="slider-wrapper">
+                <Slider
+                  value={[
+                    isExponentialSlider 
+                      ? 100 * Math.sqrt(positionSizePercentage / 100) 
+                      : positionSizePercentage
+                  ]}
+                  onValueChange={handleSliderChange}
+                  onValueCommit={handleSliderCommit}
+                  max={100}
+                  step={1}
+                  className="position-slider"
+                />
+              </div>
+              <div className="slider-labels">
+                <span
+                  className="cursor-pointer hover:text-primary"
+                  onClick={() => handleSliderCommit([0])}
+                >
+                  0%
+                </span>
+                <span
+                  className="cursor-pointer hover:text-primary"
+                  onClick={() => handleSliderCommit([20])}
+                >
+                  {isExponentialSlider ? "4%" : "20%"}
+                </span>
+                <span
+                  className="cursor-pointer hover:text-primary"
+                  onClick={() => handleSliderCommit([40])}
+                >
+                  {isExponentialSlider ? "16%" : "40%"}
+                </span>
+                <span
+                  className="cursor-pointer hover:text-primary"
+                  onClick={() => handleSliderCommit([60])}
+                >
+                  {isExponentialSlider ? "36%" : "60%"}
+                </span>
+                <span
+                  className="cursor-pointer hover:text-primary"
+                  onClick={() => handleSliderCommit([80])}
+                >
+                  {isExponentialSlider ? "64%" : "80%"}
+                </span>
+                <span
+                  className="cursor-pointer hover:text-primary"
+                  onClick={() => handleSliderCommit([100])}
+                >
+                  100%
+                </span>
+              </div>
+            </div>
+
             {/* Two Column Grid */}
             <div className="form-grid">
               {/* Order Type */}
@@ -717,26 +789,6 @@ const TradingWindow = memo(function TradingWindow({
                   <option value="STOP_MARKET">Stop Market</option>
                   <option value="TAKE_PROFIT_MARKET">Take Profit Mkt</option>
                 </select>
-              </div>
-
-              {/* Leverage Slider */}
-              <div className="form-group">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs mb-0">Leverage</label>
-                  <span className="text-xs font-medium text-primary">{orderForm.leverage}x</span>
-                </div>
-                <Slider
-                  value={[parseInt(orderForm.leverage) || 1]}
-                  min={1}
-                  max={maxLeverage}
-                  step={1}
-                  onValueChange={(value) => handleInputChange("leverage", String(value[0]))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-                  <span>1x</span>
-                  <span>{maxLeverage}x</span>
-                </div>
               </div>
 
               {/* Quantity */}
@@ -859,75 +911,6 @@ const TradingWindow = memo(function TradingWindow({
 
             {/* Slider and Summary Grid */}
             <div className="form-grid">
-              {/* Position Sizing Slider */}
-              <div className="form-group">
-                <div className="flex justify-between items-center mb-1">
-                  <label className="mb-0">Position Size: <span className="slider-value-display">{positionSizePercentage}%</span></label>
-                  <div className="flex items-center gap-1.5">
-                    <input 
-                      type="checkbox" 
-                      id="expSlider" 
-                      checked={isExponentialSlider} 
-                      onChange={(e) => setIsExponentialSlider(e.target.checked)} 
-                      className="form-checkbox w-3 h-3"
-                    />
-                    <label htmlFor="expSlider" className="text-[10px] cursor-pointer text-muted-foreground mb-0">Exp. Spacing</label>
-                  </div>
-                </div>
-                <div className="slider-wrapper">
-                  <Slider
-                    value={[
-                      isExponentialSlider 
-                        ? 100 * Math.sqrt(positionSizePercentage / 100) 
-                        : positionSizePercentage
-                    ]}
-                    onValueChange={handleSliderChange}
-                    onValueCommit={handleSliderCommit}
-                    max={100}
-                    step={1}
-                    className="position-slider"
-                  />
-                </div>
-                <div className="slider-labels">
-                  <span
-                    className="cursor-pointer hover:text-primary"
-                    onClick={() => handleSliderCommit([0])}
-                  >
-                    0%
-                  </span>
-                  <span
-                    className="cursor-pointer hover:text-primary"
-                    onClick={() => handleSliderCommit([20])}
-                  >
-                    {isExponentialSlider ? "4%" : "20%"}
-                  </span>
-                  <span
-                    className="cursor-pointer hover:text-primary"
-                    onClick={() => handleSliderCommit([40])}
-                  >
-                    {isExponentialSlider ? "16%" : "40%"}
-                  </span>
-                  <span
-                    className="cursor-pointer hover:text-primary"
-                    onClick={() => handleSliderCommit([60])}
-                  >
-                    {isExponentialSlider ? "36%" : "60%"}
-                  </span>
-                  <span
-                    className="cursor-pointer hover:text-primary"
-                    onClick={() => handleSliderCommit([80])}
-                  >
-                    {isExponentialSlider ? "64%" : "80%"}
-                  </span>
-                  <span
-                    className="cursor-pointer hover:text-primary"
-                    onClick={() => handleSliderCommit([100])}
-                  >
-                    100%
-                  </span>
-                </div>
-              </div>
-
               {/* Order Summary */}
               <div className="order-summary">
                 <div className="summary-row">
@@ -993,6 +976,26 @@ const TradingWindow = memo(function TradingWindow({
               Config
             </div>
             <div className="space-y-3">
+              {/* Leverage Slider */}
+              <div className="form-group mb-0">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] text-muted-foreground mb-0">Leverage</label>
+                  <span className="text-[10px] font-medium text-primary">{orderForm.leverage}x</span>
+                </div>
+                <Slider
+                  value={[parseInt(orderForm.leverage) || 1]}
+                  min={1}
+                  max={maxLeverage}
+                  step={1}
+                  onValueChange={(value) => handleInputChange("leverage", String(value[0]))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+                  <span>1x</span>
+                  <span>{maxLeverage}x</span>
+                </div>
+              </div>
+
               <div className="form-group mb-0">
                 <div className="flex items-center gap-1 mb-1">
                   <span className="text-[10px] text-muted-foreground">Max Lev.</span>
@@ -1184,6 +1187,7 @@ const TradingWindow = memo(function TradingWindow({
           refreshTrigger={orderRefreshTrigger}
           orderBookPrice={orderBookPrice}
           onOrderBookPriceApplied={() => setOrderBookPrice(null)}
+          onSymbolSelect={onSymbolSelect}
         />
       </div>
 

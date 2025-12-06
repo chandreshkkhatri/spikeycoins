@@ -61,7 +61,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
       // User logged out - clear all cached data
       localStorage.removeItem('accountsCache');
       localStorage.removeItem('accountsCacheTime');
-      localStorage.removeItem('selectedAccountId');
+      // localStorage.removeItem('selectedAccountId'); // Keep selected account to prevent reset on auth flicker
       setAccounts([]);
       setSelectedAccountState(null);
       setError(null);
