@@ -91,6 +91,7 @@ const TradingWindow = memo(function TradingWindow({
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
   const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
   const [isInfoPanelCollapsed, setIsInfoPanelCollapsed] = useState(true);
+  const [isOrderBookCollapsed, setIsOrderBookCollapsed] = useState(true);
 
   const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(null);
   
@@ -1184,16 +1185,33 @@ const TradingWindow = memo(function TradingWindow({
         </div>
 
         {/* Order Book - Rightmost Column */}
-        <div className="market-depth-panel">
-          <MarketDepth
-            symbol={symbol}
-            currentPrice={currentPrice}
-            onPriceSelect={handleOrderBookPriceSelect}
-            accountType={selectedAccount?.accountType}
-            marketType={
-              marketType === "futures" ? "binance-futures" : "binance-spot"
-            }
-          />
+        <div className={`market-depth-panel ${isOrderBookCollapsed ? 'collapsed' : ''}`}>
+          {/* Mobile Toggle Button */}
+          <button
+            className="orderbook-toggle md:hidden"
+            onClick={() => setIsOrderBookCollapsed(!isOrderBookCollapsed)}
+          >
+            <span className="text-sm font-medium">
+              {isOrderBookCollapsed ? 'Show Order Book' : 'Hide Order Book'}
+            </span>
+            {isOrderBookCollapsed ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronUp className="h-4 w-4" />
+            )}
+          </button>
+
+          <div className={`orderbook-content ${isOrderBookCollapsed ? 'hidden md:block' : ''}`}>
+            <MarketDepth
+              symbol={symbol}
+              currentPrice={currentPrice}
+              onPriceSelect={handleOrderBookPriceSelect}
+              accountType={selectedAccount?.accountType}
+              marketType={
+                marketType === "futures" ? "binance-futures" : "binance-spot"
+              }
+            />
+          </div>
         </div>
       </div>
 
@@ -1305,6 +1323,24 @@ const TradingWindow = memo(function TradingWindow({
           background: #ffffff;
         }
 
+        .orderbook-toggle {
+          display: none;
+          width: calc(100% - 16px);
+          padding: 12px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          cursor: pointer;
+          align-items: center;
+          justify-content: space-between;
+          margin: 8px;
+        }
+
+        .dark .orderbook-toggle {
+          background: #27272a;
+          border-color: #3f3f46;
+        }
+
         .dark .market-depth-panel {
           border-left: 1px solid #27272a;
           background: #09090b;
@@ -1336,7 +1372,7 @@ const TradingWindow = memo(function TradingWindow({
 
         .info-panel-toggle {
           display: none;
-          width: 100%;
+          width: calc(100% - 16px);
           padding: 12px;
           background: #f1f5f9;
           border: 1px solid #e2e8f0;
@@ -1344,7 +1380,7 @@ const TradingWindow = memo(function TradingWindow({
           cursor: pointer;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 8px;
+          margin: 8px;
         }
 
         .dark .info-panel-toggle {
@@ -1640,6 +1676,15 @@ const TradingWindow = memo(function TradingWindow({
             flex: 1;
             max-width: 100%;
             border-left: none;
+            padding: 8px;
+          }
+
+          .market-depth-panel.collapsed .orderbook-content {
+            display: none;
+          }
+
+          .orderbook-toggle {
+            display: flex;
           }
 
           .form-grid {
