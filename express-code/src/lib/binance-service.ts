@@ -11,14 +11,14 @@ class BinanceService {
   private spotClient: AxiosInstance;
   private futuresClient: AxiosInstance;
   private testnet: boolean = false;
-  
+
   // Cache for exchange info to avoid excessive API calls
   private futuresExchangeInfoCache: any = null;
   private futuresExchangeInfoCacheTime: number = 0;
   private spotExchangeInfoCache: any = null;
   private spotExchangeInfoCacheTime: number = 0;
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
-  
+
   // Rate limiting to prevent IP bans
   private requestCount: number = 0;
   private requestWindowStart: number = Date.now();
@@ -83,21 +83,23 @@ class BinanceService {
    */
   private checkRateLimit(): void {
     const now = Date.now();
-    
+
     // Reset counter if we're in a new window
     if (now - this.requestWindowStart >= this.REQUEST_WINDOW) {
       this.requestCount = 0;
       this.requestWindowStart = now;
     }
-    
+
     // Check if we've exceeded the limit
     if (this.requestCount >= this.MAX_REQUESTS_PER_WINDOW) {
       const waitTime = this.REQUEST_WINDOW - (now - this.requestWindowStart);
       throw new Error(
-        `Rate limit exceeded. Please wait ${Math.ceil(waitTime / 1000)}s before making more requests. Use websocket streams for live price updates.`
+        `Rate limit exceeded. Please wait ${Math.ceil(
+          waitTime / 1000
+        )}s before making more requests. Use websocket streams for live price updates.`
       );
     }
-    
+
     this.requestCount++;
   }
 
@@ -114,13 +116,18 @@ class BinanceService {
   /**
    * Add timestamp and signature to params
    */
-  private signRequest(params: Record<string, any> = {}): string {
+  private signRequest(params: Record<string, unknown> = {}): string {
     const timestamp = Date.now();
-    const queryString = new URLSearchParams({
-      ...params,
-      timestamp: timestamp.toString(),
-    }).toString();
 
+    // Convert params to string key/value pairs for URLSearchParams
+    const entries: Record<string, string> = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined || v === null) continue;
+      entries[k] = typeof v === "string" ? v : String(v);
+    }
+    entries.timestamp = timestamp.toString();
+
+    const queryString = new URLSearchParams(entries).toString();
     const signature = this.generateSignature(queryString);
     return `${queryString}&signature=${signature}`;
   }
@@ -403,6 +410,7 @@ class BinanceService {
 
   /**
    * Place Futures order
+   * Note: When closePosition=true, quantity is not required (entire position is closed)
    */
   async placeFuturesOrder(params: {
     symbol: string;
@@ -415,15 +423,24 @@ class BinanceService {
       | "TAKE_PROFIT"
       | "STOP_MARKET"
       | "TAKE_PROFIT_MARKET";
-    quantity: number;
+    quantity?: number; // Optional when closePosition=true
     price?: number;
     stopPrice?: number;
     timeInForce?: "GTC" | "IOC" | "FOK" | "GTX";
     reduceOnly?: boolean;
+    closePosition?: boolean; // When true, closes entire position (mutually exclusive with reduceOnly)
   }) {
     try {
       this.checkRateLimit();
-      const signedParams = this.signRequest(params);
+      // Ensure boolean flags are included correctly
+      const apiParams: Record<string, unknown> = { ...params };
+      if (typeof apiParams["closePosition"] === "boolean") {
+        // leave as boolean; URLSearchParams will stringify it
+        apiParams["closePosition"] = (apiParams["closePosition"] as boolean)
+          ? true
+          : false;
+      }
+      const signedParams = this.signRequest(apiParams as Record<string, any>);
       const response = await this.futuresClient.post(
         `/fapi/v1/order?${signedParams}`
       );
@@ -541,9 +558,9 @@ class BinanceService {
       // Public endpoint, no signature needed usually, but client is configured with headers
       // Using public client or just removing signature for this one if needed.
       // premiumIndex is public, doesn't need signature.
-      const response = await this.futuresClient.get(
-        `/fapi/v1/premiumIndex`, { params }
-      );
+      const response = await this.futuresClient.get(`/fapi/v1/premiumIndex`, {
+        params,
+      });
       return response.data;
     } catch (error: any) {
       console.error(
@@ -563,31 +580,34 @@ class BinanceService {
   async getFuturesExchangeInfo() {
     try {
       const now = Date.now();
-      
+
       // Return cached data if still valid
-      if (this.futuresExchangeInfoCache && (now - this.futuresExchangeInfoCacheTime) < this.CACHE_TTL) {
+      if (
+        this.futuresExchangeInfoCache &&
+        now - this.futuresExchangeInfoCacheTime < this.CACHE_TTL
+      ) {
         return this.futuresExchangeInfoCache;
       }
-      
+
       const response = await this.futuresClient.get("/fapi/v1/exchangeInfo");
-      
+
       // Cache the response
       this.futuresExchangeInfoCache = response.data;
       this.futuresExchangeInfoCacheTime = now;
-      
+
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getExchangeInfo error:",
         error.response?.data || error.message
       );
-      
+
       // Return cached data if available even if expired (better than failing)
       if (this.futuresExchangeInfoCache) {
         console.warn("Returning stale cached exchange info");
         return this.futuresExchangeInfoCache;
       }
-      
+
       throw new Error(
         error.response?.data?.msg ||
           "Failed to fetch Binance Futures exchange info"

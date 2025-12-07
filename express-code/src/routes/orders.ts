@@ -56,7 +56,10 @@ router.get("/", async (req: Request, res: Response) => {
         orders = [];
       }
     } else if (account.accountType === "binance") {
-      console.log(`[Orders] Binance account ${account._id} metadata:`, account.metadata);
+      console.log(
+        `[Orders] Binance account ${account._id} metadata:`,
+        account.metadata
+      );
       const tradingSegment = account.metadata?.tradingSegment || "spot";
       console.log(`[Orders] Using trading segment: ${tradingSegment}`);
       const isTestnet = account.metadata?.testnet || false;
@@ -112,8 +115,11 @@ router.get("/", async (req: Request, res: Response) => {
 router.post("/place", async (req: Request, res: Response) => {
   try {
     const { accountId, ...orderParams } = req.body;
-    
-    console.log("[Orders/Place] Request body:", JSON.stringify(req.body, null, 2));
+
+    console.log(
+      "[Orders/Place] Request body:",
+      JSON.stringify(req.body, null, 2)
+    );
 
     if (!accountId) {
       return res.status(400).json({ error: "accountId is required" });
@@ -125,12 +131,12 @@ router.post("/place", async (req: Request, res: Response) => {
       console.log("[Orders/Place] Account not found:", accountId);
       return res.status(404).json({ error: "Account not found" });
     }
-    
-    console.log("[Orders/Place] Account found:", { 
-      id: account._id, 
-      type: account.accountType, 
+
+    console.log("[Orders/Place] Account found:", {
+      id: account._id,
+      type: account.accountType,
       segment: account.metadata?.tradingSegment,
-      testnet: account.metadata?.testnet 
+      testnet: account.metadata?.testnet,
     });
 
     let result;
@@ -160,11 +166,16 @@ router.post("/place", async (req: Request, res: Response) => {
     } else if (account.accountType === "binance") {
       // Detect trading segment from metadata, or infer from order params
       // If leverage, stopLoss, or takeProfit is set, it's a futures order
-      const hasFuturesParams = orderParams.leverage || orderParams.stopLoss || orderParams.takeProfit;
-      const tradingSegment = account.metadata?.tradingSegment || (hasFuturesParams ? "usdm" : "spot");
+      const hasFuturesParams =
+        orderParams.leverage || orderParams.stopLoss || orderParams.takeProfit;
+      const tradingSegment =
+        account.metadata?.tradingSegment ||
+        (hasFuturesParams ? "usdm" : "spot");
       const isTestnet = account.metadata?.testnet || false;
-      
-      console.log(`[Orders/Place] Detected trading segment: ${tradingSegment} (metadata: ${account.metadata?.tradingSegment}, hasFuturesParams: ${hasFuturesParams})`);
+
+      console.log(
+        `[Orders/Place] Detected trading segment: ${tradingSegment} (metadata: ${account.metadata?.tradingSegment}, hasFuturesParams: ${hasFuturesParams})`
+      );
 
       binanceService.initializeWithCredentials(
         account.apiKey,
@@ -174,32 +185,46 @@ router.post("/place", async (req: Request, res: Response) => {
 
       if (tradingSegment === "usdm") {
         // USD(S)-M Futures - Extract special params
-        const { leverage, stopLoss, takeProfit, reduceOnly, ...binanceOrderParams } = orderParams;
-        
+        const {
+          leverage,
+          stopLoss,
+          takeProfit,
+          reduceOnly,
+          ...binanceOrderParams
+        } = orderParams;
+
         // Fetch exchange info to get precision
         let quantityPrecision = 0;
         let pricePrecision = 2;
         try {
           const exchangeInfo = await binanceService.getFuturesExchangeInfo();
-          const symbolInfo = exchangeInfo.symbols?.find((s: any) => s.symbol === orderParams.symbol);
+          const symbolInfo = exchangeInfo.symbols?.find(
+            (s: any) => s.symbol === orderParams.symbol
+          );
           if (symbolInfo) {
             quantityPrecision = symbolInfo.quantityPrecision || 0;
             pricePrecision = symbolInfo.pricePrecision || 2;
           }
         } catch (infoError) {
-          console.warn("Could not fetch exchange info for precision:", infoError);
+          console.warn(
+            "Could not fetch exchange info for precision:",
+            infoError
+          );
         }
-        
+
         // Helper to round to precision
         const roundToPrecision = (value: number, precision: number): number => {
           const factor = Math.pow(10, precision);
           return Math.floor(value * factor) / factor;
         };
-        
+
         // Set leverage if provided
         if (leverage && leverage > 0) {
           try {
-            await binanceService.changeFuturesLeverage(orderParams.symbol, leverage);
+            await binanceService.changeFuturesLeverage(
+              orderParams.symbol,
+              leverage
+            );
           } catch (leverageError: any) {
             // Ignore "No need to change leverage" errors
             if (!leverageError.message?.includes("No need to change")) {
@@ -207,11 +232,16 @@ router.post("/place", async (req: Request, res: Response) => {
             }
           }
         }
-        
+
         // Round quantity and price to correct precision
-        const roundedQuantity = roundToPrecision(binanceOrderParams.quantity, quantityPrecision);
-        const roundedPrice = binanceOrderParams.price ? roundToPrecision(binanceOrderParams.price, pricePrecision) : undefined;
-        
+        const roundedQuantity = roundToPrecision(
+          binanceOrderParams.quantity,
+          quantityPrecision
+        );
+        const roundedPrice = binanceOrderParams.price
+          ? roundToPrecision(binanceOrderParams.price, pricePrecision)
+          : undefined;
+
         // Build clean order params for Binance
         const cleanOrderParams: any = {
           symbol: binanceOrderParams.symbol,
@@ -219,24 +249,26 @@ router.post("/place", async (req: Request, res: Response) => {
           type: binanceOrderParams.type,
           quantity: roundedQuantity,
         };
-        
+
         // Add price for LIMIT orders
         if (binanceOrderParams.type === "LIMIT") {
           cleanOrderParams.price = roundedPrice;
           cleanOrderParams.timeInForce = "GTC";
         }
-        
+
         // Add reduceOnly if true (but not for initial position orders)
         if (reduceOnly) {
           cleanOrderParams.reduceOnly = true;
         }
-        
+
         console.log("Placing Binance futures order:", cleanOrderParams);
-        
+
         // Place main order
         result = await binanceService.placeFuturesOrder(cleanOrderParams);
-        
+
         // Place stop loss order if provided
+        // Using closePosition: true so the SL closes the entire position
+        // and automatically cancels when position is closed
         if (stopLoss && stopLoss > 0) {
           try {
             const slSide = orderParams.side === "BUY" ? "SELL" : "BUY";
@@ -245,17 +277,18 @@ router.post("/place", async (req: Request, res: Response) => {
               symbol: orderParams.symbol,
               side: slSide,
               type: "STOP_MARKET",
-              quantity: roundedQuantity,
               stopPrice: roundedSL,
-              reduceOnly: true,
+              closePosition: true,
+              // Note: closePosition=true means quantity is ignored and entire position is closed
             });
           } catch (slError: any) {
             console.warn("Failed to place stop loss order:", slError.message);
             // Don't fail the main order, just log
           }
         }
-        
+
         // Place take profit order if provided
+        // Using closePosition: true so the TP closes the entire position
         if (takeProfit && takeProfit > 0) {
           try {
             const tpSide = orderParams.side === "BUY" ? "SELL" : "BUY";
@@ -264,9 +297,9 @@ router.post("/place", async (req: Request, res: Response) => {
               symbol: orderParams.symbol,
               side: tpSide,
               type: "TAKE_PROFIT_MARKET",
-              quantity: roundedQuantity,
               stopPrice: roundedTP,
-              reduceOnly: true,
+              closePosition: true,
+              // Note: closePosition=true means quantity is ignored and entire position is closed
             });
           } catch (tpError: any) {
             console.warn("Failed to place take profit order:", tpError.message);
@@ -275,15 +308,8 @@ router.post("/place", async (req: Request, res: Response) => {
         }
       } else {
         // Spot
-        const {
-          symbol,
-          side,
-          type,
-          quantity,
-          price,
-          stopPrice,
-          timeInForce,
-        } = orderParams;
+        const { symbol, side, type, quantity, price, stopPrice, timeInForce } =
+          orderParams;
 
         if (!symbol || !side || !type || !quantity) {
           return res.status(400).json({
@@ -309,13 +335,11 @@ router.post("/place", async (req: Request, res: Response) => {
           }
           cleanSpotOrder.price = price;
           cleanSpotOrder.timeInForce = tif;
-        } else if (
-          type === "STOP_LOSS_LIMIT" ||
-          type === "TAKE_PROFIT_LIMIT"
-        ) {
+        } else if (type === "STOP_LOSS_LIMIT" || type === "TAKE_PROFIT_LIMIT") {
           if (!price || !stopPrice) {
             return res.status(400).json({
-              error: "price and stopPrice are required for stop/TP limit orders",
+              error:
+                "price and stopPrice are required for stop/TP limit orders",
             });
           }
           cleanSpotOrder.price = price;
