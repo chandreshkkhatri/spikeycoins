@@ -102,11 +102,16 @@ export default function AccountCard({
   return (
     <div className="account-card">
       <div className="account-header">
-        <div
-          className="account-type-badge"
-          style={{ backgroundColor: accountTypeColors[account.accountType] }}
-        >
-          {accountTypeLabels[account.accountType]}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div
+            className="account-type-badge"
+            style={{ backgroundColor: accountTypeColors[account.accountType] }}
+          >
+            {accountTypeLabels[account.accountType]}
+          </div>
+          {account.metadata?.testnet && (
+            <div className="testnet-badge">TESTNET</div>
+          )}
         </div>
         <div className="account-status">
           <span

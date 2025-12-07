@@ -79,7 +79,6 @@ const TradingWindow = memo(function TradingWindow({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [availableBalance, setAvailableBalance] = useState<number>(0);
-  const [hasUserEditedPrice, setHasUserEditedPrice] = useState(false);
   const [hasUserEditedSL, setHasUserEditedSL] = useState(false);
   const [hasUserEditedTP, setHasUserEditedTP] = useState(false);
   const [accountDetails, setAccountDetails] = useState<any>(null);
@@ -93,15 +92,30 @@ const TradingWindow = memo(function TradingWindow({
   const [isInfoPanelCollapsed, setIsInfoPanelCollapsed] = useState(true);
   const [isOrderBookCollapsed, setIsOrderBookCollapsed] = useState(true);
 
-  const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(null);
-  
+  const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(
+    null
+  );
+
   // Track if we've synced leverage from the exchange for the current session/symbol
   const hasSyncedLeverage = useRef(false);
+
+  // Track slider drag state: count how many times onValueChange fires
+  // A click fires once, a drag fires many times
+  const sliderChangeCount = useRef(0);
 
   // Reset synced state when symbol or account changes
   useEffect(() => {
     hasSyncedLeverage.current = false;
-    setHasUserEditedPrice(false);
+    // When user changes symbol or account, reset price to latest LTP for LIMIT orders
+    if (orderForm.type === "LIMIT") {
+      const decimals = tickSize.includes(".")
+        ? tickSize.split(".")[1].replace(/0+$/, "").length
+        : 2;
+      setOrderForm((prev) => ({
+        ...prev,
+        price: currentPrice.toFixed(decimals),
+      }));
+    }
   }, [symbol, selectedAccount?._id]);
   // User-defined max leverage (stored in localStorage)
   const [userMaxLeverage, setUserMaxLeverage] = useState<number>(() => {
@@ -112,7 +126,7 @@ const TradingWindow = memo(function TradingWindow({
       return 20;
     }
   });
-  
+
   // User-defined default risk percentage (default 1%)
   const [defaultRiskPercent, setDefaultRiskPercent] = useState<string>(() => {
     return localStorage.getItem("flipSafe_defaultRiskPercent") || "1";
@@ -126,9 +140,10 @@ const TradingWindow = memo(function TradingWindow({
   }, [availableBalance, defaultRiskPercent]);
 
   // User-defined default take profit percentage (optional)
-  const [defaultTakeProfitPercent, setDefaultTakeProfitPercent] = useState<string>(() => {
-    return localStorage.getItem("flipSafe_defaultTakeProfitPercent") || "";
-  });
+  const [defaultTakeProfitPercent, setDefaultTakeProfitPercent] =
+    useState<string>(() => {
+      return localStorage.getItem("flipSafe_defaultTakeProfitPercent") || "";
+    });
 
   // Effective max leverage is min of exchange max and user max
   const maxLeverage = Math.min(exchangeMaxLeverage, userMaxLeverage);
@@ -137,7 +152,9 @@ const TradingWindow = memo(function TradingWindow({
   const roundToStep = (value: number, step: string): string => {
     const stepNum = parseFloat(step);
     if (stepNum <= 0 || isNaN(stepNum)) return value.toFixed(8);
-    const decimals = step.includes('.') ? step.split('.')[1].replace(/0+$/, '').length : 0;
+    const decimals = step.includes(".")
+      ? step.split(".")[1].replace(/0+$/, "").length
+      : 0;
     const rounded = Math.round(value / stepNum) * stepNum;
     return rounded.toFixed(decimals);
   };
@@ -149,7 +166,7 @@ const TradingWindow = memo(function TradingWindow({
     // Also update form leverage if current is higher than new max
     const effectiveMax = Math.min(exchangeMaxLeverage, value);
     if (parseInt(orderForm.leverage) > effectiveMax) {
-      setOrderForm(prev => ({ ...prev, leverage: String(effectiveMax) }));
+      setOrderForm((prev) => ({ ...prev, leverage: String(effectiveMax) }));
     }
   };
 
@@ -183,85 +200,126 @@ const TradingWindow = memo(function TradingWindow({
     return 6;
   };
 
-  // Update price when current price changes (only if user hasn't manually edited it)
-  // Update price when current price changes (only if user hasn't manually edited it)
-  useEffect(() => {
-    if (orderForm.type === "LIMIT" && !hasUserEditedPrice) {
-      const decimals = tickSize.includes('.') ? tickSize.split('.')[1].replace(/0+$/, '').length : 2;
-      setOrderForm((prev) => ({ ...prev, price: currentPrice.toFixed(decimals) }));
-    }
-  }, [currentPrice, orderForm.type, hasUserEditedPrice, tickSize]);
+  // Helper to manually sync price field to latest currentPrice (for Refresh button)
+  const syncPriceToCurrent = () => {
+    if (orderForm.type !== "LIMIT") return;
+    const decimals = tickSize.includes(".")
+      ? tickSize.split(".")[1].replace(/0+$/, "").length
+      : 2;
+    setOrderForm((prev) => ({
+      ...prev,
+      price: currentPrice.toFixed(decimals),
+    }));
+  };
 
   // Auto-calculate Stop Loss based on 5% risk rule
   useEffect(() => {
     if (hasUserEditedSL || !availableBalance || !orderForm.quantity) return;
 
     const qty = parseFloat(orderForm.quantity);
-    const entryPrice = orderForm.type === "LIMIT" ? parseFloat(orderForm.price) : currentPrice;
-    
+    const entryPrice =
+      orderForm.type === "LIMIT" ? parseFloat(orderForm.price) : currentPrice;
+
     if (qty > 0 && entryPrice > 0) {
       // Risk 5% of total capital
       const riskAmount = availableBalance * 0.05;
       const priceDiff = riskAmount / qty;
-      
+
       let slPrice;
       if (orderForm.side === "BUY") {
         slPrice = entryPrice - priceDiff;
       } else {
         slPrice = entryPrice + priceDiff;
       }
-      
+
       // Ensure SL is positive and round to tick size
       if (slPrice > 0) {
-        setOrderForm(prev => ({ ...prev, stopLoss: roundToStep(slPrice, tickSize) }));
+        setOrderForm((prev) => ({
+          ...prev,
+          stopLoss: roundToStep(slPrice, tickSize),
+        }));
       }
     }
-  }, [orderForm.quantity, orderForm.price, orderForm.side, currentPrice, availableBalance, hasUserEditedSL]);
+  }, [
+    orderForm.quantity,
+    orderForm.price,
+    orderForm.side,
+    currentPrice,
+    availableBalance,
+    hasUserEditedSL,
+  ]);
 
   // Update SL when defaultRiskPercent, quantity, price, or side changes
   useEffect(() => {
-    if (!defaultRiskPercent || !orderForm.quantity || !orderForm.price || !availableBalance) return;
-    
+    if (
+      !defaultRiskPercent ||
+      !orderForm.quantity ||
+      !orderForm.price ||
+      !availableBalance
+    )
+      return;
+
     const riskPercent = parseFloat(defaultRiskPercent);
     const qty = parseFloat(orderForm.quantity);
     const price = parseFloat(orderForm.price);
-    
-    if (isNaN(riskPercent) || isNaN(qty) || isNaN(price) || qty === 0 || riskPercent <= 0) return;
-    
+
+    if (
+      isNaN(riskPercent) ||
+      isNaN(qty) ||
+      isNaN(price) ||
+      qty === 0 ||
+      riskPercent <= 0
+    )
+      return;
+
     // Calculate risk amount as percentage of available balance
     const riskAmount = (availableBalance * riskPercent) / 100;
     const riskPerUnit = riskAmount / qty;
     let newSL = 0;
-    
+
     if (orderForm.side === "BUY") {
       newSL = price - riskPerUnit;
     } else {
       newSL = price + riskPerUnit;
     }
-    
+
     if (newSL > 0) {
       // Round to tick size
       const tick = parseFloat(tickSize);
       const roundedSL = Math.round(newSL / tick) * tick;
-      
+
       // Only update if different to avoid loops
-      if (Math.abs(roundedSL - parseFloat(orderForm.stopLoss || "0")) > Number.EPSILON) {
-        setOrderForm(prev => ({ ...prev, stopLoss: roundedSL.toFixed(calculatePriceDecimals(price)) }));
+      if (
+        Math.abs(roundedSL - parseFloat(orderForm.stopLoss || "0")) >
+        Number.EPSILON
+      ) {
+        setOrderForm((prev) => ({
+          ...prev,
+          stopLoss: roundedSL.toFixed(calculatePriceDecimals(price)),
+        }));
       }
     }
-  }, [defaultRiskPercent, orderForm.quantity, orderForm.price, orderForm.side, tickSize, availableBalance]);
+  }, [
+    defaultRiskPercent,
+    orderForm.quantity,
+    orderForm.price,
+    orderForm.side,
+    tickSize,
+    availableBalance,
+  ]);
 
   // Auto-calculate Take Profit based on default percentage
   useEffect(() => {
     if (hasUserEditedTP || !defaultTakeProfitPercent) return;
-    
+
     const tpPercent = parseFloat(defaultTakeProfitPercent);
     const price = parseFloat(orderForm.price);
-    
-    if (isNaN(tpPercent) || isNaN(price) || tpPercent <= 0 || price <= 0) return;
-    
+
+    if (isNaN(tpPercent) || isNaN(price) || tpPercent <= 0 || price <= 0)
+      return;
+
     let newTP = 0;
-    
+
     if (orderForm.side === "BUY") {
       // For long, TP is above entry price
       newTP = price * (1 + tpPercent / 100);
@@ -269,17 +327,29 @@ const TradingWindow = memo(function TradingWindow({
       // For short, TP is below entry price
       newTP = price * (1 - tpPercent / 100);
     }
-    
+
     if (newTP > 0) {
       const tick = parseFloat(tickSize);
       const roundedTP = Math.round(newTP / tick) * tick;
-      
+
       // Only update if different to avoid loops
-      if (Math.abs(roundedTP - parseFloat(orderForm.takeProfit || "0")) > Number.EPSILON) {
-        setOrderForm(prev => ({ ...prev, takeProfit: roundedTP.toFixed(calculatePriceDecimals(price)) }));
+      if (
+        Math.abs(roundedTP - parseFloat(orderForm.takeProfit || "0")) >
+        Number.EPSILON
+      ) {
+        setOrderForm((prev) => ({
+          ...prev,
+          takeProfit: roundedTP.toFixed(calculatePriceDecimals(price)),
+        }));
       }
     }
-  }, [defaultTakeProfitPercent, orderForm.price, orderForm.side, tickSize, hasUserEditedTP]);
+  }, [
+    defaultTakeProfitPercent,
+    orderForm.price,
+    orderForm.side,
+    tickSize,
+    hasUserEditedTP,
+  ]);
 
   const fetchAccountAndPositionDetails = useCallback(async () => {
     if (!selectedAccount) return;
@@ -299,10 +369,12 @@ const TradingWindow = memo(function TradingWindow({
                   symbol,
                 },
               });
-              return { type: 'binance', data: response.data };
+              return { type: "binance", data: response.data };
             } else {
-              const response = await api.get(`/funds?accountId=${selectedAccount._id}`);
-              return { type: 'other', data: response.data };
+              const response = await api.get(
+                `/funds?accountId=${selectedAccount._id}`
+              );
+              return { type: "other", data: response.data };
             }
           } catch (e) {
             throw e;
@@ -318,7 +390,7 @@ const TradingWindow = memo(function TradingWindow({
 
       const result = await promise;
 
-      if (result.type === 'binance') {
+      if (result.type === "binance") {
         const data = result.data;
         if (data && data.success) {
           setAccountDetails(data.account);
@@ -340,12 +412,15 @@ const TradingWindow = memo(function TradingWindow({
 
           // Only sync leverage if we haven't done so yet for this session
           if (!hasSyncedLeverage.current) {
-            const effectiveMaxLeverage = Math.min(newExchangeMaxLeverage, userMaxLeverage);
+            const effectiveMaxLeverage = Math.min(
+              newExchangeMaxLeverage,
+              userMaxLeverage
+            );
             const currentPositionLeverage = data.position?.leverage;
             const defaultLeverage = currentPositionLeverage
               ? Math.min(currentPositionLeverage, effectiveMaxLeverage)
               : effectiveMaxLeverage;
-            
+
             setOrderForm((prev) => ({
               ...prev,
               leverage: String(defaultLeverage),
@@ -391,14 +466,10 @@ const TradingWindow = memo(function TradingWindow({
     value: string | boolean
   ) => {
     setOrderForm((prev) => ({ ...prev, [field]: value }));
-    // Track if user manually edited price
-    if (field === 'price') {
-      setHasUserEditedPrice(true);
-    }
-    if (field === 'stopLoss') {
+    if (field === "stopLoss") {
       setHasUserEditedSL(true);
     }
-    if (field === 'takeProfit') {
+    if (field === "takeProfit") {
       setHasUserEditedTP(true);
     }
     setError(null);
@@ -411,6 +482,10 @@ const TradingWindow = memo(function TradingWindow({
   };
 
   const handleSliderChange = (value: number[]) => {
+    // Increment change count to detect drag vs click
+    // A click typically fires 1-2 times, a drag fires many more
+    sliderChangeCount.current += 1;
+
     let percentage = value[0];
     if (isExponentialSlider) {
       // Map slider (0-100) to percentage (0-100) exponentially
@@ -419,12 +494,16 @@ const TradingWindow = memo(function TradingWindow({
     }
     // Round to integer
     percentage = Math.round(percentage);
-    
+
     setPositionSizePercentage(percentage);
     setQuickQuantity(percentage);
   };
 
   const handleSliderCommit = (value: number[]) => {
+    // Check if this was a drag (many change events) or a click (1-2 change events)
+    const wasDragging = sliderChangeCount.current > 2;
+    sliderChangeCount.current = 0; // Reset for next interaction
+
     let percentage = value[0];
     if (isExponentialSlider) {
       percentage = 100 * Math.pow(value[0] / 100, 2);
@@ -433,10 +512,18 @@ const TradingWindow = memo(function TradingWindow({
       setPositionSizePercentage(rounded);
       setQuickQuantity(rounded);
     } else {
-      // Snap to nearest 10% on commit (mouse up / click) for linear mode
-      const snapped = Math.round(percentage / 10) * 10;
-      setPositionSizePercentage(snapped);
-      setQuickQuantity(snapped);
+      // Only snap to nearest 10% on click (not drag)
+      if (wasDragging) {
+        // User was dragging - keep the value as-is (already rounded to integer)
+        const rounded = Math.round(percentage);
+        setPositionSizePercentage(rounded);
+        setQuickQuantity(rounded);
+      } else {
+        // User clicked directly - snap to nearest 10%
+        const snapped = Math.round(percentage / 10) * 10;
+        setPositionSizePercentage(snapped);
+        setQuickQuantity(snapped);
+      }
     }
   };
 
@@ -456,30 +543,32 @@ const TradingWindow = memo(function TradingWindow({
         ? currentPrice
         : parseFloat(orderForm.price) || currentPrice;
     const quantity = parseFloat(orderForm.quantity) || 0;
-    
+
     if (entryPrice <= 0 || leverage <= 0) return "N/A";
-    
+
     // Calculate position value
     const positionValue = entryPrice * quantity;
-    
+
     // Maintenance Margin Rate (MMR) - Binance uses tiered rates based on position size
     // Simplified: 0.4% for positions < $50k, 0.5% for $50k-$250k, increasing for larger positions
     let mmr = 0.004; // 0.4% default
     if (positionValue >= 250000) mmr = 0.01;
     else if (positionValue >= 50000) mmr = 0.005;
-    
+
     // Initial Margin (IM) = 1/leverage
     const im = 1 / leverage;
-    
+
     // Liquidation Price Formula:
     // For LONG: Liq Price = Entry * (1 - IM + MMR)
     // For SHORT: Liq Price = Entry * (1 + IM - MMR)
     // Note: This is simplified. Full formula includes accumulated funding, wallet balance, etc.
-    
+
     if (orderForm.side === "BUY") {
       // Long position
       const liqPrice = entryPrice * (1 - im + mmr);
-      return liqPrice > 0 ? liqPrice.toFixed(calculatePriceDecimals(entryPrice)) : "N/A";
+      return liqPrice > 0
+        ? liqPrice.toFixed(calculatePriceDecimals(entryPrice))
+        : "N/A";
     } else {
       // Short position
       const liqPrice = entryPrice * (1 + im - mmr);
@@ -508,16 +597,26 @@ const TradingWindow = memo(function TradingWindow({
     }
 
     const riskAmount = Math.abs(priceDiff * qty);
-    const riskPercentage = availableBalance > 0 ? (riskAmount / availableBalance) * 100 : 0;
+    const riskPercentage =
+      availableBalance > 0 ? (riskAmount / availableBalance) * 100 : 0;
 
     return { amount: riskAmount, percentage: riskPercentage };
-  }, [orderForm.quantity, orderForm.price, orderForm.stopLoss, orderForm.side, orderForm.type, currentPrice, availableBalance]);
+  }, [
+    orderForm.quantity,
+    orderForm.price,
+    orderForm.stopLoss,
+    orderForm.side,
+    orderForm.type,
+    currentPrice,
+    availableBalance,
+  ]);
 
   const setQuickQuantity = (percentage: number) => {
     if (availableBalance > 0 && currentPrice > 0) {
       const leverage = parseFloat(orderForm.leverage) || 1;
       const maxPositionValue = availableBalance * leverage;
-      const rawQuantity = (maxPositionValue / currentPrice) * (percentage / 100);
+      const rawQuantity =
+        (maxPositionValue / currentPrice) * (percentage / 100);
       const quantity = roundToStep(rawQuantity, stepSize);
       handleInputChange("quantity", quantity);
     } else {
@@ -578,10 +677,7 @@ const TradingWindow = memo(function TradingWindow({
           : undefined,
       };
 
-      const response = await api.post(
-        "/orders/place",
-        orderData
-      );
+      const response = await api.post("/orders/place", orderData);
 
       if (!response.data.success) {
         throw new Error(response.data.error || "Failed to place order");
@@ -591,13 +687,17 @@ const TradingWindow = memo(function TradingWindow({
         `${orderForm.side} order placed successfully for ${orderForm.quantity} ${symbol}`
       );
       onOrderPlaced();
-      setOrderRefreshTrigger(prev => prev + 1); // Trigger refresh of positions/orders tabs
+      setOrderRefreshTrigger((prev) => prev + 1); // Trigger refresh of positions/orders tabs
 
       // Reset form
       setOrderForm((prev) => ({
         ...prev,
         quantity: "0.001",
-        price: currentPrice.toFixed(tickSize.includes('.') ? tickSize.split('.')[1].replace(/0+$/, '').length : 2),
+        price: currentPrice.toFixed(
+          tickSize.includes(".")
+            ? tickSize.split(".")[1].replace(/0+$/, "").length
+            : 2
+        ),
         stopPrice: "",
         stopLoss: "",
         takeProfit: "",
@@ -607,7 +707,11 @@ const TradingWindow = memo(function TradingWindow({
       // eslint-disable-next-line no-console -- surfaced during order error handling
       console.error("Order placement error:", err);
       const errorData = err.response?.data;
-      const errorMessage = errorData?.details || errorData?.error || err.message || "Failed to place order";
+      const errorMessage =
+        errorData?.details ||
+        errorData?.error ||
+        err.message ||
+        "Failed to place order";
       setError(errorMessage);
     } finally {
       setIsSubmitting(false);
@@ -624,7 +728,7 @@ const TradingWindow = memo(function TradingWindow({
 
   // Build price lines for the chart
   const chartPriceLines = [];
-  
+
   // Order price line (for limit orders)
   if (orderForm.type === "LIMIT" && orderForm.price) {
     const price = parseFloat(orderForm.price);
@@ -638,7 +742,7 @@ const TradingWindow = memo(function TradingWindow({
       });
     }
   }
-  
+
   // Stop Loss line
   if (orderForm.stopLoss) {
     const slPrice = parseFloat(orderForm.stopLoss);
@@ -652,7 +756,7 @@ const TradingWindow = memo(function TradingWindow({
       });
     }
   }
-  
+
   // Take Profit line
   if (orderForm.takeProfit) {
     const tpPrice = parseFloat(orderForm.takeProfit);
@@ -692,11 +796,17 @@ const TradingWindow = memo(function TradingWindow({
               variant="outline"
               size="sm"
               className="refresh-details-button"
-              onClick={() => fetchAccountAndPositionDetails()}
+              onClick={() => {
+                // Manually refresh account/position details and sync price to latest LTP
+                fetchAccountAndPositionDetails();
+                syncPriceToCurrent();
+              }}
               disabled={!selectedAccount || isRefreshingDetails}
             >
               <RefreshCw
-                className={`h-4 w-4 mr-1 ${isRefreshingDetails ? "animate-spin" : ""}`}
+                className={`h-4 w-4 mr-1 ${
+                  isRefreshingDetails ? "animate-spin" : ""
+                }`}
               />
               Refresh
             </Button>
@@ -710,24 +820,34 @@ const TradingWindow = memo(function TradingWindow({
             {/* Position Sizing Slider */}
             <div className="form-group mb-4">
               <div className="flex justify-between items-center mb-1">
-                <label className="mb-0">Position Size: <span className="slider-value-display">{positionSizePercentage}%</span></label>
+                <label className="mb-0">
+                  Position Size:{" "}
+                  <span className="slider-value-display">
+                    {positionSizePercentage}%
+                  </span>
+                </label>
                 <div className="flex items-center gap-1.5">
-                  <input 
-                    type="checkbox" 
-                    id="expSlider" 
-                    checked={isExponentialSlider} 
-                    onChange={(e) => setIsExponentialSlider(e.target.checked)} 
+                  <input
+                    type="checkbox"
+                    id="expSlider"
+                    checked={isExponentialSlider}
+                    onChange={(e) => setIsExponentialSlider(e.target.checked)}
                     className="form-checkbox w-3 h-3"
                   />
-                  <label htmlFor="expSlider" className="text-[10px] cursor-pointer text-muted-foreground mb-0">Exp. Spacing</label>
+                  <label
+                    htmlFor="expSlider"
+                    className="text-[10px] cursor-pointer text-muted-foreground mb-0"
+                  >
+                    Exp. Spacing
+                  </label>
                 </div>
               </div>
               <div className="slider-wrapper">
                 <Slider
                   value={[
-                    isExponentialSlider 
-                      ? 100 * Math.sqrt(positionSizePercentage / 100) 
-                      : positionSizePercentage
+                    isExponentialSlider
+                      ? 100 * Math.sqrt(positionSizePercentage / 100)
+                      : positionSizePercentage,
                   ]}
                   onValueChange={handleSliderChange}
                   onValueCommit={handleSliderCommit}
@@ -783,7 +903,9 @@ const TradingWindow = memo(function TradingWindow({
                 <label>Type</label>
                 <select
                   value={orderForm.type}
-                  onChange={(e) => handleInputChange("type", e.target.value as any)}
+                  onChange={(e) =>
+                    handleInputChange("type", e.target.value as any)
+                  }
                   className="form-select"
                 >
                   <option value="MARKET">Market</option>
@@ -799,7 +921,9 @@ const TradingWindow = memo(function TradingWindow({
                 <input
                   type="number"
                   value={orderForm.quantity}
-                  onChange={(e) => handleInputChange("quantity", e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("quantity", e.target.value)
+                  }
                   className="form-input"
                   placeholder="0.001"
                   step={stepSize}
@@ -821,15 +945,18 @@ const TradingWindow = memo(function TradingWindow({
                 </div>
               ) : (
                 <div className="form-group flex flex-row items-center gap-2">
-                  <label className="mb-0 text-xs font-semibold whitespace-nowrap">Reduce Only</label>
+                  <label className="mb-0 text-xs font-semibold whitespace-nowrap">
+                    Reduce Only
+                  </label>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent>
                       <p className="max-w-[200px] text-xs">
-                        When enabled, this order will only reduce your existing position, not increase it.
-                        Useful for closing positions without accidentally opening a new one.
+                        When enabled, this order will only reduce your existing
+                        position, not increase it. Useful for closing positions
+                        without accidentally opening a new one.
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -843,7 +970,12 @@ const TradingWindow = memo(function TradingWindow({
                       }
                       className="form-checkbox w-3.5 h-3.5"
                     />
-                    <label htmlFor="reduceOnly" className="mb-0 text-xs cursor-pointer">Yes</label>
+                    <label
+                      htmlFor="reduceOnly"
+                      className="mb-0 text-xs cursor-pointer"
+                    >
+                      Yes
+                    </label>
                   </div>
                 </div>
               )}
@@ -854,15 +986,24 @@ const TradingWindow = memo(function TradingWindow({
                 <input
                   type="number"
                   value={orderForm.stopLoss}
-                  onChange={(e) => handleInputChange("stopLoss", e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("stopLoss", e.target.value)
+                  }
                   className="form-input"
                   placeholder="SL Price"
                   step={tickSize}
                   required
                 />
                 {calculateRiskedAmount.amount > 0 && (
-                  <div className={`risk-amount ${calculateRiskedAmount.percentage > 5 ? 'risk-high' : 'risk-normal'}`}>
-                    Risk: ${calculateRiskedAmount.amount.toFixed(2)} ({calculateRiskedAmount.percentage.toFixed(1)}%)
+                  <div
+                    className={`risk-amount ${
+                      calculateRiskedAmount.percentage > 5
+                        ? "risk-high"
+                        : "risk-normal"
+                    }`}
+                  >
+                    Risk: ${calculateRiskedAmount.amount.toFixed(2)} (
+                    {calculateRiskedAmount.percentage.toFixed(1)}%)
                   </div>
                 )}
               </div>
@@ -873,7 +1014,9 @@ const TradingWindow = memo(function TradingWindow({
                 <input
                   type="number"
                   value={orderForm.takeProfit}
-                  onChange={(e) => handleInputChange("takeProfit", e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("takeProfit", e.target.value)
+                  }
                   className="form-input"
                   placeholder="TP Price"
                   step={tickSize}
@@ -883,15 +1026,18 @@ const TradingWindow = memo(function TradingWindow({
               {/* Reduce Only when Limit is selected */}
               {orderForm.type === "LIMIT" && (
                 <div className="form-group flex flex-row items-center gap-2">
-                  <label className="mb-0 text-xs font-semibold whitespace-nowrap">Reduce Only</label>
+                  <label className="mb-0 text-xs font-semibold whitespace-nowrap">
+                    Reduce Only
+                  </label>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent>
                       <p className="max-w-[200px] text-xs">
-                        When enabled, this order will only reduce your existing position, not increase it.
-                        Useful for closing positions without accidentally opening a new one.
+                        When enabled, this order will only reduce your existing
+                        position, not increase it. Useful for closing positions
+                        without accidentally opening a new one.
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -905,7 +1051,12 @@ const TradingWindow = memo(function TradingWindow({
                       }
                       className="form-checkbox w-3.5 h-3.5"
                     />
-                    <label htmlFor="reduceOnlyLimit" className="mb-0 text-xs cursor-pointer">Yes</label>
+                    <label
+                      htmlFor="reduceOnlyLimit"
+                      className="mb-0 text-xs cursor-pointer"
+                    >
+                      Yes
+                    </label>
                   </div>
                 </div>
               )}
@@ -942,20 +1093,28 @@ const TradingWindow = memo(function TradingWindow({
               onClick={submitOrder}
               className="w-full"
             >
-              {isSubmitting ? "Placing Order..." : `${orderForm.side} ${symbol}`}
+              {isSubmitting
+                ? "Placing Order..."
+                : `${orderForm.side} ${symbol}`}
             </Button>
           </div>
         </TooltipProvider>
 
         {/* Right Side - Account Info and Position Details */}
-        <div className={`trading-info-panel ${isInfoPanelCollapsed ? 'collapsed' : ''}`}>
+        <div
+          className={`trading-info-panel ${
+            isInfoPanelCollapsed ? "collapsed" : ""
+          }`}
+        >
           {/* Mobile Toggle Button */}
           <button
             className="info-panel-toggle md:hidden"
             onClick={() => setIsInfoPanelCollapsed(!isInfoPanelCollapsed)}
           >
             <span className="text-sm font-medium">
-              {isInfoPanelCollapsed ? 'Show Config & Account Info' : 'Hide Config & Account Info'}
+              {isInfoPanelCollapsed
+                ? "Show Config & Account Info"
+                : "Hide Config & Account Info"}
             </span>
             {isInfoPanelCollapsed ? (
               <ChevronDown className="h-4 w-4" />
@@ -965,7 +1124,11 @@ const TradingWindow = memo(function TradingWindow({
           </button>
 
           {/* Collapsible Content */}
-          <div className={`info-panel-content ${isInfoPanelCollapsed ? 'hidden md:block' : ''}`}>
+          <div
+            className={`info-panel-content ${
+              isInfoPanelCollapsed ? "hidden md:block" : ""
+            }`}
+          >
             {/* Order Side - At Top of Info Panel */}
             <div className="form-group full-width mb-4">
               <label>Side</label>
@@ -986,213 +1149,252 @@ const TradingWindow = memo(function TradingWindow({
                 >
                   Sell
                 </Button>
-            </div>
-          </div>
-
-          {/* Config Section */}
-          <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
-            <div className="font-medium text-muted-foreground mb-2 text-[1rem]">
-              Config
-            </div>
-            <div className="space-y-3">
-              {/* Leverage Slider */}
-              <div className="form-group mb-0">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[10px] text-muted-foreground mb-0">Leverage</label>
-                  <span className="text-[10px] font-medium text-primary">{orderForm.leverage}x</span>
-                </div>
-                <Slider
-                  value={[parseInt(orderForm.leverage) || 1]}
-                  min={1}
-                  max={maxLeverage}
-                  step={1}
-                  onValueChange={(value) => handleInputChange("leverage", String(value[0]))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-                  <span>1x</span>
-                  <span>{maxLeverage}x</span>
-                </div>
               </div>
+            </div>
 
-              <div className="form-group mb-0">
-                <div className="flex items-center gap-1 mb-1">
-                  <span className="text-[10px] text-muted-foreground">Max Lev.</span>
-                  <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-[200px]">
-                        <p className="text-xs"><strong>Maximum Leverage</strong></p>
-                        <p className="text-xs text-muted-foreground">The maximum leverage multiplier to use for your trades. Higher leverage = higher risk.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <input
-                  type="number"
-                  value={userMaxLeverage}
-                  onChange={(e) => handleUserMaxLeverageChange(parseInt(e.target.value) || 1)}
-                  className="form-input w-full text-left px-2 py-1 h-7 text-xs"
-                  min="1"
-                  max="125"
-                  step="1"
-                />
+            {/* Config Section */}
+            <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
+              <div className="font-medium text-muted-foreground mb-2 text-[1rem]">
+                Config
               </div>
-              <div className="form-group mb-0">
-                <div className="flex items-center gap-1 mb-1">
-                  <span className="text-[10px] text-muted-foreground">Def. Risk (%)</span>
-                  <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-[200px]">
-                        <p className="text-xs"><strong>Default Risk Percentage</strong></p>
-                        <p className="text-xs text-muted-foreground">The percentage of your account balance you're willing to risk per trade. Used to auto-calculate stop loss price.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+              <div className="space-y-3">
+                {/* Leverage Slider */}
+                <div className="form-group mb-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] text-muted-foreground mb-0">
+                      Leverage
+                    </label>
+                    <span className="text-[10px] font-medium text-primary">
+                      {orderForm.leverage}x
+                    </span>
+                  </div>
+                  <Slider
+                    value={[parseInt(orderForm.leverage) || 1]}
+                    min={1}
+                    max={maxLeverage}
+                    step={1}
+                    onValueChange={(value) =>
+                      handleInputChange("leverage", String(value[0]))
+                    }
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+                    <span>1x</span>
+                    <span>{maxLeverage}x</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
+
+                <div className="form-group mb-0">
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="text-[10px] text-muted-foreground">
+                      Max Lev.
+                    </span>
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[200px]">
+                          <p className="text-xs">
+                            <strong>Maximum Leverage</strong>
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            The maximum leverage multiplier to use for your
+                            trades. Higher leverage = higher risk.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
                   <input
                     type="number"
-                    value={defaultRiskPercent}
-                    onChange={(e) => handleDefaultRiskChange(e.target.value)}
+                    value={userMaxLeverage}
+                    onChange={(e) =>
+                      handleUserMaxLeverageChange(parseInt(e.target.value) || 1)
+                    }
                     className="form-input w-full text-left px-2 py-1 h-7 text-xs"
-                    placeholder="1"
-                    min="0.1"
-                    max="100"
-                    step="0.1"
+                    min="1"
+                    max="125"
+                    step="1"
                   />
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                    {defaultRiskAmount !== null ? `≈ $${defaultRiskAmount.toFixed(2)}` : ""}
+                </div>
+                <div className="form-group mb-0">
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="text-[10px] text-muted-foreground">
+                      Def. Risk (%)
+                    </span>
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[200px]">
+                          <p className="text-xs">
+                            <strong>Default Risk Percentage</strong>
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            The percentage of your account balance you're
+                            willing to risk per trade. Used to auto-calculate
+                            stop loss price.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={defaultRiskPercent}
+                      onChange={(e) => handleDefaultRiskChange(e.target.value)}
+                      className="form-input w-full text-left px-2 py-1 h-7 text-xs"
+                      placeholder="1"
+                      min="0.1"
+                      max="100"
+                      step="0.1"
+                    />
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      {defaultRiskAmount !== null
+                        ? `≈ $${defaultRiskAmount.toFixed(2)}`
+                        : ""}
+                    </span>
+                  </div>
+                </div>
+                <div className="form-group mb-0">
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="text-[10px] text-muted-foreground">
+                      Def. TP (%)
+                    </span>
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[200px]">
+                          <p className="text-xs">
+                            <strong>Default Take Profit %</strong>
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Optional: Default percentage gain for take profit.
+                            Auto-calculates TP price based on entry. Leave empty
+                            to disable.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      value={defaultTakeProfitPercent}
+                      onChange={(e) =>
+                        handleDefaultTakeProfitChange(e.target.value)
+                      }
+                      className="form-input w-full text-left px-2 py-1 h-7 text-xs"
+                      placeholder="e.g. 2"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleDefaultTakeProfitChange("")}
+                      className="text-muted-foreground hover:text-destructive text-xs px-1"
+                      title="Clear TP value"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full mt-2 h-7 text-xs"
+                onClick={() => {
+                  // All config values are already saved to localStorage on change
+                  // This button provides visual feedback
+                  const toast = document.createElement("div");
+                  toast.className =
+                    "fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md text-sm z-50 animate-fade-in";
+                  toast.textContent = "Config saved!";
+                  document.body.appendChild(toast);
+                  setTimeout(() => toast.remove(), 2000);
+                }}
+              >
+                Save Config
+              </Button>
+            </div>
+
+            {/* Account Details */}
+            {accountDetails && (
+              <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
+                <div className="font-medium text-muted-foreground mb-1 text-[1rem]">
+                  Account Info
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Margin Ratio</span>
+                  <span
+                    className={
+                      accountDetails.marginRatio > 80
+                        ? "text-red-500 font-medium"
+                        : "text-green-500 font-medium"
+                    }
+                  >
+                    {formatPercent(accountDetails.marginRatio)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Maint. Margin</span>
+                  <span>${formatPrice(accountDetails.maintenanceMargin)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Equity</span>
+                  <span className="font-medium">
+                    ${formatPrice(accountDetails.equity)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Available</span>
+                  <span>${formatPrice(accountDetails.availableBalance)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Position Value</span>
+                  <span>${formatPrice(accountDetails.positionValue)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Actual Leverage</span>
+                  <span>{accountDetails.actualLeverage?.toFixed(2)}x</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Unrealized PNL</span>
+                  <span
+                    className={
+                      accountDetails.unrealizedPNL >= 0
+                        ? "text-green-500"
+                        : "text-red-500"
+                    }
+                  >
+                    ${formatPrice(accountDetails.unrealizedPNL)}
                   </span>
                 </div>
               </div>
-              <div className="form-group mb-0">
-                <div className="flex items-center gap-1 mb-1">
-                  <span className="text-[10px] text-muted-foreground">Def. TP (%)</span>
-                  <TooltipProvider delayDuration={100}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-[200px]">
-                        <p className="text-xs"><strong>Default Take Profit %</strong></p>
-                        <p className="text-xs text-muted-foreground">Optional: Default percentage gain for take profit. Auto-calculates TP price based on entry. Leave empty to disable.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="number"
-                    value={defaultTakeProfitPercent}
-                    onChange={(e) => handleDefaultTakeProfitChange(e.target.value)}
-                    className="form-input w-full text-left px-2 py-1 h-7 text-xs"
-                    placeholder="e.g. 2"
-                    min="0"
-                    max="100"
-                    step="0.5"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleDefaultTakeProfitChange("")}
-                    className="text-muted-foreground hover:text-destructive text-xs px-1"
-                    title="Clear TP value"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full mt-2 h-7 text-xs"
-              onClick={() => {
-                // All config values are already saved to localStorage on change
-                // This button provides visual feedback
-                const toast = document.createElement('div');
-                toast.className = 'fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md text-sm z-50 animate-fade-in';
-                toast.textContent = 'Config saved!';
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 2000);
-              }}
-            >
-              Save Config
-            </Button>
-          </div>
-
-          {/* Account Details */}
-          {accountDetails && (
-            <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
-              <div className="font-medium text-muted-foreground mb-1 text-[1rem]">
-                Account Info
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Margin Ratio</span>
-                <span
-                  className={
-                    accountDetails.marginRatio > 80
-                      ? "text-red-500 font-medium"
-                      : "text-green-500 font-medium"
-                  }
-                >
-                  {formatPercent(accountDetails.marginRatio)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Maint. Margin</span>
-                <span>${formatPrice(accountDetails.maintenanceMargin)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Equity</span>
-                <span className="font-medium">
-                  ${formatPrice(accountDetails.equity)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Available</span>
-                <span>${formatPrice(accountDetails.availableBalance)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Position Value</span>
-                <span>${formatPrice(accountDetails.positionValue)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Actual Leverage</span>
-                <span>{accountDetails.actualLeverage?.toFixed(2)}x</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Unrealized PNL</span>
-                <span
-                  className={
-                    accountDetails.unrealizedPNL >= 0
-                      ? "text-green-500"
-                      : "text-red-500"
-                  }
-                >
-                  ${formatPrice(accountDetails.unrealizedPNL)}
-                </span>
-              </div>
-            </div>
-          )}
-
+            )}
           </div>
         </div>
 
         {/* Order Book - Rightmost Column */}
-        <div className={`market-depth-panel ${isOrderBookCollapsed ? 'collapsed' : ''}`}>
+        <div
+          className={`market-depth-panel ${
+            isOrderBookCollapsed ? "collapsed" : ""
+          }`}
+        >
           {/* Mobile Toggle Button */}
           <button
             className="orderbook-toggle md:hidden"
             onClick={() => setIsOrderBookCollapsed(!isOrderBookCollapsed)}
           >
             <span className="text-sm font-medium">
-              {isOrderBookCollapsed ? 'Show Order Book' : 'Hide Order Book'}
+              {isOrderBookCollapsed ? "Show Order Book" : "Hide Order Book"}
             </span>
             {isOrderBookCollapsed ? (
               <ChevronDown className="h-4 w-4" />
@@ -1201,7 +1403,11 @@ const TradingWindow = memo(function TradingWindow({
             )}
           </button>
 
-          <div className={`orderbook-content ${isOrderBookCollapsed ? 'hidden md:block' : ''}`}>
+          <div
+            className={`orderbook-content ${
+              isOrderBookCollapsed ? "hidden md:block" : ""
+            }`}
+          >
             <MarketDepth
               symbol={symbol}
               currentPrice={currentPrice}

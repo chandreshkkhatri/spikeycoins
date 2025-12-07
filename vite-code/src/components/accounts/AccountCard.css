@@ -29,6 +29,17 @@
   text-transform: uppercase;
 }
 
+.testnet-badge {
+  background: rgba(33, 150, 243, 0.12); /* light blue tint */
+  color: #1976d2;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: 1px solid rgba(25, 118, 210, 0.15);
+}
+
 .account-status {
   display: flex;
   align-items: center;
@@ -146,6 +157,12 @@
 
 .dark .account-actions {
   border-top-color: #333;
+}
+
+.dark .testnet-badge {
+  background: rgba(25, 118, 210, 0.12);
+  color: #90caf9;
+  border-color: rgba(144, 202, 249, 0.12);
 }
 
 .dark .status-text {
