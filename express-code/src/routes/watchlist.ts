@@ -20,278 +20,254 @@ function getUserId(req: AuthenticatedRequest, fromBody = false): string | null {
 }
 
 // GET /api/watchlist - Get watchlists for a user
-router.get("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const { accountId } = req.query;
+router.get(
+  "/",
+  optionalAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { accountId } = req.query;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Authentication required" });
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      await connectDB();
+
+      const query: any = { userId };
+      if (accountId) {
+        query.accountId = accountId;
+      }
+
+      const watchlists = await Watchlist.find(query);
+
+      return res.json({
+        success: true,
+        watchlists,
+      });
+    } catch (error) {
+      console.error("Error fetching watchlists:", error);
+      return res.status(500).json({ error: "Failed to fetch watchlists" });
     }
-
-    await connectDB();
-
-    const query: any = { userId };
-    if (accountId) {
-      query.accountId = accountId;
-    }
-
-    const watchlists = await Watchlist.find(query);
-
-    return res.json({
-      success: true,
-      watchlists,
-    });
-  } catch (error) {
-    console.error("Error fetching watchlists:", error);
-    return res.status(500).json({ error: "Failed to fetch watchlists" });
   }
-});
+);
 
 // POST /api/watchlist - Create a new watchlist
-router.post("/", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const userId = getUserId(req, true);
-    const { accountId, name, marketType, symbols } = req.body;
+router.post(
+  "/",
+  optionalAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = getUserId(req, true);
+      const { accountId, name, marketType, symbols } = req.body;
 
-    if (!userId) {
-      return res.status(401).json({ error: "Authentication required" });
-    }
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
 
-    if (!accountId || !name || !marketType) {
-      return res.status(400).json({
-        error: "accountId, name, and marketType are required",
+      if (!accountId || !name || !marketType) {
+        return res.status(400).json({
+          error: "accountId, name, and marketType are required",
+        });
+      }
+
+      await connectDB();
+
+      const watchlist = new Watchlist({
+        userId,
+        accountId,
+        name,
+        marketType,
+        symbols: symbols || [],
+        isDefault: false,
       });
+
+      await watchlist.save();
+
+      return res.status(201).json({
+        success: true,
+        watchlist,
+      });
+    } catch (error) {
+      console.error("Error creating watchlist:", error);
+      return res.status(500).json({ error: "Failed to create watchlist" });
     }
-
-    await connectDB();
-
-    const watchlist = new Watchlist({
-      userId,
-      accountId,
-      name,
-      marketType,
-      symbols: symbols || [],
-      isDefault: false,
-    });
-
-    await watchlist.save();
-
-    return res.status(201).json({
-      success: true,
-      watchlist,
-    });
-  } catch (error) {
-    console.error("Error creating watchlist:", error);
-    return res.status(500).json({ error: "Failed to create watchlist" });
   }
-});
+);
 
 // GET /api/watchlist/symbols - Get symbols in a watchlist
-router.get("/symbols", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const { watchlistId, accountId, marketType } = req.query;
+router.get(
+  "/symbols",
+  optionalAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const { watchlistId, accountId, marketType } = req.query;
 
-    await connectDB();
+      await connectDB();
 
-    let watchlist;
+      let watchlist;
 
-    if (watchlistId) {
-      // Fetch by watchlist ID
-      watchlist = await Watchlist.findById(watchlistId);
-    } else if (accountId && marketType) {
-      // Fetch default watchlist for account and market type
-      watchlist = await Watchlist.findOne({
-        accountId,
-        marketType,
-        isDefault: true,
-      });
-
-      // If no default watchlist exists, create one (requires authentication)
-      if (!watchlist) {
-        if (!userId) {
-          return res.status(401).json({ error: "Authentication required to create watchlist" });
-        }
-        watchlist = new Watchlist({
-          userId,
+      if (watchlistId) {
+        // Fetch by watchlist ID
+        watchlist = await Watchlist.findById(watchlistId);
+      } else if (accountId && marketType) {
+        // Fetch default watchlist for account and market type
+        watchlist = await Watchlist.findOne({
           accountId,
-          name: `${marketType} Watchlist`,
           marketType,
-          symbols: [],
           isDefault: true,
         });
-        
-        // If it's a Binance Futures default watchlist, populate it with all symbols
-        if (marketType === "binance-futures") {
-          try {
-            const exchangeInfo = await binanceService.getFuturesExchangeInfo();
-            if (exchangeInfo && exchangeInfo.symbols) {
-              const allSymbols = exchangeInfo.symbols
-                .filter((s: any) => s.status === "TRADING")
-                .map((s: any) => ({
-                  symbol: s.symbol,
-                  name: s.pair,
-                  exchange: "BINANCE",
-                  instrument_type: "FUTURES",
-                  addedAt: new Date()
-                }));
-              
-              watchlist.symbols = allSymbols;
-            }
-          } catch (err) {
-            console.error("Failed to populate default Binance watchlist:", err);
-            // Continue with empty watchlist if fetch fails
+
+        // If no default watchlist exists, create one (requires authentication)
+        if (!watchlist) {
+          if (!userId) {
+            return res
+              .status(401)
+              .json({ error: "Authentication required to create watchlist" });
           }
+          watchlist = new Watchlist({
+            userId,
+            accountId,
+            name: "My Watchlist",
+            marketType,
+            symbols: [],
+            isDefault: true,
+          });
+
+          await watchlist.save();
         }
-        
-        await watchlist.save();
-      } else if (marketType === "binance-futures" && watchlist.isDefault && watchlist.symbols.length === 0) {
-        // If existing default Binance watchlist is empty, populate it
-        try {
-          const exchangeInfo = await binanceService.getFuturesExchangeInfo();
-          if (exchangeInfo && exchangeInfo.symbols) {
-            const allSymbols = exchangeInfo.symbols
-              .filter((s: any) => s.status === "TRADING")
-              .map((s: any) => ({
-                symbol: s.symbol,
-                name: s.pair,
-                exchange: "BINANCE",
-                instrument_type: "FUTURES",
-                addedAt: new Date()
-              }));
-            
-            watchlist.symbols = allSymbols;
-            await watchlist.save();
-          }
-        } catch (err) {
-          console.error("Failed to populate default Binance watchlist:", err);
-        }
+      } else {
+        return res.status(400).json({
+          error: "Either watchlistId or (accountId and marketType) is required",
+        });
       }
-    } else {
-      return res.status(400).json({
-        error: "Either watchlistId or (accountId and marketType) is required",
+
+      if (!watchlist) {
+        return res.status(404).json({ error: "Watchlist not found" });
+      }
+
+      const items = (watchlist.symbols as any[]) || [];
+      const symbolsOnly = items
+        .map((s: any) => (typeof s === "string" ? s : s?.symbol))
+        .filter((s: any) => !!s);
+
+      // Also fetch all watchlists for this user/account to populate the dropdown
+      const watchlists = await Watchlist.find({
+        userId: watchlist.userId,
+        accountId: watchlist.accountId,
+      }).select("_id name isDefault");
+
+      const formattedWatchlists = watchlists.map((w) => ({
+        id: w._id,
+        name: w.name,
+        isDefault: w.isDefault,
+      }));
+
+      return res.json({
+        success: true,
+        items,
+        symbols: symbolsOnly,
+        watchlistId: watchlist._id,
+        watchlistName: watchlist.name,
+        watchlists: formattedWatchlists,
       });
+    } catch (error) {
+      console.error("Error fetching watchlist symbols:", error);
+      return res.status(500).json({ error: "Failed to fetch symbols" });
     }
-
-    if (!watchlist) {
-      return res.status(404).json({ error: "Watchlist not found" });
-    }
-
-    const items = (watchlist.symbols as any[]) || [];
-    const symbolsOnly = items
-      .map((s: any) => (typeof s === "string" ? s : s?.symbol))
-      .filter((s: any) => !!s);
-
-    // Also fetch all watchlists for this user/account to populate the dropdown
-    const watchlists = await Watchlist.find({
-      userId: watchlist.userId,
-      accountId: watchlist.accountId,
-    }).select("_id name isDefault");
-
-    const formattedWatchlists = watchlists.map((w) => ({
-      id: w._id,
-      name: w.name,
-      isDefault: w.isDefault,
-    }));
-
-    return res.json({
-      success: true,
-      items,
-      symbols: symbolsOnly,
-      watchlistId: watchlist._id,
-      watchlistName: watchlist.name,
-      watchlists: formattedWatchlists,
-    });
-  } catch (error) {
-    console.error("Error fetching watchlist symbols:", error);
-    return res.status(500).json({ error: "Failed to fetch symbols" });
   }
-});
+);
 
 // POST /api/watchlist/symbols - Add a symbol to a watchlist
-router.post("/symbols", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const userId = getUserId(req, true);
-    const { watchlistId, symbol, accountId, marketType, item } = req.body;
+router.post(
+  "/symbols",
+  optionalAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userId = getUserId(req, true);
+      const { watchlistId, symbol, accountId, marketType, item } = req.body;
 
-    await connectDB();
+      await connectDB();
 
-    let watchlist;
+      let watchlist;
 
-    if (watchlistId) {
-      // Add to specific watchlist
-      watchlist = await Watchlist.findById(watchlistId);
-    } else if (accountId && marketType) {
-      // Add to default watchlist for account and market type
-      watchlist = await Watchlist.findOne({
-        accountId,
-        marketType,
-        isDefault: true,
-      });
-
-      // If no default watchlist exists, create one (requires userId)
-      if (!watchlist) {
-        if (!userId) {
-          return res.status(401).json({ error: "Authentication required to create watchlist" });
-        }
-        watchlist = new Watchlist({
-          userId,
+      if (watchlistId) {
+        // Add to specific watchlist
+        watchlist = await Watchlist.findById(watchlistId);
+      } else if (accountId && marketType) {
+        // Add to default watchlist for account and market type
+        watchlist = await Watchlist.findOne({
           accountId,
-          name: `${marketType} Watchlist`,
           marketType,
-          symbols: [],
           isDefault: true,
         });
+
+        // If no default watchlist exists, create one (requires userId)
+        if (!watchlist) {
+          if (!userId) {
+            return res
+              .status(401)
+              .json({ error: "Authentication required to create watchlist" });
+          }
+          watchlist = new Watchlist({
+            userId,
+            accountId,
+            name: "My Watchlist",
+            marketType,
+            symbols: [],
+            isDefault: true,
+          });
+        }
+      } else {
+        return res.status(400).json({
+          error: "Either watchlistId or (accountId and marketType) is required",
+        });
       }
-    } else {
-      return res.status(400).json({
-        error: "Either watchlistId or (accountId and marketType) is required",
+
+      if (!watchlist) {
+        return res.status(404).json({ error: "Watchlist not found" });
+      }
+
+      // Build symbol object to store
+      const symbolObj: any = item?.symbol
+        ? item
+        : typeof symbol === "string"
+        ? { symbol }
+        : null;
+
+      if (!symbolObj || !symbolObj.symbol) {
+        return res.status(400).json({ error: "symbol is required" });
+      }
+
+      // Prevent duplicates
+      const exists = (watchlist.symbols as any[]).some((s: any) => {
+        if (typeof s === "string") return s === symbolObj.symbol;
+        return s?.symbol === symbolObj.symbol;
       });
+
+      if (!exists) {
+        (watchlist.symbols as any[]).push(symbolObj);
+        await watchlist.save();
+      }
+
+      const items = (watchlist.symbols as any[]) || [];
+      const symbolsOnly = items
+        .map((s: any) => (typeof s === "string" ? s : s?.symbol))
+        .filter((s: any) => !!s);
+
+      return res.json({
+        success: true,
+        watchlist,
+        items,
+        symbols: symbolsOnly,
+      });
+    } catch (error) {
+      console.error("Error adding symbol to watchlist:", error);
+      return res.status(500).json({ error: "Failed to add symbol" });
     }
-
-    if (!watchlist) {
-      return res.status(404).json({ error: "Watchlist not found" });
-    }
-
-    // Build symbol object to store
-    const symbolObj: any = item?.symbol
-      ? item
-      : typeof symbol === "string"
-      ? { symbol }
-      : null;
-
-    if (!symbolObj || !symbolObj.symbol) {
-      return res.status(400).json({ error: "symbol is required" });
-    }
-
-    // Prevent duplicates
-    const exists = (watchlist.symbols as any[]).some((s: any) => {
-      if (typeof s === "string") return s === symbolObj.symbol;
-      return s?.symbol === symbolObj.symbol;
-    });
-
-    if (!exists) {
-      (watchlist.symbols as any[]).push(symbolObj);
-      await watchlist.save();
-    }
-
-    const items = (watchlist.symbols as any[]) || [];
-    const symbolsOnly = items
-      .map((s: any) => (typeof s === "string" ? s : s?.symbol))
-      .filter((s: any) => !!s);
-
-    return res.json({
-      success: true,
-      watchlist,
-      items,
-      symbols: symbolsOnly,
-    });
-  } catch (error) {
-    console.error("Error adding symbol to watchlist:", error);
-    return res.status(500).json({ error: "Failed to add symbol" });
   }
-});
+);
 
 // DELETE /api/watchlist/symbols - Remove a symbol from watchlist
 router.delete("/symbols", async (req: Request, res: Response) => {
@@ -361,9 +337,10 @@ router.delete("/:id", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Watchlist not found" });
     }
 
-    if (watchlist.isDefault) {
-      return res.status(403).json({ error: "Cannot delete default watchlist" });
-    }
+    // Allow deleting default watchlist - it will be recreated if needed
+    // if (watchlist.isDefault) {
+    //   return res.status(403).json({ error: "Cannot delete default watchlist" });
+    // }
 
     await Watchlist.findByIdAndDelete(id);
 
@@ -383,7 +360,9 @@ router.get("/system/:type", async (req: Request, res: Response) => {
     const { type } = req.params;
 
     if (type !== "binance-futures") {
-      return res.status(400).json({ error: "Unsupported system watchlist type" });
+      return res
+        .status(400)
+        .json({ error: "Unsupported system watchlist type" });
     }
 
     await connectDB();
@@ -401,7 +380,9 @@ router.get("/system/:type", async (req: Request, res: Response) => {
 
     // If no instruments or very few (likely test data), sync from Binance
     if (count < 10) {
-      console.log("[System Watchlist] Count < 10, initiating sync from Binance...");
+      console.log(
+        "[System Watchlist] Count < 10, initiating sync from Binance..."
+      );
       try {
         // If we have some but few, clear them first to avoid duplicates/stale data
         if (count > 0) {
@@ -412,10 +393,14 @@ router.get("/system/:type", async (req: Request, res: Response) => {
           });
         }
 
-        console.log("[System Watchlist] Fetching exchange info from Binance...");
+        console.log(
+          "[System Watchlist] Fetching exchange info from Binance..."
+        );
         const exchangeInfo = await binanceService.getFuturesExchangeInfo();
-        console.log(`[System Watchlist] Fetched ${exchangeInfo?.symbols?.length} symbols from Binance`);
-        
+        console.log(
+          `[System Watchlist] Fetched ${exchangeInfo?.symbols?.length} symbols from Binance`
+        );
+
         if (exchangeInfo && exchangeInfo.symbols) {
           const instruments = exchangeInfo.symbols
             .filter((s: { status: string }) => s.status === "TRADING")
@@ -426,12 +411,17 @@ router.get("/system/:type", async (req: Request, res: Response) => {
               exchange: "BINANCE",
               instrument_type: "FUTURES",
               segment: "FUTURES",
-              tick_size: s.filters.find((f: any) => f.filterType === "PRICE_FILTER")?.tickSize,
-              lot_size: s.filters.find((f: any) => f.filterType === "LOT_SIZE")?.stepSize,
+              tick_size: s.filters.find(
+                (f: any) => f.filterType === "PRICE_FILTER"
+              )?.tickSize,
+              lot_size: s.filters.find((f: any) => f.filterType === "LOT_SIZE")
+                ?.stepSize,
               last_price: 0, // Will be updated by websocket
             }));
 
-          console.log(`[System Watchlist] Inserting ${instruments.length} trading instruments...`);
+          console.log(
+            `[System Watchlist] Inserting ${instruments.length} trading instruments...`
+          );
           if (instruments.length > 0) {
             await Instrument.insertMany(instruments);
             console.log("[System Watchlist] Insert successful");
