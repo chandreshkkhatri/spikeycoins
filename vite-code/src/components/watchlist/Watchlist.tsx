@@ -67,7 +67,10 @@ interface WatchlistProps {
 }
 
 // Helper function to format symbol name for tooltip display
-const formatSymbolForTooltip = (symbol: string, accountType?: string): string => {
+const formatSymbolForTooltip = (
+  symbol: string,
+  accountType?: string
+): string => {
   // For Binance futures, format as "BTC/USDT Perpetual"
   if (accountType === "binance") {
     if (symbol.endsWith("USDT")) {
@@ -96,7 +99,7 @@ const Watchlist = memo(function Watchlist({
   marketType = "binance-futures",
 }: WatchlistProps) {
   const { user, getAccessToken } = useAuth();
-  
+
   // Helper to get auth headers for API calls
   const getAuthHeaders = useCallback((): HeadersInit => {
     const headers: HeadersInit = { "Content-Type": "application/json" };
@@ -143,6 +146,37 @@ const Watchlist = memo(function Watchlist({
   const [showCreateWatchlistModal, setShowCreateWatchlistModal] =
     useState(false);
   const [newWatchlistName, setNewWatchlistName] = useState("");
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Context menu state for right-click "Add to" functionality
+  const [contextMenu, setContextMenu] = useState<{
+    symbol: string;
+    x: number;
+    y: number;
+    open: boolean;
+  }>({ symbol: "", x: 0, y: 0, open: false });
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((prev) => ({ ...prev, open: false }));
+  }, []);
+
+  // Close context menu on Escape key or click outside
+  useEffect(() => {
+    if (!contextMenu.open) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeContextMenu();
+    };
+    const handleClickOutside = () => closeContextMenu();
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("click", handleClickOutside);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }, [contextMenu.open, closeContextMenu]);
+
   const [sortConfig, setSortConfig] = useState<{
     key: keyof WatchlistItem;
     direction: "asc" | "desc";
@@ -230,8 +264,12 @@ const Watchlist = memo(function Watchlist({
         // but we don't pass the system ID to the user endpoint
         const userWlUrl =
           !isSystemRequest && currentWatchlistId
-            ? getApiUrl(`/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`)
-            : getApiUrl(`/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}`);
+            ? getApiUrl(
+                `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`
+              )
+            : getApiUrl(
+                `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}`
+              );
 
         const userRes = await fetch(userWlUrl, { headers: getAuthHeaders() });
         if (!userRes.ok) {
@@ -272,7 +310,8 @@ const Watchlist = memo(function Watchlist({
               if (sysData.success) {
                 finalSymbols = sysData.symbols;
                 finalItems = sysData.items;
-                finalCurrentId = sysData.watchlistId || "system-binance-futures";
+                finalCurrentId =
+                  sysData.watchlistId || "system-binance-futures";
                 finalCurrentName = sysData.watchlistName || "Binance Futures";
               }
             } catch (sysErr) {
@@ -347,8 +386,9 @@ const Watchlist = memo(function Watchlist({
             // Start WebSocket connection for real-time updates
             if (selectedAccount?.accountType === "binance") {
               // Determine segment type based on market type
-              const segment = marketType === "binance-futures" ? "usdm" : "spot";
-              
+              const segment =
+                marketType === "binance-futures" ? "usdm" : "spot";
+
               // Connect to WebSocket first (don't use testnet for now - it's unstable)
               binanceWebSocketService
                 .connect(segment, false)
@@ -368,7 +408,10 @@ const Watchlist = memo(function Watchlist({
                       }) => {
                         // Buffer the update instead of setting state immediately
                         if (priceUpdate.symbol) {
-                          pendingUpdatesRef.current.set(priceUpdate.symbol.toLowerCase(), priceUpdate);
+                          pendingUpdatesRef.current.set(
+                            priceUpdate.symbol.toLowerCase(),
+                            priceUpdate
+                          );
                         }
                       }
                     );
@@ -384,7 +427,10 @@ const Watchlist = memo(function Watchlist({
                 (priceUpdate) => {
                   // Buffer the update
                   if (priceUpdate.symbol) {
-                    pendingUpdatesRef.current.set(priceUpdate.symbol, priceUpdate);
+                    pendingUpdatesRef.current.set(
+                      priceUpdate.symbol,
+                      priceUpdate
+                    );
                   }
                 },
                 { accountId: selectedAccount._id, mode: "ltpc" }
@@ -401,9 +447,7 @@ const Watchlist = memo(function Watchlist({
       } catch (err) {
         console.error("Failed to fetch watchlist symbols:", err);
         setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load watchlist data"
+          err instanceof Error ? err.message : "Failed to load watchlist data"
         );
         setWatchlistItems([]);
         setLoading(false);
@@ -433,7 +477,10 @@ const Watchlist = memo(function Watchlist({
 
     const processUpdates = () => {
       const now = performance.now();
-      if (now - lastUpdate < minInterval || pendingUpdatesRef.current.size === 0) {
+      if (
+        now - lastUpdate < minInterval ||
+        pendingUpdatesRef.current.size === 0
+      ) {
         rafId = requestAnimationFrame(processUpdates);
         return;
       }
@@ -441,7 +488,9 @@ const Watchlist = memo(function Watchlist({
       lastUpdate = now;
       setWatchlistItems((prev) => {
         // Create normalized lookup map (O(1) instead of O(N))
-        const itemMap = new Map(prev.map(item => [item.symbol.toLowerCase(), item]));
+        const itemMap = new Map(
+          prev.map((item) => [item.symbol.toLowerCase(), item])
+        );
         let hasChanges = false;
 
         pendingUpdatesRef.current.forEach((update, symbolKey) => {
@@ -452,26 +501,28 @@ const Watchlist = memo(function Watchlist({
           if (item) {
             hasChanges = true;
             const newItem = { ...item };
-            
+
             // Check if it's a Binance update (strings) or Upstox (numbers)
-            if (typeof update.lastPrice === 'string') {
-               // Binance format
-               newItem.lastPrice = parseFloat(update.lastPrice || "0");
-               newItem.priceChange = parseFloat(update.priceChange || "0");
-               newItem.priceChangePercent = parseFloat(update.priceChangePercent || "0");
-               newItem.volume = parseFloat(update.volume || "0");
-               newItem.high24h = parseFloat(update.high || "0");
-               newItem.low24h = parseFloat(update.low || "0");
+            if (typeof update.lastPrice === "string") {
+              // Binance format
+              newItem.lastPrice = parseFloat(update.lastPrice || "0");
+              newItem.priceChange = parseFloat(update.priceChange || "0");
+              newItem.priceChangePercent = parseFloat(
+                update.priceChangePercent || "0"
+              );
+              newItem.volume = parseFloat(update.volume || "0");
+              newItem.high24h = parseFloat(update.high || "0");
+              newItem.low24h = parseFloat(update.low || "0");
             } else {
-               // Upstox format (already numbers)
-               newItem.lastPrice = update.lastPrice;
-               newItem.priceChange = update.priceChange;
-               newItem.priceChangePercent = update.priceChangePercent;
-               newItem.volume = update.volume;
-               newItem.high24h = update.high24h;
-               newItem.low24h = update.low24h;
+              // Upstox format (already numbers)
+              newItem.lastPrice = update.lastPrice;
+              newItem.priceChange = update.priceChange;
+              newItem.priceChangePercent = update.priceChangePercent;
+              newItem.volume = update.volume;
+              newItem.high24h = update.high24h;
+              newItem.low24h = update.low24h;
             }
-            
+
             itemMap.set(normalizedKey, newItem);
           }
         });
@@ -782,12 +833,13 @@ const Watchlist = memo(function Watchlist({
               <div className="h-6 w-32 animate-pulse rounded bg-muted"></div>
               <div className="h-8 w-8 animate-pulse rounded bg-muted"></div>
             </div>
-            
+
             {/* Skeleton Column Headers */}
-            <div className="grid grid-cols-[1fr_80px_65px_55px] gap-2 border-b border-border bg-muted/50 px-4 py-2">
+            <div className="grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 border-b border-border bg-muted/50 px-2 pr-1 py-2">
               <div className="h-3 w-12 animate-pulse rounded bg-muted"></div>
               <div className="h-3 w-10 animate-pulse rounded bg-muted justify-self-end"></div>
               <div className="h-3 w-10 animate-pulse rounded bg-muted justify-self-end"></div>
+              <div className="h-3 w-8 animate-pulse rounded bg-muted justify-self-end"></div>
               <div className="h-3 w-8 animate-pulse rounded bg-muted justify-self-end"></div>
             </div>
 
@@ -796,29 +848,34 @@ const Watchlist = memo(function Watchlist({
               {Array.from({ length: 10 }).map((_, i) => (
                 <div
                   key={i}
-                  className="grid grid-cols-[1fr_80px_65px_55px] gap-2 border-b border-border px-4 py-3 items-center"
+                  className="grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 border-b border-border px-2 pr-1 py-3 items-center"
                 >
                   <div className="flex items-center gap-2">
                     <div className="h-4 w-16 animate-pulse rounded bg-muted"></div>
                   </div>
                   <div className="flex justify-end">
-                    <div className="h-4 w-20 animate-pulse rounded bg-muted"></div>
+                    <div className="h-4 w-16 animate-pulse rounded bg-muted"></div>
                   </div>
                   <div className="flex justify-end">
-                    <div className="h-4 w-14 animate-pulse rounded bg-muted"></div>
+                    <div className="h-4 w-12 animate-pulse rounded bg-muted"></div>
                   </div>
                   <div className="flex justify-end">
-                    <div className="h-3 w-12 animate-pulse rounded bg-muted"></div>
+                    <div className="h-3 w-10 animate-pulse rounded bg-muted"></div>
+                  </div>
+                  <div className="flex justify-end">
+                    <div className="h-4 w-8 animate-pulse rounded bg-muted"></div>
                   </div>
                 </div>
               ))}
             </div>
           </div>
           <div className="h-full overflow-hidden bg-background flex items-center justify-center">
-             <div className="flex flex-col items-center gap-4">
-               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-               <p className="text-sm text-muted-foreground">Loading trading interface...</p>
-             </div>
+            <div className="flex flex-col items-center gap-4">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+              <p className="text-sm text-muted-foreground">
+                Loading trading interface...
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -829,7 +886,9 @@ const Watchlist = memo(function Watchlist({
     return (
       <div className="flex h-full flex-col items-center justify-center rounded-lg border border-border bg-card p-8 text-center shadow-sm">
         <div className="flex flex-col items-center gap-4">
-          <h3 className="text-xl font-semibold text-foreground">Trading Panel</h3>
+          <h3 className="text-xl font-semibold text-foreground">
+            Trading Panel
+          </h3>
           <p className="text-muted-foreground">
             Select an account to view your watchlist
           </p>
@@ -894,7 +953,7 @@ const Watchlist = memo(function Watchlist({
                         </span>
                       )}
                     </div>
-                    {!wl.isDefault && !wl.isSystem && (
+                    {!wl.isSystem && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -988,72 +1047,87 @@ const Watchlist = memo(function Watchlist({
         </div>
       )}
 
-      {/* Column Headers */}
-      {watchlistItems.length > 0 && (
-        <div className="grid grid-cols-[1fr_80px_65px_55px] gap-2 border-b border-border bg-muted/50 px-4 py-2 text-[10px] font-medium text-muted-foreground">
-          <div
-            className="flex cursor-pointer items-center gap-1 hover:text-foreground"
-            onClick={() => handleSort("symbol")}
-          >
-            Symbol
-            {sortConfig.key === "symbol" &&
-              (sortConfig.direction === "asc" ? (
-                <ArrowUp size={10} />
-              ) : (
-                <ArrowDown size={10} />
-              ))}
-          </div>
-          <div
-            className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
-            onClick={() => handleSort("lastPrice")}
-          >
-            Price
-            {sortConfig.key === "lastPrice" &&
-              (sortConfig.direction === "asc" ? (
-                <ArrowUp size={10} />
-              ) : (
-                <ArrowDown size={10} />
-              ))}
-          </div>
-          <div
-            className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
-            onClick={() => handleSort("priceChangePercent")}
-          >
-            24h %
-            {sortConfig.key === "priceChangePercent" &&
-              (sortConfig.direction === "asc" ? (
-                <ArrowUp size={10} />
-              ) : (
-                <ArrowDown size={10} />
-              ))}
-          </div>
-          <div
-            className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
-            onClick={() => handleSort("volume")}
-          >
-            Vol
-            {sortConfig.key === "volume" &&
-              (sortConfig.direction === "asc" ? (
-                <ArrowUp size={10} />
-              ) : (
-                <ArrowDown size={10} />
-              ))}
-          </div>
-        </div>
-      )}
-
       <div className="flex-1 min-h-0 overflow-y-auto">
+        {/* Column Headers */}
+        {watchlistItems.length > 0 && (
+          <div className="sticky top-0 z-10 grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 border-b border-border bg-muted px-2 pr-1 py-2 text-[10px] font-medium text-muted-foreground">
+            <div
+              className="flex cursor-pointer items-center gap-1 hover:text-foreground"
+              onClick={() => handleSort("symbol")}
+            >
+              Symbol
+              {sortConfig.key === "symbol" &&
+                (sortConfig.direction === "asc" ? (
+                  <ArrowUp size={10} />
+                ) : (
+                  <ArrowDown size={10} />
+                ))}
+            </div>
+            <div
+              className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
+              onClick={() => handleSort("lastPrice")}
+            >
+              Price
+              {sortConfig.key === "lastPrice" &&
+                (sortConfig.direction === "asc" ? (
+                  <ArrowUp size={10} />
+                ) : (
+                  <ArrowDown size={10} />
+                ))}
+            </div>
+            <div
+              className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
+              onClick={() => handleSort("priceChangePercent")}
+            >
+              24h %
+              {sortConfig.key === "priceChangePercent" &&
+                (sortConfig.direction === "asc" ? (
+                  <ArrowUp size={10} />
+                ) : (
+                  <ArrowDown size={10} />
+                ))}
+            </div>
+            <div
+              className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
+              onClick={() => handleSort("volume")}
+            >
+              Vol
+              {sortConfig.key === "volume" &&
+                (sortConfig.direction === "asc" ? (
+                  <ArrowUp size={10} />
+                ) : (
+                  <ArrowDown size={10} />
+                ))}
+            </div>
+            {/* Actions column - empty header */}
+            <div></div>
+          </div>
+        )}
         {sortedWatchlistItems.map((item) => (
           <div
             key={item.symbol}
-            className={`group grid grid-cols-[1fr_80px_65px_55px] gap-2 cursor-pointer border-b border-border px-4 py-3 transition-colors hover:bg-accent/50 items-center ${
+            className={`group relative grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 cursor-pointer border-b border-border px-2 pr-1 py-3 transition-colors hover:bg-accent/50 items-center ${
               selectedSymbol === item.symbol
                 ? "bg-accent/50 border-l-4 border-l-primary pl-3"
                 : "border-l-4 border-l-transparent"
+            } ${
+              contextMenu.open && contextMenu.symbol === item.symbol
+                ? "bg-accent/70"
+                : ""
             }`}
             onClick={() => {
               setSelectedSymbol(item.symbol);
               setIsMobileWatchlistOpen(false);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setContextMenu({
+                symbol: item.symbol,
+                x: e.clientX,
+                y: e.clientY,
+                open: true,
+              });
             }}
           >
             <div className="flex items-center gap-2 overflow-hidden">
@@ -1065,10 +1139,16 @@ const Watchlist = memo(function Watchlist({
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="right" className="max-w-xs">
-                    <p className="font-medium">{formatSymbolForTooltip(item.symbol, selectedAccount?.accountType)}</p>
+                    <p className="font-medium">
+                      {formatSymbolForTooltip(
+                        item.symbol,
+                        selectedAccount?.accountType
+                      )}
+                    </p>
                     {item.high24h > 0 && item.low24h > 0 && (
                       <p className="text-xs text-muted-foreground mt-1">
-                        24h High: {formatPrice(item.high24h)} | Low: {formatPrice(item.low24h)}
+                        24h High: {formatPrice(item.high24h)} | Low:{" "}
+                        {formatPrice(item.low24h)}
                       </p>
                     )}
                   </TooltipContent>
@@ -1101,24 +1181,178 @@ const Watchlist = memo(function Watchlist({
                 {formatVolume(item.volume)}
               </span>
             </div>
-            
-            {!isDefaultBinance && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-2 opacity-0 transition-opacity group-hover:opacity-100 h-6 w-6 text-muted-foreground hover:text-destructive"
-                style={{ top: '50%', transform: 'translateY(-50%)' }}
+
+            {/* Actions column */}
+            <div className="flex items-center justify-end">
+              {/* More actions button (opens context menu) */}
+              <button
+                className="opacity-0 transition-opacity group-hover:opacity-100 h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground rounded text-sm"
                 onClick={(e) => {
                   e.stopPropagation();
-                  removeSymbol(item.symbol);
+                  const rect = (
+                    e.currentTarget as HTMLElement
+                  ).getBoundingClientRect();
+                  setContextMenu({
+                    symbol: item.symbol,
+                    x: rect.left,
+                    y: rect.bottom + 4,
+                    open: true,
+                  });
                 }}
+                title="More actions"
               >
-                <Trash2 size={14} />
-              </Button>
-            )}
+                ⋮
+              </button>
+
+              {!isDefaultBinance && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="opacity-0 transition-opacity group-hover:opacity-100 h-5 w-5 text-muted-foreground hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeSymbol(item.symbol);
+                  }}
+                >
+                  <Trash2 size={12} />
+                </Button>
+              )}
+            </div>
           </div>
         ))}
       </div>
+
+      {/* Context Menu for "Add to" */}
+      {contextMenu.open && contextMenu.symbol && (
+        <div
+          className="fixed z-50 min-w-[200px] rounded-md border border-border bg-popover shadow-lg text-sm animate-in fade-in zoom-in-95"
+          style={{
+            top: Math.min(contextMenu.y, window.innerHeight - 280),
+            left: Math.min(contextMenu.x, window.innerWidth - 220),
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="px-3 py-2 border-b border-border text-xs font-semibold text-foreground">
+            {contextMenu.symbol}
+          </div>
+
+          {/* Add to section */}
+          <div className="px-3 py-1.5 text-[10px] uppercase text-muted-foreground tracking-wide">
+            Add to watchlist
+          </div>
+
+          {/* Current watchlist indicator */}
+          <div className="px-3 py-1.5 text-xs text-muted-foreground flex items-center gap-2">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" />
+            <span className="truncate flex-1">{currentWatchlistName}</span>
+            <span className="text-[10px]">Current</span>
+          </div>
+
+          {/* Separator */}
+          <div className="border-t border-border my-1" />
+
+          {/* Other watchlists */}
+          <div className="max-h-[160px] overflow-y-auto">
+            {watchlists
+              .filter((wl) => wl.id !== currentWatchlistId && !wl.isSystem)
+              .map((wl) => (
+                <button
+                  key={wl.id}
+                  className="w-full text-left px-3 py-1.5 hover:bg-accent hover:text-accent-foreground text-xs flex items-center gap-2 transition-colors"
+                  onClick={async () => {
+                    try {
+                      if (!selectedAccount) return;
+
+                      const body = {
+                        accountId: selectedAccount._id,
+                        marketType,
+                        symbol: contextMenu.symbol,
+                        watchlistId: wl.id,
+                      };
+
+                      const res = await fetch(
+                        getApiUrl("/api/watchlist/symbols"),
+                        {
+                          method: "POST",
+                          headers: getAuthHeaders(),
+                          body: JSON.stringify(body),
+                        }
+                      );
+
+                      if (!res.ok) {
+                        console.error(
+                          "Failed to add symbol:",
+                          await res.text()
+                        );
+                        setError(
+                          `Failed to add ${contextMenu.symbol} to ${wl.name}`
+                        );
+                        setTimeout(() => setError(null), 3000);
+                      } else {
+                        setSuccess(
+                          `${contextMenu.symbol} added to '${wl.name}'`
+                        );
+                        setTimeout(() => setSuccess(null), 3000);
+                      }
+                    } catch (err) {
+                      console.error("Error adding symbol to watchlist:", err);
+                      setError("Failed to add symbol to watchlist");
+                      setTimeout(() => setError(null), 3000);
+                    } finally {
+                      closeContextMenu();
+                    }
+                  }}
+                >
+                  <span className="truncate flex-1">{wl.name}</span>
+                  {wl.isDefault && (
+                    <span className="text-[10px] text-muted-foreground">
+                      Default
+                    </span>
+                  )}
+                </button>
+              ))}
+            {watchlists.filter(
+              (wl) => wl.id !== currentWatchlistId && !wl.isSystem
+            ).length === 0 && (
+              <div className="px-3 py-2 text-xs text-muted-foreground">
+                No other watchlists
+              </div>
+            )}
+          </div>
+
+          {/* Add to new watchlist */}
+          <div className="border-t border-border">
+            <button
+              className="w-full text-left px-3 py-2 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground flex items-center gap-1.5 transition-colors"
+              onClick={() => {
+                closeContextMenu();
+                setShowCreateWatchlistModal(true);
+              }}
+            >
+              <Plus size={12} />
+              Add to new watchlist…
+            </button>
+          </div>
+
+          {/* Cancel */}
+          <div className="border-t border-border">
+            <button
+              className="w-full text-left px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent/40 transition-colors"
+              onClick={closeContextMenu}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Success message */}
+      {success && (
+        <div className="absolute bottom-4 left-4 right-4 z-50 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-200 shadow-lg animate-in fade-in slide-in-from-bottom-2">
+          ✓ {success}
+        </div>
+      )}
     </div>
   );
 
