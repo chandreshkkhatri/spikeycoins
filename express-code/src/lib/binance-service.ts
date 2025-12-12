@@ -362,11 +362,22 @@ class BinanceService {
 
   /**
    * Get Futures all orders (history)
+   * @param symbol - Trading symbol (optional)
+   * @param limit - Max number of orders (default 100)
+   * @param startTime - Start time in milliseconds (optional)
+   * @param endTime - End time in milliseconds (optional)
    */
-  async getFuturesAllOrders(symbol?: string, limit: number = 100) {
+  async getFuturesAllOrders(
+    symbol?: string,
+    limit: number = 100,
+    startTime?: number,
+    endTime?: number
+  ) {
     try {
       const params: any = { limit };
       if (symbol) params.symbol = symbol;
+      if (startTime) params.startTime = startTime;
+      if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
         `/fapi/v1/allOrders?${signedParams}`
@@ -386,11 +397,22 @@ class BinanceService {
 
   /**
    * Get Futures user trades (executed trades)
+   * @param symbol - Trading symbol (optional)
+   * @param limit - Max number of trades (default 50)
+   * @param startTime - Start time in milliseconds (optional)
+   * @param endTime - End time in milliseconds (optional)
    */
-  async getFuturesUserTrades(symbol?: string, limit: number = 50) {
+  async getFuturesUserTrades(
+    symbol?: string,
+    limit: number = 50,
+    startTime?: number,
+    endTime?: number
+  ) {
     try {
       const params: any = { limit };
       if (symbol) params.symbol = symbol;
+      if (startTime) params.startTime = startTime;
+      if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
         `/fapi/v1/userTrades?${signedParams}`
@@ -404,6 +426,42 @@ class BinanceService {
       throw new Error(
         error.response?.data?.msg ||
           "Failed to fetch Binance Futures trade history"
+      );
+    }
+  }
+
+  /**
+   * Get Futures income history (realized PnL, commissions, funding fees, etc.)
+   * This endpoint does NOT require a symbol, so it returns history across all symbols
+   * @param incomeType - Filter by income type (optional): REALIZED_PNL, COMMISSION, FUNDING_FEE, etc.
+   * @param limit - Max number of records (default 100, max 1000)
+   * @param startTime - Start time in milliseconds (optional)
+   * @param endTime - End time in milliseconds (optional)
+   */
+  async getFuturesIncomeHistory(
+    incomeType?: string,
+    limit: number = 100,
+    startTime?: number,
+    endTime?: number
+  ) {
+    try {
+      const params: Record<string, unknown> = { limit };
+      if (incomeType) params.incomeType = incomeType;
+      if (startTime) params.startTime = startTime;
+      if (endTime) params.endTime = endTime;
+      const signedParams = this.signRequest(params);
+      const response = await this.futuresClient.get(
+        `/fapi/v1/income?${signedParams}`
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures getIncomeHistory error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg ||
+          "Failed to fetch Binance Futures income history"
       );
     }
   }

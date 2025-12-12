@@ -611,6 +611,45 @@ const TradingWindow = memo(function TradingWindow({
     availableBalance,
   ]);
 
+  // Calculate profit amount based on take profit price
+  const calculateProfitAmount = useMemo(() => {
+    const qty = parseFloat(orderForm.quantity) || 0;
+    const entryPrice =
+      orderForm.type === "MARKET"
+        ? currentPrice
+        : parseFloat(orderForm.price) || currentPrice;
+    const tpPrice = parseFloat(orderForm.takeProfit) || 0;
+
+    if (qty <= 0 || entryPrice <= 0 || tpPrice <= 0) {
+      return { amount: 0, percentage: 0, isValid: true };
+    }
+
+    let priceDiff: number;
+    if (orderForm.side === "BUY") {
+      // For BUY: TP should be above entry price
+      priceDiff = tpPrice - entryPrice;
+    } else {
+      // For SELL: TP should be below entry price
+      priceDiff = entryPrice - tpPrice;
+    }
+
+    // If priceDiff is negative, TP is on the wrong side (would be a loss)
+    const isValid = priceDiff > 0;
+    const profitAmount = Math.abs(priceDiff * qty);
+    const profitPercentage =
+      availableBalance > 0 ? (profitAmount / availableBalance) * 100 : 0;
+
+    return { amount: profitAmount, percentage: profitPercentage, isValid };
+  }, [
+    orderForm.quantity,
+    orderForm.price,
+    orderForm.takeProfit,
+    orderForm.side,
+    orderForm.type,
+    currentPrice,
+    availableBalance,
+  ]);
+
   const setQuickQuantity = (percentage: number) => {
     if (availableBalance > 0 && currentPrice > 0) {
       const leverage = parseFloat(orderForm.leverage) || 1;
@@ -1021,6 +1060,23 @@ const TradingWindow = memo(function TradingWindow({
                   placeholder="TP Price"
                   step={tickSize}
                 />
+                {calculateProfitAmount.amount > 0 && (
+                  <div
+                    className={
+                      calculateProfitAmount.isValid
+                        ? "profit-amount"
+                        : "profit-amount-invalid"
+                    }
+                  >
+                    {calculateProfitAmount.isValid
+                      ? `Profit: $${calculateProfitAmount.amount.toFixed(
+                          2
+                        )} (${calculateProfitAmount.percentage.toFixed(1)}%)`
+                      : `Invalid: TP is on wrong side (would lose $${calculateProfitAmount.amount.toFixed(
+                          2
+                        )})`}
+                  </div>
+                )}
               </div>
 
               {/* Reduce Only when Limit is selected */}
@@ -1689,6 +1745,24 @@ const TradingWindow = memo(function TradingWindow({
         }
 
         .risk-high {
+          color: #ef4444;
+          background: rgba(239, 68, 68, 0.1);
+        }
+
+        .profit-amount {
+          font-size: 0.75rem;
+          margin-top: 2px;
+          padding: 2px 4px;
+          border-radius: 2px;
+          color: #22c55e;
+          background: rgba(34, 197, 94, 0.1);
+        }
+
+        .profit-amount-invalid {
+          font-size: 0.75rem;
+          margin-top: 2px;
+          padding: 2px 4px;
+          border-radius: 2px;
           color: #ef4444;
           background: rgba(239, 68, 68, 0.1);
         }

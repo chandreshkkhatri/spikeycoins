@@ -102,7 +102,7 @@ router.get(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const userId = getUserId(req);
-      const { watchlistId, accountId, marketType } = req.query;
+      const { watchlistId, accountId, marketType, noCreate } = req.query;
 
       await connectDB();
 
@@ -119,8 +119,8 @@ router.get(
           isDefault: true,
         });
 
-        // If no default watchlist exists, create one (requires authentication)
-        if (!watchlist) {
+        // If no default watchlist exists and noCreate is not set, create one (requires authentication)
+        if (!watchlist && noCreate !== "true") {
           if (!userId) {
             return res
               .status(401)
@@ -143,8 +143,28 @@ router.get(
         });
       }
 
+      // If no watchlist found (and noCreate was set), return empty result
       if (!watchlist) {
-        return res.status(404).json({ error: "Watchlist not found" });
+        // Fetch any existing user watchlists for the dropdown
+        const existingWatchlists = userId
+          ? await Watchlist.find({
+              userId,
+              accountId,
+            }).select("_id name isDefault")
+          : [];
+
+        return res.json({
+          success: true,
+          items: [],
+          symbols: [],
+          watchlistId: null,
+          watchlistName: null,
+          watchlists: existingWatchlists.map((w) => ({
+            id: w._id,
+            name: w.name,
+            isDefault: w.isDefault,
+          })),
+        });
       }
 
       const items = (watchlist.symbols as any[]) || [];

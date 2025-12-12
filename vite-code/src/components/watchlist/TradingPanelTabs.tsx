@@ -94,21 +94,37 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   orderBookPrice,
   onOrderBookPriceApplied,
 }: TradingPanelTabsProps) {
+  const HISTORY_PAGE_SIZE = 50;
+
   const [activeTab, setActiveTab] = useState("positions");
-  const [historySubTab, setHistorySubTab] = useState<"orders" | "trades">("orders");
+  const [historySubTab, setHistorySubTab] = useState<"orders" | "trades">(
+    "orders"
+  );
+  const [historyTimeframe, setHistoryTimeframe] = useState<
+    "24h" | "7d" | "30d" | "90d"
+  >("24h");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyHasMore, setHistoryHasMore] = useState({
+    orders: false,
+    trades: false,
+  });
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [orderHistory, setOrderHistory] = useState<OrderHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // State for close position inputs per symbol
-  const [closeInputs, setCloseInputs] = useState<Record<string, { price: string; quantity: string }>>({});
-  const [activeQuantityInput, setActiveQuantityInput] = useState<string | null>(null);
+  const [closeInputs, setCloseInputs] = useState<
+    Record<string, { price: string; quantity: string }>
+  >({});
+  const [activeQuantityInput, setActiveQuantityInput] = useState<string | null>(
+    null
+  );
   const [activePriceInput, setActivePriceInput] = useState<string | null>(null);
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
-  
+
   // Refs for price inputs to refocus after order book price is applied
   const priceInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -119,7 +135,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     setError(null);
 
     try {
-      const cacheKey = `${selectedAccount._id}-${activeTab}-${symbol || ''}`;
+      const cacheKey = `${selectedAccount._id}-${activeTab}-${
+        symbol || ""
+      }-${historyTimeframe}-${activeTab === "history" ? historyPage : 0}`;
       let promise = TABS_DATA_CACHE.get(cacheKey);
 
       if (!promise) {
@@ -130,24 +148,30 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
               const response = await api.get(
                 `/positions?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
               );
-              return { type: 'positions', data: response.data };
+              return { type: "positions", data: response.data };
             } else if (activeTab === "orders") {
               const response = await api.get(
                 `/orders?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
               );
-              return { type: 'orders', data: response.data };
+              return { type: "orders", data: response.data };
             } else if (activeTab === "history") {
-              // Fetch both order history and trade history
-              const symbolQuery = symbol ? `&symbol=${encodeURIComponent(symbol)}` : "";
+              // Fetch both order history and trade history with timeframe
+              // Don't filter by symbol - show all symbols like positions/orders tabs
+              const timeframeQuery = `&timeframe=${historyTimeframe}`;
+              const pageQuery = `&page=${historyPage}&pageSize=${HISTORY_PAGE_SIZE}`;
               const [orderRes, tradeRes] = await Promise.all([
                 api.get(
-                  `/binance/order-history?accountId=${selectedAccount._id}${symbolQuery}&limit=30`
+                  `/binance/order-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
                 ),
                 api.get(
-                  `/binance/trade-history?accountId=${selectedAccount._id}${symbolQuery}&limit=30`
+                  `/binance/trade-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
                 ),
               ]);
-              return { type: 'history', orderData: orderRes.data, tradeData: tradeRes.data };
+              return {
+                type: "history",
+                orderData: orderRes.data,
+                tradeData: tradeRes.data,
+              };
             }
           } finally {
             // Clear cache after 2 seconds
@@ -161,12 +185,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
       const result = await promise;
 
-      if (activeTab === "positions" && result?.type === 'positions') {
+      if (activeTab === "positions" && result?.type === "positions") {
         if (result.data?.success) {
-          const posData =
-            result.data.data ||
-            result.data.positions ||
-            [];
+          const posData = result.data.data || result.data.positions || [];
           // Filter to only show positions with non-zero quantity
           setPositions(
             posData
@@ -188,13 +209,16 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
               }))
           );
         }
-      } else if (activeTab === "orders" && result?.type === 'orders') {
+      } else if (activeTab === "orders" && result?.type === "orders") {
         if (result.data?.success) {
           // Filter to only open orders - check both 'orders' and 'data' arrays
           const ordersArray = result.data.orders || result.data.data || [];
           setOrders(
             ordersArray
-              .filter((o: any) => o.status === "NEW" || o.status === "PARTIALLY_FILLED")
+              .filter(
+                (o: any) =>
+                  o.status === "NEW" || o.status === "PARTIALLY_FILLED"
+              )
               .map((o: any) => ({
                 id: o.id || o.orderId,
                 symbol: o.symbol,
@@ -208,46 +232,73 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
               }))
           );
         }
-      } else if (activeTab === "history" && result?.type === 'history') {
+      } else if (activeTab === "history" && result?.type === "history") {
         if (result.orderData?.success) {
+          setHistoryHasMore((prev) => ({
+            ...prev,
+            orders: !!result.orderData?.hasMore,
+          }));
           setOrderHistory(
-            (result.orderData.orders || []).map((o: Record<string, unknown>) => ({
-              id: o.id,
-              symbol: o.symbol,
-              side: o.side,
-              type: o.type,
-              quantity: o.quantity,
-              executedQty: o.executedQty,
-              price: o.price,
-              avgPrice: o.avgPrice,
-              status: o.status,
-              time: o.time,
-            }))
+            (result.orderData.orders || []).map(
+              (o: Record<string, unknown>) => ({
+                id: o.id,
+                symbol: o.symbol,
+                side: o.side,
+                type: o.type,
+                quantity: o.quantity,
+                executedQty: o.executedQty,
+                price: o.price,
+                avgPrice: o.avgPrice,
+                status: o.status,
+                time: o.time,
+              })
+            )
           );
+        } else {
+          setHistoryHasMore((prev) => ({ ...prev, orders: false }));
         }
 
         if (result.tradeData?.success) {
+          setHistoryHasMore((prev) => ({
+            ...prev,
+            trades: !!result.tradeData?.hasMore,
+          }));
           setTrades(
-            (result.tradeData.trades || []).slice(0, 30).map((t: Record<string, unknown>) => ({
-              id: t.id,
-              symbol: t.symbol,
-              quantity: t.qty,
-              price: t.price,
-              side: t.side,
-              realizedPnl: t.realizedPnl || 0,
-              commission: t.commission || 0,
-              timestamp: t.time,
-            }))
+            (result.tradeData.trades || []).map((t: Record<string, unknown>) => ({
+                id: t.id,
+                symbol: t.symbol,
+                quantity: t.qty,
+                price: t.price,
+                side: t.side,
+                realizedPnl: t.realizedPnl || 0,
+                commission: t.commission || 0,
+                timestamp: t.time,
+              }))
           );
+        } else {
+          setHistoryHasMore((prev) => ({ ...prev, trades: false }));
         }
       }
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to fetch data";
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to fetch data";
       setError(errorMessage);
     } finally {
       setLoading(false);
     }
-  }, [selectedAccount, activeTab, symbol]);
+  }, [
+    selectedAccount,
+    activeTab,
+    symbol,
+    historyTimeframe,
+    historyPage,
+    HISTORY_PAGE_SIZE,
+  ]);
+
+  useEffect(() => {
+    if (activeTab !== "history") return;
+    setHistoryPage(1);
+  }, [activeTab, selectedAccount?._id, historyTimeframe]);
 
   useEffect(() => {
     fetchData();
@@ -270,28 +321,28 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   };
 
   const formatPrice = (price: number | string) => {
-    const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+    const numPrice = typeof price === "string" ? parseFloat(price) : price;
     if (!numPrice || numPrice === 0 || isNaN(numPrice)) return "0";
     const absPrice = Math.abs(numPrice);
-    
+
     // Dynamic decimal places based on price magnitude
     // This approximates tick size behavior for most trading pairs
-    if (absPrice >= 10000) return numPrice.toFixed(1);      // BTC: 0.1
-    if (absPrice >= 1000) return numPrice.toFixed(2);       // ETH, etc: 0.01
-    if (absPrice >= 100) return numPrice.toFixed(2);        // Mid-range: 0.01
-    if (absPrice >= 10) return numPrice.toFixed(3);         // Lower: 0.001
-    if (absPrice >= 1) return numPrice.toFixed(4);          // Sub-dollar: 0.0001
-    if (absPrice >= 0.1) return numPrice.toFixed(5);        // Very low: 0.00001
-    if (absPrice >= 0.01) return numPrice.toFixed(6);       // Micro: 0.000001
-    if (absPrice >= 0.001) return numPrice.toFixed(7);      // Sub-micro: 0.0000001
-    return numPrice.toFixed(8);                              // Nano-cap: 0.00000001
+    if (absPrice >= 10000) return numPrice.toFixed(1); // BTC: 0.1
+    if (absPrice >= 1000) return numPrice.toFixed(2); // ETH, etc: 0.01
+    if (absPrice >= 100) return numPrice.toFixed(2); // Mid-range: 0.01
+    if (absPrice >= 10) return numPrice.toFixed(3); // Lower: 0.001
+    if (absPrice >= 1) return numPrice.toFixed(4); // Sub-dollar: 0.0001
+    if (absPrice >= 0.1) return numPrice.toFixed(5); // Very low: 0.00001
+    if (absPrice >= 0.01) return numPrice.toFixed(6); // Micro: 0.000001
+    if (absPrice >= 0.001) return numPrice.toFixed(7); // Sub-micro: 0.0000001
+    return numPrice.toFixed(8); // Nano-cap: 0.00000001
   };
 
   const getTickSize = (price: number | string) => {
-    const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+    const numPrice = typeof price === "string" ? parseFloat(price) : price;
     if (!numPrice || numPrice === 0 || isNaN(numPrice)) return "1";
     const absPrice = Math.abs(numPrice);
-    
+
     // Return tick size based on price magnitude (matches formatPrice decimals)
     if (absPrice >= 10000) return "0.1";
     if (absPrice >= 1000) return "0.01";
@@ -305,7 +356,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   };
 
   const formatTime = (timestamp: string | number) => {
-    const date = new Date(typeof timestamp === 'number' ? timestamp : parseInt(timestamp));
+    const date = new Date(
+      typeof timestamp === "number" ? timestamp : parseInt(timestamp)
+    );
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
@@ -346,7 +399,11 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     }
   }, [orderBookPrice, activePriceInput, onOrderBookPriceApplied]);
 
-  const handleCloseInputChange = (symbol: string, field: 'price' | 'quantity', value: string) => {
+  const handleCloseInputChange = (
+    symbol: string,
+    field: "price" | "quantity",
+    value: string
+  ) => {
     setCloseInputs((prev) => ({
       ...prev,
       [symbol]: {
@@ -359,8 +416,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   const handleQuantityPercentage = (symbol: string, percentage: number) => {
     const position = positions.find((p) => p.symbol === symbol);
     if (!position) return;
-    
-    const quantityValue = Math.floor(position.quantity * (percentage / 100) * 1000) / 1000; // Round down to 3 decimals
+
+    const quantityValue =
+      Math.floor(position.quantity * (percentage / 100) * 1000) / 1000; // Round down to 3 decimals
     setCloseInputs((prev) => ({
       ...prev,
       [symbol]: {
@@ -371,41 +429,45 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     setActiveQuantityInput(null);
   };
 
-  const handleClosePosition = async (posSymbol: string, orderType: 'MARKET' | 'LIMIT') => {
+  const handleClosePosition = async (
+    posSymbol: string,
+    orderType: "MARKET" | "LIMIT"
+  ) => {
     if (!selectedAccount) return;
-    
+
     const position = positions.find((p) => p.symbol === posSymbol);
     if (!position) return;
-    
+
     const inputs = closeInputs[posSymbol];
     if (!inputs) return;
-    
+
     const quantity = parseFloat(inputs.quantity);
     if (isNaN(quantity) || quantity <= 0) {
-      alert('Please enter a valid quantity');
+      alert("Please enter a valid quantity");
       return;
     }
-    
-    if (orderType === 'LIMIT') {
+
+    if (orderType === "LIMIT") {
       const price = parseFloat(inputs.price);
       if (isNaN(price) || price <= 0) {
-        alert('Please enter a valid price for limit order');
+        alert("Please enter a valid price for limit order");
         return;
       }
     }
-    
-    const confirmMsg = orderType === 'MARKET'
-      ? `Close ${quantity} ${posSymbol} at MARKET price?`
-      : `Close ${quantity} ${posSymbol} at LIMIT price ${inputs.price}?`;
-    
+
+    const confirmMsg =
+      orderType === "MARKET"
+        ? `Close ${quantity} ${posSymbol} at MARKET price?`
+        : `Close ${quantity} ${posSymbol} at LIMIT price ${inputs.price}?`;
+
     if (!confirm(confirmMsg)) return;
-    
+
     setClosingPosition(posSymbol);
-    
+
     try {
       // Close position = opposite side order
-      const closeSide = position.side === 'LONG' ? 'SELL' : 'BUY';
-      
+      const closeSide = position.side === "LONG" ? "SELL" : "BUY";
+
       const orderData: any = {
         accountId: selectedAccount._id,
         symbol: posSymbol,
@@ -414,18 +476,20 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
         quantity: quantity,
         reduceOnly: true,
       };
-      
-      if (orderType === 'LIMIT') {
+
+      if (orderType === "LIMIT") {
         orderData.price = parseFloat(inputs.price);
       }
-      
-      await api.post('/orders/place', orderData);
-      
+
+      await api.post("/orders/place", orderData);
+
       // Refresh positions
       fetchData();
     } catch (err: any) {
-      console.error('Failed to close position:', err);
-      alert(err.response?.data?.error || err.message || 'Failed to close position');
+      console.error("Failed to close position:", err);
+      alert(
+        err.response?.data?.error || err.message || "Failed to close position"
+      );
     } finally {
       setClosingPosition(null);
     }
@@ -433,32 +497,36 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
   const handleCloseAllPositions = async () => {
     if (!selectedAccount || positions.length === 0) return;
-    
+
     const confirmMsg = `Close ALL ${positions.length} positions at MARKET price? This cannot be undone.`;
     if (!confirm(confirmMsg)) return;
-    
-    setClosingPosition('all');
-    
+
+    setClosingPosition("all");
+
     try {
       // Close all positions sequentially
       for (const position of positions) {
-        const closeSide = position.side === 'LONG' ? 'SELL' : 'BUY';
-        
-        await api.post('/orders/place', {
+        const closeSide = position.side === "LONG" ? "SELL" : "BUY";
+
+        await api.post("/orders/place", {
           accountId: selectedAccount._id,
           symbol: position.symbol,
           side: closeSide,
-          type: 'MARKET',
+          type: "MARKET",
           quantity: position.quantity,
           reduceOnly: true,
         });
       }
-      
+
       // Refresh positions
       fetchData();
     } catch (err: any) {
-      console.error('Failed to close all positions:', err);
-      alert(err.response?.data?.error || err.message || 'Failed to close all positions');
+      console.error("Failed to close all positions:", err);
+      alert(
+        err.response?.data?.error ||
+          err.message ||
+          "Failed to close all positions"
+      );
     } finally {
       setClosingPosition(null);
     }
@@ -528,7 +596,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                     <th className="text-right px-2 py-2 font-medium">Liq</th>
                     <th className="text-right px-2 py-2 font-medium">Margin</th>
                     <th className="text-right px-2 py-2 font-medium">PNL</th>
-                    <th className="text-center px-2 py-2 font-medium min-w-[160px]">Price / Qty</th>
+                    <th className="text-center px-2 py-2 font-medium min-w-[160px]">
+                      Price / Qty
+                    </th>
                     <th className="text-center px-2 py-2 font-medium">
                       <Button
                         variant="destructive"
@@ -537,7 +607,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         onClick={handleCloseAllPositions}
                         disabled={closingPosition !== null}
                       >
-                        {closingPosition === 'all' ? '...' : 'Close All'}
+                        {closingPosition === "all" ? "..." : "Close All"}
                       </Button>
                     </th>
                   </tr>
@@ -548,7 +618,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       key={pos.id}
                       className="border-b border-border/50 hover:bg-muted/30"
                     >
-                      <td className="px-2 py-2 cursor-pointer" onClick={() => onSymbolSelect?.(pos.symbol)}>
+                      <td
+                        className="px-2 py-2 cursor-pointer"
+                        onClick={() => onSymbolSelect?.(pos.symbol)}
+                      >
                         <div className="flex items-center gap-1">
                           {pos.side === "LONG" ? (
                             <TrendingUp className="w-5 h-5 text-green-500" />
@@ -557,19 +630,28 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                           )}
                           <span className="font-medium">{pos.symbol}</span>
                           {pos.leverage && (
-                            <Badge variant="neutral" className="text-sm px-1.5 py-0.5">
+                            <Badge
+                              variant="neutral"
+                              className="text-sm px-1.5 py-0.5"
+                            >
                               {pos.leverage}x
                             </Badge>
                           )}
                         </div>
                       </td>
                       <td className="text-right px-2 py-2">{pos.quantity}</td>
-                      <td className="text-right px-2 py-2">{formatPrice(pos.averagePrice)}</td>
+                      <td className="text-right px-2 py-2">
+                        {formatPrice(pos.averagePrice)}
+                      </td>
                       <td className="text-right px-2 py-2 text-muted-foreground">
-                        {pos.breakEvenPrice ? formatPrice(pos.breakEvenPrice) : "-"}
+                        {pos.breakEvenPrice
+                          ? formatPrice(pos.breakEvenPrice)
+                          : "-"}
                       </td>
                       <td className="text-right px-2 py-2 text-orange-500">
-                        {pos.liquidationPrice ? formatPrice(pos.liquidationPrice) : "-"}
+                        {pos.liquidationPrice
+                          ? formatPrice(pos.liquidationPrice)
+                          : "-"}
                       </td>
                       <td className="text-right px-2 py-2">
                         {pos.margin ? `$${pos.margin.toFixed(2)}` : "-"}
@@ -584,24 +666,45 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       <td className="px-1 py-2">
                         <div className="relative flex gap-1">
                           <input
-                            ref={(el) => { priceInputRefs.current[pos.symbol] = el; }}
+                            ref={(el) => {
+                              priceInputRefs.current[pos.symbol] = el;
+                            }}
                             type="number"
-                            value={closeInputs[pos.symbol]?.price || ''}
-                            onChange={(e) => handleCloseInputChange(pos.symbol, 'price', e.target.value)}
+                            value={closeInputs[pos.symbol]?.price || ""}
+                            onChange={(e) =>
+                              handleCloseInputChange(
+                                pos.symbol,
+                                "price",
+                                e.target.value
+                              )
+                            }
                             onClick={(e) => e.stopPropagation()}
                             onFocus={() => setActivePriceInput(pos.symbol)}
-                            onBlur={() => setTimeout(() => setActivePriceInput(null), 200)}
+                            onBlur={() =>
+                              setTimeout(() => setActivePriceInput(null), 200)
+                            }
                             className="w-48 h-8 text-sm px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             placeholder="Price"
                             step={getTickSize(pos.lastPrice)}
                           />
                           <input
                             type="number"
-                            value={closeInputs[pos.symbol]?.quantity || ''}
-                            onChange={(e) => handleCloseInputChange(pos.symbol, 'quantity', e.target.value)}
+                            value={closeInputs[pos.symbol]?.quantity || ""}
+                            onChange={(e) =>
+                              handleCloseInputChange(
+                                pos.symbol,
+                                "quantity",
+                                e.target.value
+                              )
+                            }
                             onClick={(e) => e.stopPropagation()}
                             onFocus={() => setActiveQuantityInput(pos.symbol)}
-                            onBlur={() => setTimeout(() => setActiveQuantityInput(null), 200)}
+                            onBlur={() =>
+                              setTimeout(
+                                () => setActiveQuantityInput(null),
+                                200
+                              )
+                            }
                             className="w-40 h-8 text-sm px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             placeholder="Qty"
                             step="any"
@@ -633,11 +736,11 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                             className="h-8 text-sm px-3 shadow-sm hover:brightness-110 transition-all"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleClosePosition(pos.symbol, 'MARKET');
+                              handleClosePosition(pos.symbol, "MARKET");
                             }}
                             disabled={closingPosition !== null}
                           >
-                            {closingPosition === pos.symbol ? '...' : 'Mkt'}
+                            {closingPosition === pos.symbol ? "..." : "Mkt"}
                           </Button>
                           <Button
                             variant="outline"
@@ -645,7 +748,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                             className="h-8 text-sm px-3 border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white shadow-sm transition-all"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleClosePosition(pos.symbol, 'LIMIT');
+                              handleClosePosition(pos.symbol, "LIMIT");
                             }}
                             disabled={closingPosition !== null}
                           >
@@ -690,7 +793,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 </thead>
                 <tbody>
                   {orders.map((order) => (
-                    <tr key={order.id} className="border-b border-border/50 hover:bg-muted/30">
+                    <tr
+                      key={order.id}
+                      className="border-b border-border/50 hover:bg-muted/30"
+                    >
                       <td className="px-2 py-2">
                         <span
                           className="font-medium cursor-pointer hover:text-primary"
@@ -699,15 +805,21 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                           {order.symbol}
                         </span>
                       </td>
-                      <td className="text-right px-2 py-2">{order.orderType}</td>
+                      <td className="text-right px-2 py-2">
+                        {order.orderType}
+                      </td>
                       <td
                         className={`text-right px-2 py-2 ${
-                          order.side === "BUY" ? "text-green-500" : "text-red-500"
+                          order.side === "BUY"
+                            ? "text-green-500"
+                            : "text-red-500"
                         }`}
                       >
                         {order.side}
                       </td>
-                      <td className="text-right px-2 py-2">{formatPrice(order.price)}</td>
+                      <td className="text-right px-2 py-2">
+                        {formatPrice(order.price)}
+                      </td>
                       <td className="text-right px-2 py-2">
                         {order.filledQuantity}/{order.quantity}
                       </td>
@@ -716,7 +828,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={() => handleCancelOrder(order.id, order.symbol)}
+                          onClick={() =>
+                            handleCancelOrder(order.id, order.symbol)
+                          }
                         >
                           <X className="w-5 h-5" />
                         </Button>
@@ -731,20 +845,83 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
         {/* History Tab */}
         <TabsContent value="history" className="m-0 p-0">
-          {/* Sub-tabs for Orders vs Trades */}
-          <div className="flex border-b px-2 gap-2 text-base">
-            <button
-              className={`py-2 px-2 ${historySubTab === "orders" ? "border-b-2 border-primary font-medium" : "text-muted-foreground"}`}
-              onClick={() => setHistorySubTab("orders")}
-            >
-              Order History ({orderHistory.length})
-            </button>
-            <button
-              className={`py-2 px-2 ${historySubTab === "trades" ? "border-b-2 border-primary font-medium" : "text-muted-foreground"}`}
-              onClick={() => setHistorySubTab("trades")}
-            >
-              Trades ({trades.length})
-            </button>
+          {/* Sub-tabs for Orders vs Trades + Timeframe selector */}
+          <div className="flex items-center justify-between border-b px-2 text-base">
+            <div className="flex gap-2">
+              <button
+                className={`py-2 px-2 ${
+                  historySubTab === "orders"
+                    ? "border-b-2 border-primary font-medium"
+                    : "text-muted-foreground"
+                }`}
+                onClick={() => setHistorySubTab("orders")}
+              >
+                Order History ({orderHistory.length})
+              </button>
+              <button
+                className={`py-2 px-2 ${
+                  historySubTab === "trades"
+                    ? "border-b-2 border-primary font-medium"
+                    : "text-muted-foreground"
+                }`}
+                onClick={() => setHistorySubTab("trades")}
+              >
+                Trades ({trades.length})
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={loading || historyPage <= 1}
+                onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+              >
+                Prev
+              </Button>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span>Page</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={historyPage}
+                  onChange={(e) =>
+                    setHistoryPage(
+                      Math.max(1, parseInt(e.target.value, 10) || 1)
+                    )
+                  }
+                  className="w-16 text-xs px-2 py-1 border rounded bg-background text-foreground"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                disabled={
+                  loading ||
+                  !(historySubTab === "orders"
+                    ? historyHasMore.orders
+                    : historyHasMore.trades)
+                }
+                onClick={() => setHistoryPage((p) => p + 1)}
+              >
+                Next
+              </Button>
+              <select
+                value={historyTimeframe}
+                onChange={(e) =>
+                  setHistoryTimeframe(
+                    e.target.value as "24h" | "7d" | "30d" | "90d"
+                  )
+                }
+                className="text-xs px-2 py-1 border rounded bg-background text-foreground"
+              >
+                <option value="24h">Last 24h</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+              </select>
+            </div>
           </div>
           <div className="h-[400px] overflow-y-auto">
             {loading ? (
@@ -765,16 +942,25 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                   <thead className="bg-muted/50 sticky top-0 z-10">
                     <tr>
                       <th className="text-left px-2 py-2 font-medium">Time</th>
-                      <th className="text-left px-2 py-2 font-medium">Symbol</th>
+                      <th className="text-left px-2 py-2 font-medium">
+                        Symbol
+                      </th>
                       <th className="text-right px-2 py-2 font-medium">Side</th>
                       <th className="text-right px-2 py-2 font-medium">Type</th>
-                      <th className="text-right px-2 py-2 font-medium">Filled</th>
-                      <th className="text-right px-2 py-2 font-medium">Status</th>
+                      <th className="text-right px-2 py-2 font-medium">
+                        Filled
+                      </th>
+                      <th className="text-right px-2 py-2 font-medium">
+                        Status
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {orderHistory.map((order) => (
-                      <tr key={order.id} className="border-b border-border/50 hover:bg-muted/30">
+                      <tr
+                        key={order.id}
+                        className="border-b border-border/50 hover:bg-muted/30"
+                      >
                         <td className="px-2 py-2 text-muted-foreground">
                           {formatTime(order.time)}
                         </td>
@@ -788,7 +974,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         </td>
                         <td
                           className={`text-right px-2 py-2 ${
-                            order.side === "BUY" ? "text-green-500" : "text-red-500"
+                            order.side === "BUY"
+                              ? "text-green-500"
+                              : "text-red-500"
                           }`}
                         >
                           {order.side}
@@ -799,7 +987,13 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         </td>
                         <td className="text-right px-2 py-2">
                           <Badge
-                            variant={order.status === "FILLED" ? "success" : order.status === "CANCELED" ? "danger" : "neutral"}
+                            variant={
+                              order.status === "FILLED"
+                                ? "success"
+                                : order.status === "CANCELED"
+                                ? "danger"
+                                : "neutral"
+                            }
                             className="text-sm px-1.5 py-0.5"
                           >
                             {order.status}
@@ -828,7 +1022,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 </thead>
                 <tbody>
                   {trades.map((trade) => (
-                    <tr key={trade.id} className="border-b border-border/50 hover:bg-muted/30">
+                    <tr
+                      key={trade.id}
+                      className="border-b border-border/50 hover:bg-muted/30"
+                    >
                       <td className="px-2 py-2 text-muted-foreground">
                         {formatTime(trade.timestamp)}
                       </td>
@@ -842,19 +1039,27 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       </td>
                       <td
                         className={`text-right px-2 py-2 ${
-                          trade.side === "BUY" ? "text-green-500" : "text-red-500"
+                          trade.side === "BUY"
+                            ? "text-green-500"
+                            : "text-red-500"
                         }`}
                       >
                         {trade.side}
                       </td>
-                      <td className="text-right px-2 py-2">{formatPrice(trade.price)}</td>
+                      <td className="text-right px-2 py-2">
+                        {formatPrice(trade.price)}
+                      </td>
                       <td className="text-right px-2 py-2">{trade.quantity}</td>
                       <td
                         className={`text-right px-2 py-2 font-medium ${
-                          trade.realizedPnl >= 0 ? "text-green-500" : "text-red-500"
+                          trade.realizedPnl >= 0
+                            ? "text-green-500"
+                            : "text-red-500"
                         }`}
                       >
-                        {trade.realizedPnl !== 0 ? `$${trade.realizedPnl.toFixed(2)}` : "-"}
+                        {trade.realizedPnl !== 0
+                          ? `$${trade.realizedPnl.toFixed(2)}`
+                          : "-"}
                       </td>
                     </tr>
                   ))}

@@ -1,13 +1,21 @@
-import axios from 'axios';
-import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState, useRef } from 'react';
+import axios from "axios";
+import React, {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  useRef,
+} from "react";
 
 // API Base URL - use env var in production, relative path in development
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 // Storage keys
-const ACCESS_TOKEN_KEY = 'flipSafe_accessToken';
-const REFRESH_TOKEN_KEY = 'flipSafe_refreshToken';
-const USER_KEY = 'flipSafe_user';
+const ACCESS_TOKEN_KEY = "flipSafe_accessToken";
+const REFRESH_TOKEN_KEY = "flipSafe_refreshToken";
+const USER_KEY = "flipSafe_user";
 
 export interface User {
   _id: string;
@@ -25,13 +33,13 @@ interface AuthContextType {
   isLoggedIn: boolean;
   isLoading: boolean;
   error: string | null;
-  
+
   // Auth methods
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   loginWithGoogle: () => void;
   logout: () => Promise<void>;
-  
+
   // Token methods
   getAccessToken: () => string | null;
   refreshTokens: () => Promise<boolean>;
@@ -42,7 +50,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 };
@@ -77,28 +85,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const refreshingRef = useRef(false);
+  const refreshPromiseRef = useRef<Promise<boolean> | null>(null);
 
   const isLoggedIn = !!user;
 
   // Save tokens and user to storage
-  const saveAuth = useCallback((accessToken: string, refreshToken: string, userData: User) => {
-    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-    localStorage.setItem(USER_KEY, JSON.stringify(userData));
-    setUser(userData);
-  }, []);
+  const saveAuth = useCallback(
+    (accessToken: string, refreshToken: string, userData: User) => {
+      localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+      localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(userData));
+      setUser(userData);
+    },
+    []
+  );
 
   // Clear auth data
   const clearAuth = useCallback(() => {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
-    sessionStorage.removeItem('authStatusCache');
-    sessionStorage.removeItem('authStatusCacheTime');
-    localStorage.removeItem('accountsCache');
-    localStorage.removeItem('accountsCacheTime');
-    localStorage.removeItem('selectedAccountId');
+    sessionStorage.removeItem("authStatusCache");
+    sessionStorage.removeItem("authStatusCacheTime");
+    localStorage.removeItem("accountsCache");
+    localStorage.removeItem("accountsCacheTime");
+    localStorage.removeItem("selectedAccountId");
     setUser(null);
   }, []);
 
@@ -109,36 +120,51 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Refresh tokens
   const refreshTokens = useCallback(async (): Promise<boolean> => {
-    if (refreshingRef.current) return false;
-    
+    if (refreshPromiseRef.current) {
+      return await refreshPromiseRef.current;
+    }
+
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) return false;
 
-    refreshingRef.current = true;
-    
-    try {
-      const response = await axios.post('/api/auth/refresh', { refreshToken });
-      const { accessToken, refreshToken: newRefreshToken } = response.data;
-      
-      localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-      localStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
-      
-      return true;
-    } catch (error) {
-      console.error('Token refresh failed:', error);
-      clearAuth();
-      return false;
-    } finally {
-      refreshingRef.current = false;
-    }
+    refreshPromiseRef.current = (async () => {
+      try {
+        const response = await api.post("/auth/refresh", { refreshToken });
+        const { accessToken, refreshToken: newRefreshToken } = response.data;
+
+        if (!accessToken || !newRefreshToken) {
+          throw new Error("Malformed refresh response");
+        }
+
+        localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+        localStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
+        return true;
+      } catch (error: any) {
+        const status = error?.response?.status;
+        console.error("Token refresh failed:", error);
+
+        // Only clear auth for definitive auth failures (invalid/expired refresh token).
+        // For transient network/server errors, avoid logging the user out.
+        if (status === 400 || status === 401) {
+          clearAuth();
+        }
+        return false;
+      } finally {
+        refreshPromiseRef.current = null;
+      }
+    })();
+
+    return await refreshPromiseRef.current;
   }, [clearAuth]);
 
   // Check current auth status on mount
   useEffect(() => {
     const isTokenExpired = (token: string) => {
       try {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const base64Url = token.split(".")[1];
+        if (!base64Url) return true;
+        let base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+        while (base64.length % 4) base64 += "=";
         const payload = JSON.parse(window.atob(base64));
         return payload.exp * 1000 < Date.now();
       } catch {
@@ -148,7 +174,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const checkAuth = async () => {
       const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-      
+
       if (!token) {
         setIsLoading(false);
         return;
@@ -158,7 +184,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (isTokenExpired(token)) {
         const refreshed = await refreshTokens();
         if (!refreshed) {
-          clearAuth();
           setIsLoading(false);
           return;
         }
@@ -166,7 +191,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
 
       try {
-        const response = await api.get('/auth/me');
+        const response = await api.get("/auth/me");
         if (response.data.success && response.data.user) {
           setUser(response.data.user);
           localStorage.setItem(USER_KEY, JSON.stringify(response.data.user));
@@ -178,16 +203,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           if (refreshed) {
             // Retry the request
             try {
-              const retryResponse = await api.get('/auth/me');
+              const retryResponse = await api.get("/auth/me");
               if (retryResponse.data.success && retryResponse.data.user) {
                 setUser(retryResponse.data.user);
-                localStorage.setItem(USER_KEY, JSON.stringify(retryResponse.data.user));
+                localStorage.setItem(
+                  USER_KEY,
+                  JSON.stringify(retryResponse.data.user)
+                );
               }
             } catch {
-              clearAuth();
+              // Ignore retry failure; auth will be cleared only on definitive refresh failure.
             }
           }
-        } else {
+        } else if (!localStorage.getItem(REFRESH_TOKEN_KEY)) {
+          // Auth was already cleared due to invalid refresh token.
           clearAuth();
         }
       } finally {
@@ -201,8 +230,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Handle OAuth callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const accessToken = params.get('accessToken');
-    const refreshToken = params.get('refreshToken');
+    const accessToken = params.get("accessToken");
+    const refreshToken = params.get("refreshToken");
 
     if (accessToken && refreshToken) {
       // Store tokens
@@ -210,56 +239,69 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
 
       // Clear URL params
-      window.history.replaceState({}, '', window.location.pathname);
+      window.history.replaceState({}, "", window.location.pathname);
 
       // Fetch user data
-      api.get('/auth/me').then((response) => {
-        if (response.data.success && response.data.user) {
-          saveAuth(accessToken, refreshToken, response.data.user);
-        }
-        setIsLoading(false);
-      }).catch(() => {
-        clearAuth();
-        setIsLoading(false);
-      });
+      api
+        .get("/auth/me")
+        .then((response) => {
+          if (response.data.success && response.data.user) {
+            saveAuth(accessToken, refreshToken, response.data.user);
+          }
+          setIsLoading(false);
+        })
+        .catch(() => {
+          clearAuth();
+          setIsLoading(false);
+        });
     }
   }, [saveAuth, clearAuth]);
 
   // Login with email/password
-  const login = useCallback(async (email: string, password: string) => {
-    setError(null);
-    setIsLoading(true);
-    
-    try {
-      const response = await axios.post('/api/auth/login', { email, password });
-      const { accessToken, refreshToken, user: userData } = response.data;
-      saveAuth(accessToken, refreshToken, userData);
-    } catch (error: any) {
-      const message = error.response?.data?.error || 'Login failed';
-      setError(message);
-      throw new Error(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [saveAuth]);
+  const login = useCallback(
+    async (email: string, password: string) => {
+      setError(null);
+      setIsLoading(true);
+
+      try {
+        const response = await api.post("/auth/login", { email, password });
+        const { accessToken, refreshToken, user: userData } = response.data;
+        saveAuth(accessToken, refreshToken, userData);
+      } catch (error: any) {
+        const message = error.response?.data?.error || "Login failed";
+        setError(message);
+        throw new Error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [saveAuth]
+  );
 
   // Register new account
-  const register = useCallback(async (email: string, password: string, name: string) => {
-    setError(null);
-    setIsLoading(true);
-    
-    try {
-      const response = await axios.post('/api/auth/register', { email, password, name });
-      const { accessToken, refreshToken, user: userData } = response.data;
-      saveAuth(accessToken, refreshToken, userData);
-    } catch (error: any) {
-      const message = error.response?.data?.error || 'Registration failed';
-      setError(message);
-      throw new Error(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [saveAuth]);
+  const register = useCallback(
+    async (email: string, password: string, name: string) => {
+      setError(null);
+      setIsLoading(true);
+
+      try {
+        const response = await api.post("/auth/register", {
+          email,
+          password,
+          name,
+        });
+        const { accessToken, refreshToken, user: userData } = response.data;
+        saveAuth(accessToken, refreshToken, userData);
+      } catch (error: any) {
+        const message = error.response?.data?.error || "Registration failed";
+        setError(message);
+        throw new Error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [saveAuth]
+  );
 
   // Redirect to Google OAuth
   const loginWithGoogle = useCallback(() => {
@@ -269,14 +311,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Logout
   const logout = useCallback(async () => {
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    
+
     try {
-      await axios.post('/api/auth/logout', { refreshToken });
+      await api.post("/auth/logout", { refreshToken });
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error("Logout error:", error);
     } finally {
       clearAuth();
-      window.location.href = '/login';
+      window.location.href = "/login";
     }
   }, [clearAuth]);
 
@@ -286,10 +328,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
-        
+
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
-          
+
           const refreshed = await refreshTokens();
           if (refreshed) {
             const newToken = localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -297,7 +339,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             return api(originalRequest);
           }
         }
-        
+
         return Promise.reject(error);
       }
     );
@@ -329,7 +371,7 @@ export { api };
 // Helper hook to get auth headers
 export const useAuthHeaders = () => {
   const { getAccessToken } = useAuth();
-  
+
   return useCallback(() => {
     const token = getAccessToken();
     return token ? { Authorization: `Bearer ${token}` } : {};

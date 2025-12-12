@@ -262,13 +262,18 @@ const Watchlist = memo(function Watchlist({
         // 1. Fetch User Watchlists & Default/Selected User Watchlist Data
         // If requesting system watchlist, we still fetch user watchlists to populate dropdown
         // but we don't pass the system ID to the user endpoint
+        // For system requests, use noCreate=true to avoid 401 when no user watchlist exists
         const userWlUrl =
           !isSystemRequest && currentWatchlistId
             ? getApiUrl(
                 `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`
               )
             : getApiUrl(
-                `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}`
+                `/api/watchlist/symbols?accountId=${
+                  selectedAccount._id
+                }&marketType=${marketType}${
+                  isSystemRequest ? "&noCreate=true" : ""
+                }`
               );
 
         const userRes = await fetch(userWlUrl, { headers: getAuthHeaders() });
