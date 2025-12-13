@@ -51,6 +51,10 @@ interface OrderForm {
 }
 
 const DETAILS_REFRESH_INTERVAL = 60000; // 60 seconds between automatic refreshes
+const EXPONENTIAL_SLIDER_STORAGE_KEY = "flipSafe_isExponentialSlider";
+const DEFAULT_RISK_PERCENT_STORAGE_KEY = "flipSafe_defaultRiskPercent";
+const DEFAULT_TP_PERCENT_STORAGE_KEY = "flipSafe_defaultTakeProfitPercent";
+const USER_MAX_LEVERAGE_STORAGE_KEY = "flipSafe_userMaxLeverage";
 
 const TradingWindow = memo(function TradingWindow({
   symbol,
@@ -81,11 +85,18 @@ const TradingWindow = memo(function TradingWindow({
   const [availableBalance, setAvailableBalance] = useState<number>(0);
   const [hasUserEditedSL, setHasUserEditedSL] = useState(false);
   const [hasUserEditedTP, setHasUserEditedTP] = useState(false);
+  const [hasUserEditedPrice, setHasUserEditedPrice] = useState(false);
   const [accountDetails, setAccountDetails] = useState<any>(null);
   const [exchangeMaxLeverage, setExchangeMaxLeverage] = useState<number>(125);
   const [tickSize, setTickSize] = useState<string>("0.01");
   const [stepSize, setStepSize] = useState<string>("0.001");
-  const [isExponentialSlider, setIsExponentialSlider] = useState(false);
+  const [isExponentialSlider, setIsExponentialSlider] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(EXPONENTIAL_SLIDER_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
   const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
@@ -106,6 +117,7 @@ const TradingWindow = memo(function TradingWindow({
   // Reset synced state when symbol or account changes
   useEffect(() => {
     hasSyncedLeverage.current = false;
+    setHasUserEditedPrice(false);
     // When user changes symbol or account, reset price to latest LTP for LIMIT orders
     if (orderForm.type === "LIMIT") {
       const decimals = tickSize.includes(".")
@@ -117,33 +129,65 @@ const TradingWindow = memo(function TradingWindow({
       }));
     }
   }, [symbol, selectedAccount?._id]);
+
+  // Keep LIMIT price in sync with live price until the user edits it.
+  // This fixes cases where the field initializes from cached prices and then never updates.
+  useEffect(() => {
+    if (orderForm.type !== "LIMIT") return;
+    if (hasUserEditedPrice) return;
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return;
+
+    const decimals = tickSize.includes(".")
+      ? tickSize.split(".")[1].replace(/0+$/, "").length
+      : 2;
+    const nextPrice = currentPrice.toFixed(decimals);
+
+    // Avoid churn on identical values.
+    if (orderForm.price === nextPrice) return;
+
+    setOrderForm((prev) => {
+      if (prev.type !== "LIMIT") return prev;
+      if (prev.price === nextPrice) return prev;
+      return { ...prev, price: nextPrice };
+    });
+  }, [currentPrice, tickSize, orderForm.type, orderForm.price, hasUserEditedPrice]);
   // User-defined max leverage (stored in localStorage)
   const [userMaxLeverage, setUserMaxLeverage] = useState<number>(() => {
     try {
-      const stored = localStorage.getItem("flipSafe_userMaxLeverage");
+      const stored = localStorage.getItem(USER_MAX_LEVERAGE_STORAGE_KEY);
       return stored ? parseInt(stored, 10) : 20;
     } catch {
       return 20;
     }
   });
 
+  // Draft config values (edited in UI, only applied on Save Config)
+  const [draftUserMaxLeverage, setDraftUserMaxLeverage] =
+    useState<number>(userMaxLeverage);
+
   // User-defined default risk percentage (default 1%)
   const [defaultRiskPercent, setDefaultRiskPercent] = useState<string>(() => {
-    return localStorage.getItem("flipSafe_defaultRiskPercent") || "1";
+    return localStorage.getItem(DEFAULT_RISK_PERCENT_STORAGE_KEY) || "1";
   });
+
+  const [draftDefaultRiskPercent, setDraftDefaultRiskPercent] =
+    useState<string>(defaultRiskPercent);
 
   // Derived: current default risk amount in dollars (if balance known)
   const defaultRiskAmount = useMemo(() => {
-    const pct = parseFloat(defaultRiskPercent || "0");
+    const pct = parseFloat(draftDefaultRiskPercent || "0");
     if (!availableBalance || isNaN(pct) || pct <= 0) return null;
     return (availableBalance * pct) / 100;
-  }, [availableBalance, defaultRiskPercent]);
+  }, [availableBalance, draftDefaultRiskPercent]);
 
   // User-defined default take profit percentage (optional)
   const [defaultTakeProfitPercent, setDefaultTakeProfitPercent] =
     useState<string>(() => {
-      return localStorage.getItem("flipSafe_defaultTakeProfitPercent") || "";
+      return localStorage.getItem(DEFAULT_TP_PERCENT_STORAGE_KEY) || "";
     });
+
+  const [draftDefaultTakeProfitPercent, setDraftDefaultTakeProfitPercent] =
+    useState<string>(defaultTakeProfitPercent);
 
   // Effective max leverage is min of exchange max and user max
   const maxLeverage = Math.min(exchangeMaxLeverage, userMaxLeverage);
@@ -159,36 +203,79 @@ const TradingWindow = memo(function TradingWindow({
     return rounded.toFixed(decimals);
   };
 
-  // Save user max leverage to localStorage
   const handleUserMaxLeverageChange = (value: number) => {
-    setUserMaxLeverage(value);
-    localStorage.setItem("flipSafe_userMaxLeverage", String(value));
+    setDraftUserMaxLeverage(value);
+  };
+
+  const handleDefaultRiskChange = (value: string) => {
+    setDraftDefaultRiskPercent(value);
+  };
+
+  const handleDefaultTakeProfitChange = (value: string) => {
+    setDraftDefaultTakeProfitPercent(value);
+  };
+
+  const applyConfig = () => {
+    const nextUserMax = Number.isFinite(draftUserMaxLeverage)
+      ? Math.max(1, draftUserMaxLeverage)
+      : userMaxLeverage;
+
+    setUserMaxLeverage(nextUserMax);
+    setDraftUserMaxLeverage(nextUserMax);
+    try {
+      localStorage.setItem(USER_MAX_LEVERAGE_STORAGE_KEY, String(nextUserMax));
+    } catch {
+      // ignore
+    }
+
     // Also update form leverage if current is higher than new max
-    const effectiveMax = Math.min(exchangeMaxLeverage, value);
+    const effectiveMax = Math.min(exchangeMaxLeverage, nextUserMax);
     if (parseInt(orderForm.leverage) > effectiveMax) {
       setOrderForm((prev) => ({ ...prev, leverage: String(effectiveMax) }));
     }
-  };
 
-  // Save default risk percentage to localStorage
-  const handleDefaultRiskChange = (value: string) => {
-    setDefaultRiskPercent(value);
-    if (value) {
-      localStorage.setItem("flipSafe_defaultRiskPercent", value);
-    } else {
-      localStorage.removeItem("flipSafe_defaultRiskPercent");
+    const risk = (draftDefaultRiskPercent ?? "").trim();
+    setDefaultRiskPercent(risk || "");
+    setDraftDefaultRiskPercent(risk);
+    try {
+      if (risk) {
+        localStorage.setItem(DEFAULT_RISK_PERCENT_STORAGE_KEY, risk);
+      } else {
+        localStorage.removeItem(DEFAULT_RISK_PERCENT_STORAGE_KEY);
+      }
+    } catch {
+      // ignore
+    }
+
+    const tp = (draftDefaultTakeProfitPercent ?? "").trim();
+    setDefaultTakeProfitPercent(tp || "");
+    setDraftDefaultTakeProfitPercent(tp);
+    try {
+      if (tp) {
+        localStorage.setItem(DEFAULT_TP_PERCENT_STORAGE_KEY, tp);
+      } else {
+        localStorage.removeItem(DEFAULT_TP_PERCENT_STORAGE_KEY);
+      }
+    } catch {
+      // ignore
     }
   };
 
-  // Save default take profit percentage to localStorage
-  const handleDefaultTakeProfitChange = (value: string) => {
-    setDefaultTakeProfitPercent(value);
-    if (value) {
-      localStorage.setItem("flipSafe_defaultTakeProfitPercent", value);
-    } else {
-      localStorage.removeItem("flipSafe_defaultTakeProfitPercent");
-    }
-  };
+  // Dirty flag: true when any draft value differs from saved value
+  const isConfigDirty = useMemo(() => {
+    return (
+      draftUserMaxLeverage !== userMaxLeverage ||
+      draftDefaultRiskPercent !== defaultRiskPercent ||
+      draftDefaultTakeProfitPercent !== defaultTakeProfitPercent
+    );
+  }, [
+    draftUserMaxLeverage,
+    userMaxLeverage,
+    draftDefaultRiskPercent,
+    defaultRiskPercent,
+    draftDefaultTakeProfitPercent,
+    defaultTakeProfitPercent,
+  ]);
 
   // Helper to calculate decimals from price
   const calculatePriceDecimals = (price: number): number => {
@@ -212,61 +299,25 @@ const TradingWindow = memo(function TradingWindow({
     }));
   };
 
-  // Auto-calculate Stop Loss based on 5% risk rule
+  // Auto-calculate Stop Loss from saved risk % (as % of available balance)
   useEffect(() => {
-    if (hasUserEditedSL || !availableBalance || !orderForm.quantity) return;
-
-    const qty = parseFloat(orderForm.quantity);
-    const entryPrice =
-      orderForm.type === "LIMIT" ? parseFloat(orderForm.price) : currentPrice;
-
-    if (qty > 0 && entryPrice > 0) {
-      // Risk 5% of total capital
-      const riskAmount = availableBalance * 0.05;
-      const priceDiff = riskAmount / qty;
-
-      let slPrice;
-      if (orderForm.side === "BUY") {
-        slPrice = entryPrice - priceDiff;
-      } else {
-        slPrice = entryPrice + priceDiff;
-      }
-
-      // Ensure SL is positive and round to tick size
-      if (slPrice > 0) {
-        setOrderForm((prev) => ({
-          ...prev,
-          stopLoss: roundToStep(slPrice, tickSize),
-        }));
-      }
-    }
-  }, [
-    orderForm.quantity,
-    orderForm.price,
-    orderForm.side,
-    currentPrice,
-    availableBalance,
-    hasUserEditedSL,
-  ]);
-
-  // Update SL when defaultRiskPercent, quantity, price, or side changes
-  useEffect(() => {
+    if (hasUserEditedSL) return;
     if (
       !defaultRiskPercent ||
       !orderForm.quantity ||
-      !orderForm.price ||
       !availableBalance
     )
       return;
 
     const riskPercent = parseFloat(defaultRiskPercent);
     const qty = parseFloat(orderForm.quantity);
-    const price = parseFloat(orderForm.price);
+    const entryPrice =
+      orderForm.type === "LIMIT" ? parseFloat(orderForm.price) : currentPrice;
 
     if (
       isNaN(riskPercent) ||
       isNaN(qty) ||
-      isNaN(price) ||
+      isNaN(entryPrice) ||
       qty === 0 ||
       riskPercent <= 0
     )
@@ -278,9 +329,9 @@ const TradingWindow = memo(function TradingWindow({
     let newSL = 0;
 
     if (orderForm.side === "BUY") {
-      newSL = price - riskPerUnit;
+      newSL = entryPrice - riskPerUnit;
     } else {
-      newSL = price + riskPerUnit;
+      newSL = entryPrice + riskPerUnit;
     }
 
     if (newSL > 0) {
@@ -295,7 +346,7 @@ const TradingWindow = memo(function TradingWindow({
       ) {
         setOrderForm((prev) => ({
           ...prev,
-          stopLoss: roundedSL.toFixed(calculatePriceDecimals(price)),
+          stopLoss: roundedSL.toFixed(calculatePriceDecimals(entryPrice)),
         }));
       }
     }
@@ -303,30 +354,41 @@ const TradingWindow = memo(function TradingWindow({
     defaultRiskPercent,
     orderForm.quantity,
     orderForm.price,
+    orderForm.type,
     orderForm.side,
+    currentPrice,
     tickSize,
     availableBalance,
+    hasUserEditedSL,
   ]);
 
-  // Auto-calculate Take Profit based on default percentage
+  // Auto-calculate Take Profit from saved TP % (as % of available balance)
   useEffect(() => {
     if (hasUserEditedTP || !defaultTakeProfitPercent) return;
 
-    const tpPercent = parseFloat(defaultTakeProfitPercent);
-    const price = parseFloat(orderForm.price);
+    if (!availableBalance || !orderForm.quantity) return;
 
-    if (isNaN(tpPercent) || isNaN(price) || tpPercent <= 0 || price <= 0)
+    const tpPercent = parseFloat(defaultTakeProfitPercent);
+    const qty = parseFloat(orderForm.quantity);
+    const entryPrice =
+      orderForm.type === "LIMIT" ? parseFloat(orderForm.price) : currentPrice;
+
+    if (
+      isNaN(tpPercent) ||
+      isNaN(entryPrice) ||
+      isNaN(qty) ||
+      tpPercent <= 0 ||
+      entryPrice <= 0 ||
+      qty <= 0
+    )
       return;
 
-    let newTP = 0;
+    const targetAmount = (availableBalance * tpPercent) / 100;
+    const priceDiff = targetAmount / qty;
 
-    if (orderForm.side === "BUY") {
-      // For long, TP is above entry price
-      newTP = price * (1 + tpPercent / 100);
-    } else {
-      // For short, TP is below entry price
-      newTP = price * (1 - tpPercent / 100);
-    }
+    let newTP = 0;
+    if (orderForm.side === "BUY") newTP = entryPrice + priceDiff;
+    else newTP = entryPrice - priceDiff;
 
     if (newTP > 0) {
       const tick = parseFloat(tickSize);
@@ -339,16 +401,20 @@ const TradingWindow = memo(function TradingWindow({
       ) {
         setOrderForm((prev) => ({
           ...prev,
-          takeProfit: roundedTP.toFixed(calculatePriceDecimals(price)),
+          takeProfit: roundedTP.toFixed(calculatePriceDecimals(entryPrice)),
         }));
       }
     }
   }, [
     defaultTakeProfitPercent,
     orderForm.price,
+    orderForm.quantity,
+    orderForm.type,
     orderForm.side,
+    currentPrice,
     tickSize,
     hasUserEditedTP,
+    availableBalance,
   ]);
 
   const fetchAccountAndPositionDetails = useCallback(async () => {
@@ -465,12 +531,39 @@ const TradingWindow = memo(function TradingWindow({
     field: keyof OrderForm,
     value: string | boolean
   ) => {
-    setOrderForm((prev) => ({ ...prev, [field]: value }));
+    if (field === "type") {
+      const nextType = value as OrderForm["type"];
+      setOrderForm((prev) => {
+        // If switching to LIMIT, initialize price from current LTP.
+        if (nextType === "LIMIT") {
+          const decimals = tickSize.includes(".")
+            ? tickSize.split(".")[1].replace(/0+$/, "").length
+            : 2;
+          return {
+            ...prev,
+            type: nextType,
+            price:
+              Number.isFinite(currentPrice) && currentPrice > 0
+                ? currentPrice.toFixed(decimals)
+                : prev.price,
+          };
+        }
+        return { ...prev, type: nextType };
+      });
+      // Reset price-edit flag when leaving LIMIT or re-entering it.
+      setHasUserEditedPrice(false);
+    } else {
+      setOrderForm((prev) => ({ ...prev, [field]: value }));
+    }
+
     if (field === "stopLoss") {
       setHasUserEditedSL(true);
     }
     if (field === "takeProfit") {
       setHasUserEditedTP(true);
+    }
+    if (field === "price") {
+      setHasUserEditedPrice(true);
     }
     setError(null);
     setSuccess(null);
@@ -870,7 +963,18 @@ const TradingWindow = memo(function TradingWindow({
                     type="checkbox"
                     id="expSlider"
                     checked={isExponentialSlider}
-                    onChange={(e) => setIsExponentialSlider(e.target.checked)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setIsExponentialSlider(checked);
+                      try {
+                        localStorage.setItem(
+                          EXPONENTIAL_SLIDER_STORAGE_KEY,
+                          String(checked)
+                        );
+                      } catch {
+                        // ignore
+                      }
+                    }}
                     className="form-checkbox w-3 h-3"
                   />
                   <label
@@ -1264,7 +1368,7 @@ const TradingWindow = memo(function TradingWindow({
                   </div>
                   <input
                     type="number"
-                    value={userMaxLeverage}
+                    value={draftUserMaxLeverage}
                     onChange={(e) =>
                       handleUserMaxLeverageChange(parseInt(e.target.value) || 1)
                     }
@@ -1300,7 +1404,7 @@ const TradingWindow = memo(function TradingWindow({
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      value={defaultRiskPercent}
+                      value={draftDefaultRiskPercent}
                       onChange={(e) => handleDefaultRiskChange(e.target.value)}
                       className="form-input w-full text-left px-2 py-1 h-7 text-xs"
                       placeholder="1"
@@ -1330,8 +1434,9 @@ const TradingWindow = memo(function TradingWindow({
                             <strong>Default Take Profit %</strong>
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            Optional: Default percentage gain for take profit.
-                            Auto-calculates TP price based on entry. Leave empty
+                            Optional: Percentage of your available balance you
+                            want to target as profit per trade. Auto-calculates
+                            TP price from entry and position size. Leave empty
                             to disable.
                           </p>
                         </TooltipContent>
@@ -1341,7 +1446,7 @@ const TradingWindow = memo(function TradingWindow({
                   <div className="flex gap-2 items-center">
                     <input
                       type="number"
-                      value={defaultTakeProfitPercent}
+                      value={draftDefaultTakeProfitPercent}
                       onChange={(e) =>
                         handleDefaultTakeProfitChange(e.target.value)
                       }
@@ -1366,9 +1471,9 @@ const TradingWindow = memo(function TradingWindow({
                 variant="outline"
                 size="sm"
                 className="w-full mt-2 h-7 text-xs"
+                disabled={!isConfigDirty}
                 onClick={() => {
-                  // All config values are already saved to localStorage on change
-                  // This button provides visual feedback
+                  applyConfig();
                   const toast = document.createElement("div");
                   toast.className =
                     "fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md text-sm z-50 animate-fade-in";

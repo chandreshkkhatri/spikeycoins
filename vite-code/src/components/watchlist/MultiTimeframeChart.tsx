@@ -25,6 +25,7 @@ import {
   Maximize2,
   Minimize2,
   Plus,
+  RefreshCw,
   RotateCcw,
   X,
 } from "lucide-react";
@@ -127,6 +128,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       priceLineRefs?: any[];
     }[]>([]);
     const [loading, setLoading] = useState(false);
+    const [refreshingCharts, setRefreshingCharts] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [chartTimeframes, setChartTimeframes] = useState<{
       [index: number]: string;
@@ -198,6 +200,46 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       setAutoScale(false);
       setIsLogScale(false);
       setIsCollapsed(false);
+    };
+
+    // Refresh all charts by re-fetching data without destroying existing charts
+    const refreshAllCharts = async () => {
+      if (refreshingCharts) return;
+      setRefreshingCharts(true);
+      setError(null);
+
+      const thisRun = runIdRef.current + 1;
+      runIdRef.current = thisRun;
+
+      try {
+        // Clear the promise cache to force fresh fetches
+        CHART_PROMISE_CACHE.clear();
+
+        await Promise.all(
+          selectedTimeframes.map(async (timeframe, index) => {
+            const chartRef = chartRefs.current[index];
+            if (!chartRef?.series) return;
+
+            const actualTimeframe = chartTimeframes[index] || timeframe.interval;
+            try {
+              const data = await fetchChartData(actualTimeframe);
+              if (runIdRef.current !== thisRun) return;
+              if (data.length > 0 && typeof chartRef.series.setData === "function") {
+                chartRef.series.setData(data);
+                chartRef.chart?.timeScale().fitContent();
+              }
+            } catch (err) {
+              if (runIdRef.current !== thisRun) return;
+              const msg = err instanceof Error ? err.message : "Failed to refresh";
+              setError(msg);
+            }
+          })
+        );
+      } finally {
+        if (runIdRef.current === thisRun) {
+          setRefreshingCharts(false);
+        }
+      }
       setCollapsedCharts({});
       localStorage.removeItem(CHART_SETTINGS_KEY);
     };
@@ -865,6 +907,16 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 >
                   <RotateCcw size={12} /> Reset
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={refreshAllCharts}
+                  disabled={refreshingCharts}
+                  className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                  title="Refresh all charts"
+                >
+                  <RefreshCw size={12} className={refreshingCharts ? "animate-spin" : ""} /> Refresh
+                </Button>
               </div>
             )}
           </div>
@@ -984,10 +1036,12 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                         </span>
                       </div>
                       
-                      {loading && (
-                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/90 backdrop-blur-sm">
+                      {(loading || refreshingCharts) && (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/60 backdrop-blur-[2px] pointer-events-none">
                           <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
-                          <p className="mt-2 text-[10px] font-medium text-muted-foreground">Loading...</p>
+                          <p className="mt-2 text-[10px] font-medium text-muted-foreground">
+                            {loading ? "Loading..." : "Refreshing..."}
+                          </p>
                         </div>
                       )}
                     

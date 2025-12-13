@@ -432,10 +432,13 @@ router.put("/modify", async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/orders/cancel - Cancel an order
-router.delete("/cancel", async (req: Request, res: Response) => {
+// DELETE /api/orders/:orderId - Cancel an order (RESTful path param version)
+router.delete("/:orderId", async (req: Request, res: Response) => {
   try {
-    const { accountId, orderId, symbol } = req.query;
+    const { orderId } = req.params;
+    // Accept accountId and symbol from query string OR request body
+    const accountId = (req.query.accountId as string) || req.body?.accountId;
+    const symbol = (req.query.symbol as string) || req.body?.symbol;
 
     if (!accountId || !orderId) {
       return res
