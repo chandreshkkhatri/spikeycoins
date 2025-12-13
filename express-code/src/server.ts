@@ -84,7 +84,7 @@ app.use(cookieParser());
 // Session middleware
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "flip-safe-secret-key",
+    secret: process.env.SESSION_SECRET || "open-mandi-secret-key",
     resave: false,
     saveUninitialized: false,
     cookie: {

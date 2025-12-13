@@ -13,9 +13,9 @@ import React, {
 const API_BASE_URL = import.meta.env.VITE_API_URL || "";
 
 // Storage keys
-const ACCESS_TOKEN_KEY = "flipSafe_accessToken";
-const REFRESH_TOKEN_KEY = "flipSafe_refreshToken";
-const USER_KEY = "flipSafe_user";
+const ACCESS_TOKEN_KEY = "openMandi_accessToken";
+const REFRESH_TOKEN_KEY = "openMandi_refreshToken";
+const USER_KEY = "openMandi_user";
 
 export interface User {
   _id: string;

@@ -1,6 +1,6 @@
-# Flip Safe Vite Frontend - Quick Start Guide
+# Open Mandi Vite Frontend - Quick Start Guide
 
-Get up and running with the Flip Safe frontend in minutes!
+Get up and running with the Open Mandi frontend in minutes!
 
 ## 🚀 Quick Setup (5 minutes)
 
@@ -43,7 +43,7 @@ Open your browser and navigate to:
 http://localhost:3000
 ```
 
-You should see the Flip Safe dashboard!
+You should see the Open Mandi dashboard!
 
 ## 📋 Prerequisites Checklist
 
@@ -317,4 +317,4 @@ If you encounter issues:
 
 ## 🎉 You're All Set!
 
-You now have a fully functional Flip Safe frontend running locally. Happy coding! 🚀
+You now have a fully functional Open Mandi frontend running locally. Happy coding! 🚀

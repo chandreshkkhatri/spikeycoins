@@ -15,13 +15,13 @@ export default function DashboardPage() {
   }
 
   return (
-    <PageLayout title="Flip Safe">
+    <PageLayout title="Open Mandi">
       <div className="mb-12 text-center">
         <h1 className="mb-2 bg-gradient-to-br from-blue-500 to-blue-700 bg-clip-text text-4xl font-bold text-transparent">
           Trading Dashboard
         </h1>
         <p className="text-lg text-muted-foreground">
-          Welcome to Flip Safe - Your Unified Trading Platform
+          Welcome to Open Mandi - Your Unified Trading Platform
         </p>
       </div>
 

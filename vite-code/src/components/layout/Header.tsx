@@ -80,11 +80,11 @@ export function Header() {
             <div className="flex items-center gap-2 px-2">
               <img 
                 src="/logo.png" 
-                alt="Flip Safe" 
+                alt="Open Mandi" 
                 className="h-8 w-8 rounded-md object-contain"
               />
               <span className="hidden md:block font-bold text-lg">
-                Flip Safe
+                Open Mandi
               </span>
             </div>
           </Link>

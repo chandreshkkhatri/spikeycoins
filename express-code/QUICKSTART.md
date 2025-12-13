@@ -1,9 +1,9 @@
-# Quick Start Guide - Flip Safe Express Backend
+# Quick Start Guide - Open Mandi Express Backend
 
 ## 1. Install Dependencies
 
 ```bash
-cd /home/chandresh/code/flip-safe/express-code
+cd /home/chandresh/code/open-mandi/express-code
 npm install
 ```
 
@@ -20,7 +20,7 @@ Edit `.env` and set at minimum:
 ```env
 PORT=8000
 NODE_ENV=development
-MONGODB_URI=mongodb://localhost:27017/flip-safe
+MONGODB_URI=mongodb://localhost:27017/open-mandi
 ALLOWED_ORIGINS=http://localhost:8000,http://localhost:5173
 SESSION_SECRET=your-random-secret-key
 BASE_URL=http://localhost:8000

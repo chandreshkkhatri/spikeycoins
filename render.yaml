@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: flip-safe-express-backend
+    name: open-mandi-express-backend
     runtime: node
     rootDir: express-code
     buildCommand: npm install && npm run build

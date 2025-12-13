@@ -51,10 +51,10 @@ interface OrderForm {
 }
 
 const DETAILS_REFRESH_INTERVAL = 60000; // 60 seconds between automatic refreshes
-const EXPONENTIAL_SLIDER_STORAGE_KEY = "flipSafe_isExponentialSlider";
-const DEFAULT_RISK_PERCENT_STORAGE_KEY = "flipSafe_defaultRiskPercent";
-const DEFAULT_TP_PERCENT_STORAGE_KEY = "flipSafe_defaultTakeProfitPercent";
-const USER_MAX_LEVERAGE_STORAGE_KEY = "flipSafe_userMaxLeverage";
+const EXPONENTIAL_SLIDER_STORAGE_KEY = "openMandi_isExponentialSlider";
+const DEFAULT_RISK_PERCENT_STORAGE_KEY = "openMandi_defaultRiskPercent";
+const DEFAULT_TP_PERCENT_STORAGE_KEY = "openMandi_defaultTakeProfitPercent";
+const USER_MAX_LEVERAGE_STORAGE_KEY = "openMandi_userMaxLeverage";
 
 const TradingWindow = memo(function TradingWindow({
   symbol,

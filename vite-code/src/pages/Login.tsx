@@ -83,11 +83,11 @@ export default function Login() {
         <div className="text-center">
           <img 
             src="/logo.png" 
-            alt="Flip Safe" 
+            alt="Open Mandi" 
             className="h-16 w-16 mx-auto mb-4 rounded-lg object-contain"
           />
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            Flip Safe
+            Open Mandi
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {mode === "login" ? "Sign in to your account" : "Create a new account"}

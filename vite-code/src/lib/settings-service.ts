@@ -9,8 +9,8 @@ import { api } from './auth-context';
 
 // Settings keys in localStorage
 const THEME_KEY = 'theme';
-const CHART_SETTINGS_KEY = 'flipSafe_chartSettings';
-const WATCHLIST_SETTINGS_KEY = 'flipSafe_watchlistSettings';
+const CHART_SETTINGS_KEY = 'openMandi_chartSettings';
+const WATCHLIST_SETTINGS_KEY = 'openMandi_watchlistSettings';
 
 export interface CloudSettings {
   theme: 'light' | 'dark' | 'system';
@@ -47,7 +47,7 @@ class SettingsSyncService {
    * Load settings from server if authenticated, otherwise from localStorage
    */
   async loadSettings(): Promise<CloudSettings> {
-    const token = localStorage.getItem('flipSafe_accessToken');
+    const token = localStorage.getItem('openMandi_accessToken');
     
     if (token) {
       try {
@@ -104,7 +104,7 @@ class SettingsSyncService {
    * Sync pending changes to server
    */
   private async syncToServer(): Promise<void> {
-    const token = localStorage.getItem('flipSafe_accessToken');
+    const token = localStorage.getItem('openMandi_accessToken');
     
     if (!token || this.isSyncing || Object.keys(this.pendingChanges).length === 0) {
       return;
@@ -191,7 +191,7 @@ class SettingsSyncService {
    * Migrate localStorage settings to server after login
    */
   async migrateLocalSettingsToServer(): Promise<void> {
-    const token = localStorage.getItem('flipSafe_accessToken');
+    const token = localStorage.getItem('openMandi_accessToken');
     if (!token) return;
 
     try {
