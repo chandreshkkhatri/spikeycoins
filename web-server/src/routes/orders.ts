@@ -270,44 +270,227 @@ router.post("/place", async (req: Request, res: Response) => {
         // Place main order
         result = await binanceService.placeFuturesOrder(cleanOrderParams);
 
-        // Place stop loss order if provided
-        // Using closePosition: true so the SL closes the entire position
-        // and automatically cancels when position is closed
-        if (stopLoss && stopLoss > 0) {
+        // Helper function to place SL/TP with retry logic
+        const placeSLTPWithRetry = async (
+          orderParams: Record<string, unknown>,
+          orderType: string,
+          maxRetries: number = 3,
+          delayMs: number = 500
+        ): Promise<{ success: boolean; error?: string }> => {
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              await binanceService.placeFuturesOrder(orderParams as {
+                symbol: string;
+                side: "BUY" | "SELL";
+                type:
+                  | "LIMIT"
+                  | "MARKET"
+                  | "STOP"
+                  | "TAKE_PROFIT"
+                  | "STOP_MARKET"
+                  | "TAKE_PROFIT_MARKET";
+                quantity?: number;
+                price?: number;
+                stopPrice?: number;
+                timeInForce?: "GTC" | "IOC" | "FOK" | "GTX";
+                reduceOnly?: boolean;
+                closePosition?: boolean;
+              });
+              return { success: true };
+            } catch (err: unknown) {
+              const errorMessage =
+                err instanceof Error ? err.message : "Unknown error";
+              console.warn(
+                `${orderType} order attempt ${attempt}/${maxRetries} failed:`,
+                errorMessage
+              );
+
+              // If it's the last attempt, return the error
+              if (attempt === maxRetries) {
+                return { success: false, error: errorMessage };
+              }
+
+              // Wait before retry
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+          }
+          return { success: false, error: "Max retries exceeded" };
+        };
+
+        // Validate stop price against market price
+        const validateStopPrice = (
+          stopPrice: number,
+          markPrice: number,
+          side: "BUY" | "SELL",
+          orderType: "SL" | "TP"
+        ): { valid: boolean; error?: string } => {
+          // For a LONG position (BUY), SL should be below mark price, TP should be above
+          // For a SHORT position (SELL), SL should be above mark price, TP should be below
+          const isLong = side === "BUY";
+          const tolerance = 0.001; // 0.1% tolerance for edge cases
+
+          if (orderType === "SL") {
+            if (isLong && stopPrice >= markPrice * (1 - tolerance)) {
+              return {
+                valid: false,
+                error: `Stop Loss (${stopPrice}) must be below current price (${markPrice}) for LONG positions`,
+              };
+            }
+            if (!isLong && stopPrice <= markPrice * (1 + tolerance)) {
+              return {
+                valid: false,
+                error: `Stop Loss (${stopPrice}) must be above current price (${markPrice}) for SHORT positions`,
+              };
+            }
+          } else {
+            // TP
+            if (isLong && stopPrice <= markPrice * (1 + tolerance)) {
+              return {
+                valid: false,
+                error: `Take Profit (${stopPrice}) must be above current price (${markPrice}) for LONG positions`,
+              };
+            }
+            if (!isLong && stopPrice >= markPrice * (1 - tolerance)) {
+              return {
+                valid: false,
+                error: `Take Profit (${stopPrice}) must be below current price (${markPrice}) for SHORT positions`,
+              };
+            }
+          }
+          return { valid: true };
+        };
+
+        // Get current mark price for validation
+        let markPrice: number | null = null;
+        if (stopLoss || takeProfit) {
           try {
-            const slSide = orderParams.side === "BUY" ? "SELL" : "BUY";
-            const roundedSL = roundToPrecision(stopLoss, pricePrecision);
-            await binanceService.placeFuturesOrder({
+            markPrice = await binanceService.getFuturesMarkPrice(
+              orderParams.symbol
+            );
+            console.log(
+              `[Orders/Place] Current mark price for ${orderParams.symbol}: ${markPrice}`
+            );
+          } catch (priceErr) {
+            console.warn("Could not fetch mark price for validation:", priceErr);
+          }
+        }
+
+        // Determine if we should use quantity-based SL/TP
+        // For LIMIT orders, the position doesn't exist yet so we use quantity
+        // For MARKET orders, the position exists immediately so we can use closePosition
+        const isLimitOrder = orderParams.type === "LIMIT";
+        const useQuantityBased = isLimitOrder;
+
+        // Cancel existing SL/TP orders for this symbol and side before placing new ones
+        if (stopLoss || takeProfit) {
+          try {
+            const slTpSide = orderParams.side === "BUY" ? "SELL" : "BUY";
+            const cancelResults = await binanceService.cancelFuturesSlTpOrders(
+              orderParams.symbol,
+              slTpSide
+            );
+            if (cancelResults.length > 0) {
+              console.log(
+                `[Orders/Place] Cancelled ${cancelResults.length} existing SL/TP orders for ${orderParams.symbol}`
+              );
+            }
+          } catch (cancelErr) {
+            console.warn("Could not cancel existing SL/TP orders:", cancelErr);
+            // Continue anyway - new orders might still work
+          }
+        }
+
+        // Place stop loss order if provided
+        if (stopLoss && stopLoss > 0) {
+          const slSide = orderParams.side === "BUY" ? "SELL" : "BUY";
+          const roundedSL = roundToPrecision(stopLoss, pricePrecision);
+
+          // Validate stop price
+          if (markPrice !== null) {
+            const validation = validateStopPrice(
+              roundedSL,
+              markPrice,
+              orderParams.side,
+              "SL"
+            );
+            if (!validation.valid) {
+              slOrderError = validation.error || "Invalid stop loss price";
+              console.warn("Stop loss validation failed:", slOrderError);
+            }
+          }
+
+          // Only place order if validation passed (or we couldn't validate)
+          if (!slOrderError) {
+            const slOrderParams: Record<string, unknown> = {
               symbol: orderParams.symbol,
               side: slSide,
               type: "STOP_MARKET",
               stopPrice: roundedSL,
-              closePosition: true,
-              // Note: closePosition=true means quantity is ignored and entire position is closed
-            });
-          } catch (err: any) {
-            slOrderError = err.message || "Unknown error";
-            console.warn("Failed to place stop loss order:", slOrderError);
+            };
+
+            if (useQuantityBased) {
+              // For LIMIT orders, use quantity and reduceOnly
+              slOrderParams.quantity = roundedQuantity;
+              slOrderParams.reduceOnly = true;
+            } else {
+              // For MARKET orders, use closePosition
+              slOrderParams.closePosition = true;
+            }
+
+            const slResult = await placeSLTPWithRetry(
+              slOrderParams,
+              "Stop Loss"
+            );
+            if (!slResult.success) {
+              slOrderError = slResult.error || "Unknown error";
+            }
           }
         }
 
         // Place take profit order if provided
-        // Using closePosition: true so the TP closes the entire position
         if (takeProfit && takeProfit > 0) {
-          try {
-            const tpSide = orderParams.side === "BUY" ? "SELL" : "BUY";
-            const roundedTP = roundToPrecision(takeProfit, pricePrecision);
-            await binanceService.placeFuturesOrder({
+          const tpSide = orderParams.side === "BUY" ? "SELL" : "BUY";
+          const roundedTP = roundToPrecision(takeProfit, pricePrecision);
+
+          // Validate stop price
+          if (markPrice !== null) {
+            const validation = validateStopPrice(
+              roundedTP,
+              markPrice,
+              orderParams.side,
+              "TP"
+            );
+            if (!validation.valid) {
+              tpOrderError = validation.error || "Invalid take profit price";
+              console.warn("Take profit validation failed:", tpOrderError);
+            }
+          }
+
+          // Only place order if validation passed (or we couldn't validate)
+          if (!tpOrderError) {
+            const tpOrderParams: Record<string, unknown> = {
               symbol: orderParams.symbol,
               side: tpSide,
               type: "TAKE_PROFIT_MARKET",
               stopPrice: roundedTP,
-              closePosition: true,
-              // Note: closePosition=true means quantity is ignored and entire position is closed
-            });
-          } catch (err: any) {
-            tpOrderError = err.message || "Unknown error";
-            console.warn("Failed to place take profit order:", tpOrderError);
+            };
+
+            if (useQuantityBased) {
+              // For LIMIT orders, use quantity and reduceOnly
+              tpOrderParams.quantity = roundedQuantity;
+              tpOrderParams.reduceOnly = true;
+            } else {
+              // For MARKET orders, use closePosition
+              tpOrderParams.closePosition = true;
+            }
+
+            const tpResult = await placeSLTPWithRetry(
+              tpOrderParams,
+              "Take Profit"
+            );
+            if (!tpResult.success) {
+              tpOrderError = tpResult.error || "Unknown error";
+            }
           }
         }
 

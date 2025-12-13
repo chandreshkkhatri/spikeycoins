@@ -159,8 +159,8 @@ router.get("/:id", async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/accounts/:id - Update an account
-router.put("/:id", async (req: Request, res: Response) => {
+// Helper function for updating an account
+async function handleUpdateAccount(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -168,6 +168,14 @@ router.put("/:id", async (req: Request, res: Response) => {
     // Don't allow updating certain fields
     delete updates._id;
     delete updates.createdAt;
+
+    // Trim API keys if provided
+    if (updates.apiKey) {
+      updates.apiKey = updates.apiKey.trim();
+    }
+    if (updates.apiSecret) {
+      updates.apiSecret = updates.apiSecret.trim();
+    }
 
     const updatedAccount = await updateAccount(id, updates);
 
@@ -190,7 +198,13 @@ router.put("/:id", async (req: Request, res: Response) => {
     console.error("Error updating account:", error);
     return res.status(500).json({ error: "Failed to update account" });
   }
-});
+}
+
+// PUT /api/accounts/:id - Update an account
+router.put("/:id", handleUpdateAccount);
+
+// PATCH /api/accounts/:id - Update an account (partial update)
+router.patch("/:id", handleUpdateAccount);
 
 // DELETE /api/accounts/:id - Delete (deactivate) an account
 router.delete("/:id", async (req: Request, res: Response) => {

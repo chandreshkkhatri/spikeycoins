@@ -536,6 +536,112 @@ class BinanceService {
   }
 
   /**
+   * Cancel all open Futures orders for a symbol
+   */
+  async cancelAllFuturesOrders(symbol: string) {
+    try {
+      this.checkRateLimit();
+      const signedParams = this.signRequest({ symbol });
+      const response = await this.futuresClient.delete(
+        `/fapi/v1/allOpenOrders?${signedParams}`
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures cancelAllOrders error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg ||
+          "Failed to cancel all Binance Futures orders"
+      );
+    }
+  }
+
+  /**
+   * Get existing SL/TP orders for a symbol (STOP_MARKET and TAKE_PROFIT_MARKET)
+   */
+  async getFuturesSlTpOrders(symbol: string): Promise<
+    Array<{
+      orderId: number;
+      symbol: string;
+      type: string;
+      side: string;
+      stopPrice: string;
+    }>
+  > {
+    try {
+      const openOrders = await this.getFuturesOpenOrders(symbol);
+      return openOrders.filter(
+        (order: { type: string }) =>
+          order.type === "STOP_MARKET" || order.type === "TAKE_PROFIT_MARKET"
+      );
+    } catch (error: any) {
+      console.error("Error fetching SL/TP orders:", error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Cancel specific SL/TP orders for a symbol
+   * @param symbol - Trading symbol
+   * @param side - Optional: only cancel orders for this side (BUY/SELL)
+   */
+  async cancelFuturesSlTpOrders(symbol: string, side?: "BUY" | "SELL") {
+    try {
+      const slTpOrders = await this.getFuturesSlTpOrders(symbol);
+      const ordersToCancel = side
+        ? slTpOrders.filter((o: { side: string }) => o.side === side)
+        : slTpOrders;
+
+      const results = [];
+      for (const order of ordersToCancel) {
+        try {
+          const result = await this.cancelFuturesOrder(symbol, order.orderId);
+          results.push({ orderId: order.orderId, success: true, result });
+        } catch (cancelError: unknown) {
+          const errorMessage =
+            cancelError instanceof Error
+              ? cancelError.message
+              : "Unknown error";
+          results.push({
+            orderId: order.orderId,
+            success: false,
+            error: errorMessage,
+          });
+        }
+      }
+      return results;
+    } catch (error: any) {
+      console.error("Error cancelling SL/TP orders:", error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get current mark price for a futures symbol (for validation)
+   * Uses mark price which is more stable than last price
+   */
+  async getFuturesMarkPrice(symbol: string): Promise<number> {
+    try {
+      this.checkRateLimit();
+      const response = await this.futuresClient.get(`/fapi/v1/premiumIndex`, {
+        params: { symbol },
+      });
+      return parseFloat(response.data.markPrice);
+    } catch (error: any) {
+      console.error(
+        "Binance Futures getMarkPrice error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg ||
+          "Failed to fetch Binance Futures mark price"
+      );
+    }
+  }
+
+  /**
    * Change Futures leverage
    */
   async changeFuturesLeverage(symbol: string, leverage: number) {
