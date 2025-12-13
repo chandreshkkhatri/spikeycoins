@@ -23,13 +23,13 @@ A modern, high-performance trading platform frontend built with React, TypeScrip
 ## 🛠️ Installation
 
 ```bash
-cd vite-code
+cd vite-ui
 npm install
 ```
 
 ## ⚙️ Configuration
 
-Create a `.env` file in the root of the `vite-code` directory:
+Create a `.env` file in the root of the `vite-ui` directory:
 
 ```bash
 cp .env.example .env
@@ -61,7 +61,7 @@ npm run preview
 ## 📁 Project Structure
 
 ```
-vite-code/
+vite-ui/
 ├── public/                 # Static assets
 ├── src/
 │   ├── components/         # React components

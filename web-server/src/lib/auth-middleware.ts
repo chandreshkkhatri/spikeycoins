@@ -3,7 +3,7 @@ import crypto from "crypto";
 
 // JWT implementation without external dependencies
 const JWT_SECRET = process.env.JWT_SECRET || "open-mandi-jwt-secret-change-in-production";
-const JWT_EXPIRY_SECONDS = 15 * 60; // 15 minutes
+const JWT_EXPIRY_SECONDS = 30 * 60; // 30 minutes
 
 export interface JWTPayload {
   userId: string;

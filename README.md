@@ -6,8 +6,8 @@ Open Mandi is a comprehensive trading platform that unifies multiple brokerage a
 
 The project is organized as a monorepo with two main components:
 
-- **`vite-code/`**: The Frontend application built with React, Vite, TypeScript, and Tailwind CSS.
-- **`express-code/`**: The Backend REST API built with Express, Node.js, TypeScript, and MongoDB.
+- **`vite-ui/`**: The Frontend application built with React, Vite, TypeScript, and Tailwind CSS.
+- **`web-server/`**: The Backend REST API built with Express, Node.js, TypeScript, and MongoDB.
 
 ## ✨ Features
 
@@ -47,7 +47,7 @@ Before running the project, ensure you have the following installed:
 Navigate to the backend directory and install dependencies:
 
 ```bash
-cd express-code
+cd web-server
 npm install
 ```
 
@@ -71,7 +71,7 @@ The server will start on `http://localhost:8000` (default).
 Open a new terminal, navigate to the frontend directory, and install dependencies:
 
 ```bash
-cd vite-code
+cd vite-ui
 npm install
 ```
 

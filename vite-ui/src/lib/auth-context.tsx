@@ -1,4 +1,3 @@
-import axios from "axios";
 import React, {
   createContext,
   ReactNode,
@@ -6,15 +5,17 @@ import React, {
   useContext,
   useEffect,
   useState,
-  useRef,
 } from "react";
+import api, {
+  getAccessToken as getStoredAccessToken,
+  getRefreshToken,
+  setTokens,
+  manualRefreshTokens,
+  manualClearAuth,
+  getApiUrl,
+} from "./api";
 
-// API Base URL - use env var in production, relative path in development
-const API_BASE_URL = import.meta.env.VITE_API_URL || "";
-
-// Storage keys
-const ACCESS_TOKEN_KEY = "openMandi_accessToken";
-const REFRESH_TOKEN_KEY = "openMandi_refreshToken";
+// Storage keys (must match api.ts)
 const USER_KEY = "openMandi_user";
 
 export interface User {
@@ -55,21 +56,6 @@ export const useAuth = () => {
   return context;
 };
 
-// Create axios instance with auth interceptor
-const api = axios.create({
-  baseURL: `${API_BASE_URL}/api`,
-  timeout: 10000,
-});
-
-// Add access token to requests
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
 interface AuthProviderProps {
   children: ReactNode;
 }
@@ -85,77 +71,41 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const refreshPromiseRef = useRef<Promise<boolean> | null>(null);
 
   const isLoggedIn = !!user;
 
   // Save tokens and user to storage
   const saveAuth = useCallback(
     (accessToken: string, refreshToken: string, userData: User) => {
-      localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-      localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      setTokens(accessToken, refreshToken);
       localStorage.setItem(USER_KEY, JSON.stringify(userData));
       setUser(userData);
     },
     []
   );
 
-  // Clear auth data
+  // Clear auth data (also clears user state)
   const clearAuth = useCallback(() => {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    sessionStorage.removeItem("authStatusCache");
-    sessionStorage.removeItem("authStatusCacheTime");
-    localStorage.removeItem("accountsCache");
-    localStorage.removeItem("accountsCacheTime");
-    localStorage.removeItem("selectedAccountId");
+    manualClearAuth();
     setUser(null);
   }, []);
 
-  // Get access token
+  // Get access token (delegate to api.ts)
   const getAccessToken = useCallback((): string | null => {
-    return localStorage.getItem(ACCESS_TOKEN_KEY);
+    return getStoredAccessToken();
   }, []);
 
-  // Refresh tokens
+  // Refresh tokens (delegate to api.ts shared implementation)
   const refreshTokens = useCallback(async (): Promise<boolean> => {
-    if (refreshPromiseRef.current) {
-      return await refreshPromiseRef.current;
-    }
-
-    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    if (!refreshToken) return false;
-
-    refreshPromiseRef.current = (async () => {
-      try {
-        const response = await api.post("/auth/refresh", { refreshToken });
-        const { accessToken, refreshToken: newRefreshToken } = response.data;
-
-        if (!accessToken || !newRefreshToken) {
-          throw new Error("Malformed refresh response");
-        }
-
-        localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-        localStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
-        return true;
-      } catch (error: any) {
-        const status = error?.response?.status;
-        console.error("Token refresh failed:", error);
-
-        // Only clear auth for definitive auth failures (invalid/expired refresh token).
-        // For transient network/server errors, avoid logging the user out.
-        if (status === 400 || status === 401) {
-          clearAuth();
-        }
-        return false;
-      } finally {
-        refreshPromiseRef.current = null;
+    const result = await manualRefreshTokens();
+    if (!result) {
+      // If refresh failed due to auth error, clear user state
+      if (!getRefreshToken()) {
+        setUser(null);
       }
-    })();
-
-    return await refreshPromiseRef.current;
-  }, [clearAuth]);
+    }
+    return result;
+  }, []);
 
   // Check current auth status on mount
   useEffect(() => {
@@ -173,7 +123,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     const checkAuth = async () => {
-      const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+      const token = getStoredAccessToken();
 
       if (!token) {
         setIsLoading(false);
@@ -215,7 +165,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               // Ignore retry failure; auth will be cleared only on definitive refresh failure.
             }
           }
-        } else if (!localStorage.getItem(REFRESH_TOKEN_KEY)) {
+        } else if (!getRefreshToken()) {
           // Auth was already cleared due to invalid refresh token.
           clearAuth();
         }
@@ -234,9 +184,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const refreshToken = params.get("refreshToken");
 
     if (accessToken && refreshToken) {
-      // Store tokens
-      localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-      localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      // Store tokens using shared function
+      setTokens(accessToken, refreshToken);
 
       // Clear URL params
       window.history.replaceState({}, "", window.location.pathname);
@@ -305,12 +254,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Redirect to Google OAuth
   const loginWithGoogle = useCallback(() => {
-    window.location.href = `${API_BASE_URL}/api/auth/google`;
+    window.location.href = getApiUrl("/api/auth/google");
   }, []);
 
   // Logout
   const logout = useCallback(async () => {
-    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+    const refreshToken = getRefreshToken();
 
     try {
       await api.post("/auth/logout", { refreshToken });
@@ -322,32 +271,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, [clearAuth]);
 
-  // Setup axios response interceptor for token refresh
-  useEffect(() => {
-    const interceptor = api.interceptors.response.use(
-      (response) => response,
-      async (error) => {
-        const originalRequest = error.config;
-
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
-
-          const refreshed = await refreshTokens();
-          if (refreshed) {
-            const newToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
-            return api(originalRequest);
-          }
-        }
-
-        return Promise.reject(error);
-      }
-    );
-
-    return () => {
-      api.interceptors.response.eject(interceptor);
-    };
-  }, [refreshTokens]);
+  // Response interceptor is now handled in api.ts, no need to set it up here
 
   const value: AuthContextType = {
     user,
@@ -365,7 +289,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-// Export the api instance for use in other files
+// Re-export the api instance for backward compatibility
 export { api };
 
 // Helper hook to get auth headers

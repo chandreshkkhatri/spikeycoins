@@ -6,7 +6,7 @@ import connectDB from "../lib/mongodb";
 import Account from "../models/account";
 import User from "../models/user";
 import UserSettings from "../models/user-settings";
-import RefreshToken from "../models/refresh-token";
+import RefreshToken, { REFRESH_TOKEN_GRACE_PERIOD_MS } from "../models/refresh-token";
 import {
   generateToken,
   generateRefreshToken,
@@ -173,10 +173,51 @@ router.post("/refresh", async (req: Request, res: Response) => {
       });
     }
 
+    // Check if token is expired
     if (tokenDoc.expiresAt < new Date()) {
       await RefreshToken.deleteOne({ _id: tokenDoc._id });
       return res.status(401).json({
         error: "Refresh token expired",
+      });
+    }
+
+    // Check if this token was already replaced (used)
+    if (tokenDoc.replacedAt) {
+      // Check if we're still within the grace period
+      const gracePeriodEnd = new Date(tokenDoc.replacedAt.getTime() + REFRESH_TOKEN_GRACE_PERIOD_MS);
+      
+      if (new Date() > gracePeriodEnd) {
+        // Grace period expired - this is suspicious, possibly token reuse attack
+        // Delete the entire token family for this user for security
+        console.warn(`Refresh token reuse detected for user ${tokenDoc.userId} after grace period`);
+        return res.status(401).json({
+          error: "Refresh token already used",
+        });
+      }
+      
+      // Within grace period - return the replacement token's credentials
+      // Find the new token that replaced this one
+      const newTokenDoc = await RefreshToken.findOne({ token: tokenDoc.replacedByToken });
+      if (newTokenDoc) {
+        // Get user to generate a new access token
+        const user = await User.findById(tokenDoc.userId);
+        if (!user) {
+          return res.status(401).json({
+            error: "User not found",
+          });
+        }
+        
+        // Return the existing replacement token with a fresh access token
+        return res.json({
+          success: true,
+          accessToken: generateToken(user._id.toString(), user.email),
+          refreshToken: newTokenDoc.token,
+        });
+      }
+      
+      // Replacement token not found (shouldn't happen, but handle gracefully)
+      return res.status(401).json({
+        error: "Refresh token already used",
       });
     }
 
@@ -193,8 +234,17 @@ router.post("/refresh", async (req: Request, res: Response) => {
     const newAccessToken = generateToken(user._id.toString(), user.email);
     const newRefreshToken = generateRefreshToken();
 
-    // Replace old refresh token with new one
-    await RefreshToken.deleteOne({ _id: tokenDoc._id });
+    // Mark the old token as replaced (instead of deleting immediately)
+    // This allows other requests using the same token within the grace period to still work
+    await RefreshToken.updateOne(
+      { _id: tokenDoc._id },
+      { 
+        replacedAt: new Date(),
+        replacedByToken: newRefreshToken,
+      }
+    );
+    
+    // Create the new refresh token
     await RefreshToken.create({
       userId: user._id,
       token: newRefreshToken,

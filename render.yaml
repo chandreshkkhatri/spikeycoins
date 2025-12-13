@@ -2,7 +2,7 @@ services:
   - type: web
     name: open-mandi-express-backend
     runtime: node
-    rootDir: express-code
+    rootDir: web-server
     buildCommand: npm install && npm run build
     startCommand: npm start
     plan: free

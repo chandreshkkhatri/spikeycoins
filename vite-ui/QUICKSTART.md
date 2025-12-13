@@ -7,7 +7,7 @@ Get up and running with the Open Mandi frontend in minutes!
 ### Step 1: Install Dependencies
 
 ```bash
-cd vite-code
+cd vite-ui
 npm install
 ```
 
@@ -59,8 +59,8 @@ Before starting, ensure you have:
 The frontend expects the Express backend to be running on port 8000. Make sure you've started the backend first:
 
 ```bash
-# In a separate terminal, navigate to express-code directory
-cd ../express-code
+# In a separate terminal, navigate to web-server directory
+cd ../web-server
 npm run dev
 ```
 
@@ -194,7 +194,7 @@ This serves the production build locally for testing.
 
 **Solution**:
 1. Verify backend is running: `curl http://localhost:8000/api/auth/status`
-2. Check backend CORS configuration in `express-code/src/server.ts`
+2. Check backend CORS configuration in `web-server/src/server.ts`
 3. Ensure `VITE_API_URL` is set correctly in `.env`
 
 ### Issue: Components not rendering

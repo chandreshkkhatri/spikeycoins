@@ -22,7 +22,7 @@ Express backend for the Open Mandi trading platform.
 ### Installation
 
 ```bash
-cd express-code
+cd web-server
 npm install
 ```
 
@@ -124,7 +124,7 @@ Server will start with Node.js inspector on port 9229.
 ## Project Structure
 
 ```
-express-code/
+web-server/
 ├── src/
 │   ├── lib/               # Utility libraries
 │   │   ├── mongodb.ts     # MongoDB connection

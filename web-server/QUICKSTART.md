@@ -3,13 +3,13 @@
 ## 1. Install Dependencies
 
 ```bash
-cd /home/chandresh/code/open-mandi/express-code
+cd /home/chandresh/code/open-mandi/web-server
 npm install
 ```
 
 ## 2. Configure Environment
 
-Create a `.env` file in the express-code directory:
+Create a `.env` file in the web-server directory:
 
 ```bash
 cp .env.example .env
@@ -137,7 +137,7 @@ If you get CORS errors from the frontend:
 ## 8. Project Structure Overview
 
 ```
-express-code/
+web-server/
 ├── src/
 │   ├── server.ts          # Main entry point
 │   ├── lib/               # Services and utilities
