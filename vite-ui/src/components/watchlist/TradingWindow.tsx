@@ -815,9 +815,18 @@ const TradingWindow = memo(function TradingWindow({
         throw new Error(response.data.error || "Failed to place order");
       }
 
-      setSuccess(
-        `${orderForm.side} order placed successfully for ${orderForm.quantity} ${symbol}`
-      );
+      // Check for SL/TP warnings
+      let successMessage = `${orderForm.side} order placed successfully for ${orderForm.quantity} ${symbol}`;
+      if (response.data.warnings && response.data.warnings.length > 0) {
+        const warningMessages = response.data.warnings
+          .map((w: { message: string }) => w.message)
+          .join("; ");
+        successMessage += ` ⚠️ Warning: ${warningMessages}`;
+        // Also set as error to make it more visible
+        setError(`SL/TP Warning: ${warningMessages}`);
+      }
+
+      setSuccess(successMessage);
       onOrderPlaced();
       setOrderRefreshTrigger((prev) => prev + 1); // Trigger refresh of positions/orders tabs
 

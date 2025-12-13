@@ -1,4 +1,5 @@
 import AccountSelector from "@/components/account-selector/AccountSelector";
+import NotificationToggle from "@/components/notifications/NotificationToggle";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account-context";
 import { useAuth } from "@/lib/auth-context";
@@ -123,6 +124,10 @@ export function Header() {
               />
             </div>
           )}
+          
+          {/* Notification Toggle - Only show when logged in */}
+          {isLoggedIn && <NotificationToggle />}
+          
           <button
             aria-label="Toggle theme"
             onClick={toggleTheme}

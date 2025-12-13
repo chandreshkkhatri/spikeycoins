@@ -42,9 +42,11 @@
     "morgan": "^1.10.0",
     "protobufjs": "^7.2.4",
     "typescript": "^5.3.3",
-    "upstox-js-sdk": "^2.19.0"
+    "upstox-js-sdk": "^2.19.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",

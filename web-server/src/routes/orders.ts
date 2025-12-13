@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import binanceService from "../lib/binance-service";
+import pushNotificationService from "../lib/push-notification-service";
 import { getAccountById } from "../models/account";
 
 const router = Router();
@@ -132,14 +133,17 @@ router.post("/place", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Account not found" });
     }
 
+    let result;
+    // Track SL/TP errors for response
+    let slOrderError: string | null = null;
+    let tpOrderError: string | null = null;
+
     console.log("[Orders/Place] Account found:", {
       id: account._id,
       type: account.accountType,
       segment: account.metadata?.tradingSegment,
       testnet: account.metadata?.testnet,
     });
-
-    let result;
 
     if (account.accountType === "kite") {
       if (!account.accessToken) {
@@ -281,9 +285,9 @@ router.post("/place", async (req: Request, res: Response) => {
               closePosition: true,
               // Note: closePosition=true means quantity is ignored and entire position is closed
             });
-          } catch (slError: any) {
-            console.warn("Failed to place stop loss order:", slError.message);
-            // Don't fail the main order, just log
+          } catch (err: any) {
+            slOrderError = err.message || "Unknown error";
+            console.warn("Failed to place stop loss order:", slOrderError);
           }
         }
 
@@ -301,9 +305,38 @@ router.post("/place", async (req: Request, res: Response) => {
               closePosition: true,
               // Note: closePosition=true means quantity is ignored and entire position is closed
             });
-          } catch (tpError: any) {
-            console.warn("Failed to place take profit order:", tpError.message);
-            // Don't fail the main order, just log
+          } catch (err: any) {
+            tpOrderError = err.message || "Unknown error";
+            console.warn("Failed to place take profit order:", tpOrderError);
+          }
+        }
+
+        // Send push notification if SL or TP failed
+        if (slOrderError || tpOrderError) {
+          const userId = account.userId;
+          if (userId) {
+            // Determine notification type
+            let notificationType: "sl_failed" | "tp_failed" | "sl_tp_failed";
+            if (slOrderError && tpOrderError) {
+              notificationType = "sl_tp_failed";
+            } else if (slOrderError) {
+              notificationType = "sl_failed";
+            } else {
+              notificationType = "tp_failed";
+            }
+
+            // Send notification asynchronously (don't block response)
+            pushNotificationService
+              .sendOrderNotification(userId, notificationType, {
+                symbol: orderParams.symbol,
+                side: orderParams.side,
+                quantity: cleanOrderParams.quantity,
+                slError: slOrderError || undefined,
+                tpError: tpOrderError || undefined,
+              })
+              .catch((notifyErr) => {
+                console.error("Failed to send push notification:", notifyErr);
+              });
           }
         }
       } else {
@@ -359,11 +392,31 @@ router.post("/place", async (req: Request, res: Response) => {
         .json({ error: "Unsupported account type for orders" });
     }
 
-    return res.json({
+    // Build response with SL/TP status
+    const response: any = {
       success: true,
       order: result,
       accountType: account.accountType,
-    });
+    };
+
+    // Include SL/TP status if there were any errors
+    if (slOrderError || tpOrderError) {
+      response.warnings = [];
+      if (slOrderError) {
+        response.warnings.push({
+          type: "sl_failed",
+          message: `Stop Loss order failed: ${slOrderError}`,
+        });
+      }
+      if (tpOrderError) {
+        response.warnings.push({
+          type: "tp_failed",
+          message: `Take Profit order failed: ${tpOrderError}`,
+        });
+      }
+    }
+
+    return res.json(response);
   } catch (error: any) {
     console.error("Error placing order:", error);
     return res.status(500).json({
