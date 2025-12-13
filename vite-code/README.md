@@ -1,4 +1,4 @@
-# Flip Safe - Vite Frontend
+# Open Mandi - Vite Frontend
 
 A modern, high-performance trading platform frontend built with React, TypeScript, and Vite.
 

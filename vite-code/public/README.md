@@ -6,18 +6,18 @@ This directory contains static assets that are served directly by the applicatio
 
 To replace the text-based logo with actual logo images, place the following files in this directory:
 
-- **flip-safe-logo-with-name.png** - Full logo with company name (used on desktop)
-- **flip-safe-logo-without-name.png** - Icon-only logo (used on mobile)
+- **open-mandi-logo-with-name.png** - Full logo with company name (used on desktop)
+- **open-mandi-logo-without-name.png** - Icon-only logo (used on mobile)
 
 ### Recommended Specifications:
 
-- **flip-safe-logo-with-name.png**:
+- **open-mandi-logo-with-name.png**:
 
   - Height: ~32px (or higher for retina displays)
   - Format: PNG with transparent background
-  - Contains both icon and "Flip Safe" text
+  - Contains both icon and "Open Mandi" text
 
-- **flip-safe-logo-without-name.png**:
+- **open-mandi-logo-without-name.png**:
   - Size: ~32x32px (square, or higher for retina displays)
   - Format: PNG with transparent background
   - Icon/symbol only
@@ -26,13 +26,13 @@ Once these files are added, update the Header component to use:
 
 ```tsx
 <img
-  src="/flip-safe-logo-with-name.png"
-  alt="Flip Safe"
+  src="/open-mandi-logo-with-name.png"
+  alt="Open Mandi"
   className="hidden md:block h-8"
 />
 <img
-  src="/flip-safe-logo-without-name.png"
-  alt="Flip Safe"
+  src="/open-mandi-logo-without-name.png"
+  alt="Open Mandi"
   className="block md:hidden h-8 w-8"
 />
 ```

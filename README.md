@@ -1,6 +1,6 @@
-# Flip Safe - Unified Trading Platform
+# Open Mandi - Unified Trading Platform
 
-Flip Safe is a comprehensive trading platform that unifies multiple brokerage accounts into a single, modern interface. It supports trading on **Zerodha Kite**, **Upstox**, and **Binance**, allowing users to manage positions, orders, and watchlists across different brokers from one dashboard.
+Open Mandi is a comprehensive trading platform that unifies multiple brokerage accounts into a single, modern interface. It supports trading on **Zerodha Kite**, **Upstox**, and **Binance**, allowing users to manage positions, orders, and watchlists across different brokers from one dashboard.
 
 ## 🚀 Project Structure
 

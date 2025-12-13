@@ -1,8 +1,8 @@
 {
-  "name": "flip-safe-vite-frontend",
+  "name": "open-mandi-vite-frontend",
   "version": "1.0.0",
   "type": "module",
-  "description": "Vite frontend for Flip Safe trading platform",
+  "description": "Vite frontend for Open Mandi trading platform",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

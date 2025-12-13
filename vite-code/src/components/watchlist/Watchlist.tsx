@@ -15,7 +15,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SymbolSearchModal from "./SymbolSearchModal";
 import TradingWindow from "./TradingWindow";
 
-const WATCHLIST_SETTINGS_KEY = "flipSafe_watchlistSettings";
+const WATCHLIST_SETTINGS_KEY = "openMandi_watchlistSettings";
 
 interface WatchlistSettings {
   sortKey: keyof WatchlistItem;

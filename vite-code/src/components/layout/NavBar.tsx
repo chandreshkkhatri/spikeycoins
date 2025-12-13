@@ -12,7 +12,7 @@ interface NavBarProps {
 }
 
 export default function NavBar({
-  title = "Flip Safe",
+  title = "Open Mandi",
   showApiConfig = false,
   onShowApiPanel,
 }: NavBarProps) {
