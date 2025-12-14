@@ -212,7 +212,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Spot order history"
+        "Failed to fetch Binance Spot order history"
       );
     }
   }
@@ -355,7 +355,35 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Futures open orders"
+        "Failed to fetch Binance Futures open orders"
+      );
+    }
+  }
+
+  /**
+   * Get Futures open Algo orders (conditional orders like STOP_MARKET, TAKE_PROFIT_MARKET)
+   * Endpoint: GET /fapi/v1/openAlgoOrders
+   */
+  async getFuturesOpenAlgoOrders(symbol?: string) {
+    try {
+      this.checkRateLimit();
+      const params: Record<string, unknown> = {};
+      if (symbol) {
+        params.symbol = symbol;
+      }
+      const signedParams = this.signRequest(params);
+      const response = await this.futuresClient.get(
+        `/fapi/v1/openAlgoOrders?${signedParams}`
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures getOpenAlgoOrders error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg ||
+        "Failed to fetch Binance Futures open Algo orders"
       );
     }
   }
@@ -390,7 +418,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Futures order history"
+        "Failed to fetch Binance Futures order history"
       );
     }
   }
@@ -425,7 +453,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Futures trade history"
+        "Failed to fetch Binance Futures trade history"
       );
     }
   }
@@ -461,7 +489,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Futures income history"
+        "Failed to fetch Binance Futures income history"
       );
     }
   }
@@ -469,18 +497,20 @@ class BinanceService {
   /**
    * Place Futures order
    * Note: When closePosition=true, quantity is not required (entire position is closed)
+   * NOTE: As of Dec 9, 2025, conditional orders (STOP_MARKET, TAKE_PROFIT_MARKET, etc.)
+   * must use the Algo Order API. Use placeFuturesAlgoOrder() for those order types.
    */
   async placeFuturesOrder(params: {
     symbol: string;
     side: "BUY" | "SELL";
     positionSide?: "BOTH" | "LONG" | "SHORT";
     type:
-      | "LIMIT"
-      | "MARKET"
-      | "STOP"
-      | "TAKE_PROFIT"
-      | "STOP_MARKET"
-      | "TAKE_PROFIT_MARKET";
+    | "LIMIT"
+    | "MARKET"
+    | "STOP"
+    | "TAKE_PROFIT"
+    | "STOP_MARKET"
+    | "TAKE_PROFIT_MARKET";
     quantity?: number; // Optional when closePosition=true
     price?: number;
     stopPrice?: number;
@@ -515,6 +545,86 @@ class BinanceService {
   }
 
   /**
+   * Place Futures Algo Order (for conditional orders like STOP_MARKET, TAKE_PROFIT_MARKET)
+   * Required since Binance migrated conditional orders to Algo API on Dec 9, 2025.
+   * Endpoint: POST /fapi/v1/algoOrder
+   */
+  async placeFuturesAlgoOrder(params: {
+    symbol: string;
+    side: "BUY" | "SELL";
+    positionSide?: "BOTH" | "LONG" | "SHORT";
+    type:
+    | "STOP"
+    | "TAKE_PROFIT"
+    | "STOP_MARKET"
+    | "TAKE_PROFIT_MARKET"
+    | "TRAILING_STOP_MARKET";
+    quantity?: number;
+    price?: number;
+    triggerPrice: number; // Required for conditional orders (replaces stopPrice)
+    timeInForce?: "GTC" | "IOC" | "FOK";
+    reduceOnly?: boolean;
+    closePosition?: boolean;
+    workingType?: "MARK_PRICE" | "CONTRACT_PRICE";
+    priceProtect?: boolean;
+  }) {
+    try {
+      this.checkRateLimit();
+
+      // Build API params
+      const apiParams: Record<string, unknown> = {
+        algoType: "CONDITIONAL", // Required for conditional orders
+        symbol: params.symbol,
+        side: params.side,
+        type: params.type,
+        triggerPrice: params.triggerPrice,
+      };
+
+      if (params.positionSide) {
+        apiParams.positionSide = params.positionSide;
+      }
+      if (params.quantity !== undefined) {
+        apiParams.quantity = params.quantity;
+      }
+      if (params.price !== undefined) {
+        apiParams.price = params.price;
+      }
+      if (params.timeInForce) {
+        apiParams.timeInForce = params.timeInForce;
+      }
+      if (params.reduceOnly !== undefined) {
+        apiParams.reduceOnly = params.reduceOnly ? "true" : "false";
+      }
+      if (params.closePosition !== undefined) {
+        apiParams.closePosition = params.closePosition ? "true" : "false";
+      }
+      if (params.workingType) {
+        apiParams.workingType = params.workingType;
+      }
+      if (params.priceProtect !== undefined) {
+        apiParams.priceProtect = params.priceProtect ? "TRUE" : "FALSE";
+      }
+
+      console.log("Placing Binance Algo Order:", apiParams);
+
+      const signedParams = this.signRequest(apiParams as Record<string, any>);
+      const response = await this.futuresClient.post(
+        `/fapi/v1/algoOrder?${signedParams}`
+      );
+      console.log("Binance Algo Order response:", response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures placeAlgoOrder error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg || "Failed to place Binance Futures Algo order"
+      );
+    }
+  }
+
+  /**
    * Cancel Futures order
    */
   async cancelFuturesOrder(symbol: string, orderId: number) {
@@ -531,6 +641,30 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg || "Failed to cancel Binance Futures order"
+      );
+    }
+  }
+
+  /**
+   * Cancel Futures Algo order (conditional orders like STOP_MARKET, TAKE_PROFIT_MARKET)
+   * Endpoint: DELETE /fapi/v1/algoOrder
+   */
+  async cancelFuturesAlgoOrder(symbol: string, algoId: number) {
+    try {
+      this.checkRateLimit();
+      const signedParams = this.signRequest({ symbol, algoId });
+      const response = await this.futuresClient.delete(
+        `/fapi/v1/algoOrder?${signedParams}`
+      );
+      console.log("Binance Algo Order cancel response:", response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures cancelAlgoOrder error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg || "Failed to cancel Binance Futures Algo order"
       );
     }
   }
@@ -553,7 +687,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to cancel all Binance Futures orders"
+        "Failed to cancel all Binance Futures orders"
       );
     }
   }
@@ -636,7 +770,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Futures mark price"
+        "Failed to fetch Binance Futures mark price"
       );
     }
   }
@@ -683,7 +817,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to change Binance Futures margin type"
+        "Failed to change Binance Futures margin type"
       );
     }
   }
@@ -708,7 +842,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Futures leverage brackets"
+        "Failed to fetch Binance Futures leverage brackets"
       );
     }
   }
@@ -733,7 +867,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Futures premium index"
+        "Failed to fetch Binance Futures premium index"
       );
     }
   }
@@ -774,7 +908,7 @@ class BinanceService {
 
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Futures exchange info"
+        "Failed to fetch Binance Futures exchange info"
       );
     }
   }
@@ -871,7 +1005,7 @@ class BinanceService {
       );
       throw new Error(
         error.response?.data?.msg ||
-          "Failed to fetch Binance Futures 24hr ticker"
+        "Failed to fetch Binance Futures 24hr ticker"
       );
     }
   }
