@@ -646,6 +646,30 @@ class BinanceService {
   }
 
   /**
+   * Cancel Futures Algo order (conditional orders like STOP_MARKET, TAKE_PROFIT_MARKET)
+   * Endpoint: DELETE /fapi/v1/algoOrder
+   */
+  async cancelFuturesAlgoOrder(symbol: string, algoId: number) {
+    try {
+      this.checkRateLimit();
+      const signedParams = this.signRequest({ symbol, algoId });
+      const response = await this.futuresClient.delete(
+        `/fapi/v1/algoOrder?${signedParams}`
+      );
+      console.log("Binance Algo Order cancel response:", response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures cancelAlgoOrder error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg || "Failed to cancel Binance Futures Algo order"
+      );
+    }
+  }
+
+  /**
    * Cancel all open Futures orders for a symbol
    */
   async cancelAllFuturesOrders(symbol: string) {

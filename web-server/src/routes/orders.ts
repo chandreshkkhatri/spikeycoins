@@ -810,10 +810,24 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
 
       if (tradingSegment === "usdm") {
         // USD(S)-M Futures
-        result = await binanceService.cancelFuturesOrder(
-          symbol as string,
-          parseInt(orderId as string)
-        );
+        // Try standard cancel first, if fails with -2011 (Unknown order), try algo cancel
+        try {
+          result = await binanceService.cancelFuturesOrder(
+            symbol as string,
+            parseInt(orderId as string)
+          );
+        } catch (standardCancelError: any) {
+          // Check if error is "Unknown order sent" (code -2011)
+          if (standardCancelError.message?.includes("Unknown order")) {
+            console.log("Standard cancel failed, trying Algo Order cancel...");
+            result = await binanceService.cancelFuturesAlgoOrder(
+              symbol as string,
+              parseInt(orderId as string)
+            );
+          } else {
+            throw standardCancelError;
+          }
+        }
       } else {
         // Spot
         result = await binanceService.cancelSpotOrder(

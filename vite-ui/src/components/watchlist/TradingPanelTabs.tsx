@@ -46,11 +46,14 @@ interface Order {
   symbol: string;
   quantity: number;
   price: number;
+  stopPrice?: number;
   orderType: string;
   side: string;
   status: string;
   filledQuantity: number;
   timestamp: string;
+  orderCategory?: "basic" | "conditional";
+  closePosition?: boolean;
 }
 
 interface Trade {
@@ -114,6 +117,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   const [orderHistory, setOrderHistory] = useState<OrderHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accountEquity, setAccountEquity] = useState<number>(0);
 
   // State for close position inputs per symbol
   const [closeInputs, setCloseInputs] = useState<
@@ -127,6 +131,223 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
   // Refs for price inputs to refocus after order book price is applied
   const priceInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // Read config from localStorage
+  const defaultRiskPercent = parseFloat(
+    localStorage.getItem("openMandi_defaultRiskPercent") || "1"
+  );
+  const defaultTakeProfitPercent = parseFloat(
+    localStorage.getItem("openMandi_defaultTakeProfitPercent") || "2"
+  );
+
+  // State for SL/TP inputs (now includes quantity)
+  const [slTpInputs, setSlTpInputs] = useState<
+    Record<string, { sl: string; tp: string; slQty: string; tpQty: string }>
+  >({});
+
+  // Track active input for showing risk/profit popup
+  const [activeSlTpInput, setActiveSlTpInput] = useState<{
+    symbol: string;
+    field: "sl" | "tp";
+  } | null>(null);
+
+  // Helper to compute existing SL/TP quantities for a symbol from orders
+  const getExistingSlTpQty = (posSymbol: string) => {
+    let existingSlQty = 0;
+    let existingTpQty = 0;
+
+    // Debug logging
+    const symbolOrders = orders.filter(o => o.symbol === posSymbol);
+    orders.forEach((o) => {
+      // Check for conditional orders (STOP_MARKET / TAKE_PROFIT_MARKET)
+      // Also check standard STOP/TAKE_PROFIT if they are being correctly categorized
+      if (o.symbol === posSymbol && (o.orderCategory === "conditional" || o.orderType.includes("STOP") || o.orderType.includes("PROFIT"))) {
+
+        let qty = o.quantity || 0;
+        if (o.closePosition) {
+          // If closePosition is true, quantity is effectively the entire position.
+          // We block new orders by treating this as a large quantity.
+          qty = 999999999;
+        }
+
+        if (o.orderType === "STOP_MARKET" || o.orderType === "STOP") {
+          existingSlQty += qty;
+        } else if (o.orderType === "TAKE_PROFIT_MARKET" || o.orderType === "TAKE_PROFIT") {
+          existingTpQty += qty;
+        }
+      }
+    });
+    console.log(`[SlTpDebug] ${posSymbol} - Existing SL: ${existingSlQty}, Existing TP: ${existingTpQty}`);
+    return { existingSlQty, existingTpQty };
+  };
+
+  // Helper to calculate remaining quantity for SL/TP
+  const getRemainingQty = (posSymbol: string, type: "sl" | "tp") => {
+    const position = positions.find((p) => p.symbol === posSymbol);
+    if (!position) return 0;
+    const { existingSlQty, existingTpQty } = getExistingSlTpQty(posSymbol);
+    if (type === "sl") {
+      return Math.max(0, position.quantity - existingSlQty);
+    }
+    return Math.max(0, position.quantity - existingTpQty);
+  };
+
+  // Helper to compute SL/TP price from risk/profit percent of account equity
+  const computeDefaultSlTp = (pos: Position) => {
+    const entry = pos.averagePrice;
+    const qty = pos.quantity;
+    const isLong = pos.side === "LONG";
+
+    // If no equity available, fall back to 0 (no prefill)
+    if (!accountEquity || accountEquity <= 0 || qty <= 0) {
+      return { slPrice: "", tpPrice: "" };
+    }
+
+    // Calculate risk/profit amounts as percentage of account equity
+    const riskAmount = (accountEquity * defaultRiskPercent) / 100;
+    const profitAmount = (accountEquity * defaultTakeProfitPercent) / 100;
+
+    // Calculate price difference needed to achieve these amounts
+    const slPriceDiff = riskAmount / qty;
+    const tpPriceDiff = profitAmount / qty;
+
+    // SL: price at which loss equals riskAmount
+    // TP: price at which profit equals profitAmount
+    const slPrice = isLong ? entry - slPriceDiff : entry + slPriceDiff;
+    const tpPrice = isLong ? entry + tpPriceDiff : entry - tpPriceDiff;
+
+    return {
+      slPrice: slPrice > 0 ? formatPrice(slPrice) : "",
+      tpPrice: tpPrice > 0 ? formatPrice(tpPrice) : "",
+    };
+  };
+
+  const handleSlTpInputChange = (
+    symbol: string,
+    field: "sl" | "tp" | "slQty" | "tpQty",
+    value: string
+  ) => {
+    setSlTpInputs((prev) => ({
+      ...prev,
+      [symbol]: {
+        ...(prev[symbol] || { sl: "", tp: "", slQty: "", tpQty: "" }),
+        [field]: value,
+      },
+    }));
+  };
+
+  // Prefill SL/TP values when positions change
+  useEffect(() => {
+    if (positions.length > 0) {
+      setSlTpInputs((prev) => {
+        const newInputs = { ...prev };
+        positions.forEach((pos) => {
+          if (!newInputs[pos.symbol]?.sl || !newInputs[pos.symbol]?.tp) {
+            const defaults = computeDefaultSlTp(pos);
+            const remainingSlQty = getRemainingQty(pos.symbol, "sl");
+            const remainingTpQty = getRemainingQty(pos.symbol, "tp");
+            newInputs[pos.symbol] = {
+              sl: newInputs[pos.symbol]?.sl || defaults.slPrice,
+              tp: newInputs[pos.symbol]?.tp || defaults.tpPrice,
+              slQty: newInputs[pos.symbol]?.slQty || (remainingSlQty > 0 ? String(remainingSlQty) : ""),
+              tpQty: newInputs[pos.symbol]?.tpQty || (remainingTpQty > 0 ? String(remainingTpQty) : ""),
+            };
+          }
+        });
+        return newInputs;
+      });
+    }
+  }, [positions, orders, accountEquity]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlePlaceSlTp = async (posSymbol: string, type: "SL" | "TP") => {
+    if (!selectedAccount) return;
+
+    const position = positions.find((p) => p.symbol === posSymbol);
+    if (!position) return;
+
+    const input = slTpInputs[posSymbol];
+    const price = type === "SL" ? input?.sl : input?.tp;
+    const qtyStr = type === "SL" ? input?.slQty : input?.tpQty;
+
+    if (!price || isNaN(parseFloat(price)) || parseFloat(price) <= 0) {
+      alert(`Please enter a valid ${type} price`);
+      return;
+    }
+
+    // Quantity: use input or remaining qty
+    const remainingQty = getRemainingQty(posSymbol, type === "SL" ? "sl" : "tp");
+    let quantity = qtyStr ? parseFloat(qtyStr) : remainingQty;
+    if (isNaN(quantity) || quantity <= 0) {
+      quantity = remainingQty;
+    }
+    if (quantity <= 0) {
+      alert(`No remaining quantity available for ${type}. Existing orders already cover the position.`);
+      return;
+    }
+    if (quantity > remainingQty) {
+      alert(`Quantity (${quantity}) exceeds remaining (${remainingQty}). Reducing to ${remainingQty}.`);
+      quantity = remainingQty;
+    }
+
+    const priceNum = parseFloat(price);
+    const posSide = position.side; // "LONG" or "SHORT"
+
+    // Quick validation
+    if (type === "SL") {
+      if (posSide === "LONG" && priceNum >= position.lastPrice) {
+        alert("For LONG position, Stop Loss must be below current price");
+        return;
+      }
+      if (posSide === "SHORT" && priceNum <= position.lastPrice) {
+        alert("For SHORT position, Stop Loss must be above current price");
+        return;
+      }
+    } else {
+      // TP
+      if (posSide === "LONG" && priceNum <= position.lastPrice) {
+        alert("For LONG position, Take Profit must be above current price");
+        return;
+      }
+      if (posSide === "SHORT" && priceNum >= position.lastPrice) {
+        alert("For SHORT position, Take Profit must be below current price");
+        return;
+      }
+    }
+
+    const confirmMsg = `Place ${type} order for ${quantity} ${posSymbol} at ${price}?`;
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const orderSide = posSide === "LONG" ? "SELL" : "BUY";
+      const orderType = type === "SL" ? "STOP_MARKET" : "TAKE_PROFIT_MARKET";
+
+      const orderData: any = {
+        accountId: selectedAccount._id,
+        symbol: posSymbol,
+        side: orderSide,
+        type: orderType,
+        quantity: quantity,
+        stopPrice: price,
+        reduceOnly: true,
+        timeInForce: "GTC",
+      };
+
+      await api.post("/orders/place", orderData);
+
+      // Clear inputs on success
+      handleSlTpInputChange(posSymbol, type === "SL" ? "sl" : "tp", "");
+      handleSlTpInputChange(posSymbol, type === "SL" ? "slQty" : "tpQty", "");
+
+      // Refresh to show new order
+      fetchData();
+      alert(`${type} order placed successfully`);
+    } catch (err: any) {
+      console.error(`Failed to place ${type}:`, err);
+      alert(
+        err.response?.data?.error || err.message || `Failed to place ${type} order`
+      );
+    }
+  };
 
   const fetchData = useCallback(async () => {
     if (!selectedAccount) return;
@@ -207,6 +428,46 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 marginType: p.marginType,
               }))
           );
+
+          // Also fetch orders for SL/TP remaining qty calculation
+          try {
+            const ordersResp = await api.get(
+              `/orders?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
+            );
+            if (ordersResp.data?.success) {
+              const ordersArray = ordersResp.data.orders || ordersResp.data.data || [];
+              setOrders(
+                ordersArray.map((o: any) => ({
+                  id: o.id || o.orderId,
+                  symbol: o.symbol,
+                  quantity: parseFloat(o.quantity || o.origQty) || 0,
+                  price: parseFloat(o.price) || 0,
+                  stopPrice: parseFloat(o.stopPrice) || 0,
+                  orderType: o.orderType || o.type,
+                  side: o.transactionType || o.side,
+                  status: o.status,
+                  filledQuantity: parseFloat(o.filledQuantity || o.executedQty) || 0,
+                  timestamp: o.timestamp || o.time,
+                  orderCategory: o.orderCategory,
+                  closePosition: o.closePosition,
+                }))
+              );
+            }
+          } catch (ordersErr) {
+            console.warn("Failed to fetch orders for SL/TP calc:", ordersErr);
+          }
+
+          // Also fetch account equity for percentage calculation
+          try {
+            const detailsResp = await api.get(
+              `/binance/position-details?accountId=${selectedAccount._id}`
+            );
+            if (detailsResp.data?.success && detailsResp.data?.account?.equity) {
+              setAccountEquity(detailsResp.data.account.equity);
+            }
+          } catch (eqErr) {
+            console.warn("Failed to fetch account equity:", eqErr);
+          }
         }
       } else if (activeTab === "orders" && result?.type === "orders") {
         if (result.data?.success) {
@@ -595,6 +856,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                     <th className="text-right px-2 py-2 font-medium">Liq</th>
                     <th className="text-right px-2 py-2 font-medium">Margin</th>
                     <th className="text-right px-2 py-2 font-medium">PNL</th>
+                    <th className="text-center px-2 py-2 font-medium w-[140px]">
+                      TP / SL
+                    </th>
                     <th className="text-center px-2 py-2 font-medium min-w-[160px]">
                       Price / Qty
                     </th>
@@ -661,6 +925,141 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       >
                         ${pos.pnl.toFixed(2)}
                       </td>
+                      <td className="px-1 py-1 align-middle">
+                        {(() => {
+                          const defaults = computeDefaultSlTp(pos);
+                          const tpVal = slTpInputs[pos.symbol]?.tp || "";
+                          const slVal = slTpInputs[pos.symbol]?.sl || "";
+                          const tpQty = slTpInputs[pos.symbol]?.tpQty || "";
+                          const slQty = slTpInputs[pos.symbol]?.slQty || "";
+                          const remainingSlQty = getRemainingQty(pos.symbol, "sl");
+                          const remainingTpQty = getRemainingQty(pos.symbol, "tp");
+
+                          // Calculate risk/profit in $
+                          const calcPnl = (price: string, qty: string, type: "sl" | "tp") => {
+                            const p = parseFloat(price);
+                            const q = parseFloat(qty) || (type === "sl" ? remainingSlQty : remainingTpQty);
+                            if (!p || !q) return null;
+                            const diff = pos.side === "LONG"
+                              ? (p - pos.averagePrice) * q
+                              : (pos.averagePrice - p) * q;
+                            return diff;
+                          };
+                          const tpPnl = calcPnl(tpVal, tpQty, "tp");
+                          const slPnl = calcPnl(slVal, slQty, "sl");
+
+                          return (
+                            <div className="flex flex-col gap-0.5 relative">
+                              {/* TP Row */}
+                              <div className="flex gap-0.5 items-center">
+                                <input
+                                  type="number"
+                                  placeholder={defaults.tpPrice}
+                                  className="w-20 h-6 text-xs px-1 border border-green-500/30 rounded bg-background text-right focus:ring-1 focus:ring-green-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  value={tpVal}
+                                  onChange={(e) =>
+                                    handleSlTpInputChange(pos.symbol, "tp", e.target.value)
+                                  }
+                                  onFocus={() => setActiveSlTpInput({ symbol: pos.symbol, field: "tp" })}
+                                  onBlur={() => setTimeout(() => setActiveSlTpInput(null), 200)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  step={getTickSize(pos.lastPrice)}
+                                />
+                                <input
+                                  type="number"
+                                  placeholder={String(remainingTpQty)}
+                                  className="w-10 h-6 text-xs px-0.5 border border-green-500/20 rounded bg-background text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  value={tpQty}
+                                  onChange={(e) =>
+                                    handleSlTpInputChange(pos.symbol, "tpQty", e.target.value)
+                                  }
+                                  onClick={(e) => e.stopPropagation()}
+                                  title={`Qty (remaining: ${remainingTpQty})`}
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-green-500 hover:text-green-600 hover:bg-green-500/10"
+                                  title="Set Take Profit"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePlaceSlTp(pos.symbol, "TP");
+                                  }}
+                                  disabled={!tpVal && !defaults.tpPrice}
+                                >
+                                  <TrendingUp className="w-3 h-3" />
+                                </Button>
+                              </div>
+                              {/* TP PnL popup */}
+                              {activeSlTpInput?.symbol === pos.symbol && activeSlTpInput?.field === "tp" && tpPnl !== null && (
+                                <div className="absolute left-0 top-7 z-50 bg-popover border rounded shadow-lg px-2 py-1 text-xs animate-in fade-in zoom-in-95">
+                                  <span className={tpPnl >= 0 ? "text-green-500" : "text-red-500"}>
+                                    {tpPnl >= 0 ? "+" : ""}${tpPnl.toFixed(2)}
+                                    {accountEquity > 0 && (
+                                      <span className="text-muted-foreground ml-1">
+                                        ({((Math.abs(tpPnl) / accountEquity) * 100).toFixed(2)}%)
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              )}
+                              {/* SL Row */}
+                              <div className="flex gap-0.5 items-center">
+                                <input
+                                  type="number"
+                                  placeholder={defaults.slPrice}
+                                  className="w-20 h-6 text-xs px-1 border border-red-500/30 rounded bg-background text-right focus:ring-1 focus:ring-red-500/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  value={slVal}
+                                  onChange={(e) =>
+                                    handleSlTpInputChange(pos.symbol, "sl", e.target.value)
+                                  }
+                                  onFocus={() => setActiveSlTpInput({ symbol: pos.symbol, field: "sl" })}
+                                  onBlur={() => setTimeout(() => setActiveSlTpInput(null), 200)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  step={getTickSize(pos.lastPrice)}
+                                />
+                                <input
+                                  type="number"
+                                  placeholder={String(remainingSlQty)}
+                                  className="w-10 h-6 text-xs px-0.5 border border-red-500/20 rounded bg-background text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  value={slQty}
+                                  onChange={(e) =>
+                                    handleSlTpInputChange(pos.symbol, "slQty", e.target.value)
+                                  }
+                                  onClick={(e) => e.stopPropagation()}
+                                  title={`Qty (remaining: ${remainingSlQty})`}
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                  title="Set Stop Loss"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePlaceSlTp(pos.symbol, "SL");
+                                  }}
+                                  disabled={!slVal && !defaults.slPrice}
+                                >
+                                  <TrendingDown className="w-3 h-3" />
+                                </Button>
+                              </div>
+                              {/* SL PnL popup */}
+                              {activeSlTpInput?.symbol === pos.symbol && activeSlTpInput?.field === "sl" && slPnl !== null && (
+                                <div className="absolute left-0 top-14 z-50 bg-popover border rounded shadow-lg px-2 py-1 text-xs animate-in fade-in zoom-in-95">
+                                  <span className={slPnl >= 0 ? "text-green-500" : "text-red-500"}>
+                                    {slPnl >= 0 ? "+" : ""}${slPnl.toFixed(2)}
+                                    {accountEquity > 0 && (
+                                      <span className="text-muted-foreground ml-1">
+                                        ({((Math.abs(slPnl) / accountEquity) * 100).toFixed(2)}%)
+                                      </span>
+                                    )}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="px-1 py-2">
                         <div className="relative flex gap-1">
                           <input
@@ -681,7 +1080,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                             onBlur={() =>
                               setTimeout(() => setActivePriceInput(null), 200)
                             }
-                            className="w-48 h-8 text-sm px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className="w-36 h-8 text-sm px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             placeholder="Price"
                             step={getTickSize(pos.lastPrice)}
                           />
@@ -703,7 +1102,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                                 200
                               )
                             }
-                            className="w-40 h-8 text-sm px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className="w-32 h-8 text-sm px-2 border rounded bg-background text-right focus:ring-1 focus:ring-primary [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             placeholder="Qty"
                             step="any"
                           />
