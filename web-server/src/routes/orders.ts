@@ -72,11 +72,42 @@ router.get("/", async (req: Request, res: Response) => {
       );
 
       if (tradingSegment === "usdm") {
-        // USD(S)-M Futures - Get open orders (can specify symbol if needed)
-        orders = await binanceService.getFuturesOpenOrders();
+        // USD(S)-M Futures - Get both basic and conditional orders
+        const [basicOrders, algoOrders] = await Promise.all([
+          binanceService.getFuturesOpenOrders(),
+          binanceService.getFuturesOpenAlgoOrders(),
+        ]);
+
+        // Normalize basic orders
+        const normalizedBasic = (basicOrders || []).map((o: any) => ({
+          ...o,
+          orderCategory: "basic",
+        }));
+
+        // Normalize algo orders (different structure from Binance)
+        const normalizedAlgo = (algoOrders || []).map((o: any) => ({
+          orderId: o.algoId,
+          clientOrderId: o.clientAlgoId,
+          symbol: o.symbol,
+          side: o.side,
+          type: o.orderType,
+          origQty: o.quantity,
+          price: o.price || "0",
+          stopPrice: o.triggerPrice,
+          status: o.algoStatus,
+          time: o.createTime,
+          updateTime: o.updateTime,
+          orderCategory: "conditional",
+        }));
+
+        orders = [...normalizedBasic, ...normalizedAlgo];
       } else {
         // Spot - Get open orders
         orders = await binanceService.getSpotOpenOrders();
+        orders = (orders || []).map((o: any) => ({
+          ...o,
+          orderCategory: "basic",
+        }));
       }
     } else {
       return res
@@ -87,10 +118,10 @@ router.get("/", async (req: Request, res: Response) => {
     // Map orders to unified format
     const unifiedOrders = Array.isArray(orders)
       ? orders.map((order: any) => ({
-          ...order,
-          accountId: account._id,
-          vendor: account.accountType,
-        }))
+        ...order,
+        accountId: account._id,
+        vendor: account.accountType,
+      }))
       : [];
 
     return res.json({
@@ -245,6 +276,9 @@ router.post("/place", async (req: Request, res: Response) => {
         const roundedPrice = binanceOrderParams.price
           ? roundToPrecision(binanceOrderParams.price, pricePrecision)
           : undefined;
+        const roundedStopPrice = binanceOrderParams.stopPrice
+          ? roundToPrecision(binanceOrderParams.stopPrice, pricePrecision)
+          : undefined;
 
         // Build clean order params for Binance
         const cleanOrderParams: any = {
@@ -260,17 +294,62 @@ router.post("/place", async (req: Request, res: Response) => {
           cleanOrderParams.timeInForce = "GTC";
         }
 
+        // Add stopPrice for conditional orders
+        if (
+          [
+            "STOP",
+            "STOP_MARKET",
+            "TAKE_PROFIT",
+            "TAKE_PROFIT_MARKET",
+          ].includes(binanceOrderParams.type)
+        ) {
+          if (roundedStopPrice) {
+            cleanOrderParams.stopPrice = roundedStopPrice;
+          } else {
+            console.warn(`Type ${binanceOrderParams.type} requires stopPrice but it is missing.`);
+          }
+        }
+
         // Add reduceOnly if true (but not for initial position orders)
         if (reduceOnly) {
           cleanOrderParams.reduceOnly = true;
         }
 
+        // Pass closePosition if present (for MARKET retry)
+        if (binanceOrderParams.closePosition) {
+          cleanOrderParams.closePosition = true;
+        }
+
         console.log("Placing Binance futures order:", cleanOrderParams);
 
         // Place main order
-        result = await binanceService.placeFuturesOrder(cleanOrderParams);
+        // Use Algo Order API for conditional orders, regular API for LIMIT/MARKET
+        const isConditionalOrder = [
+          "STOP",
+          "STOP_MARKET",
+          "TAKE_PROFIT",
+          "TAKE_PROFIT_MARKET",
+          "TRAILING_STOP_MARKET",
+        ].includes(cleanOrderParams.type);
 
-        // Helper function to place SL/TP with retry logic
+        if (isConditionalOrder) {
+          // Use new Algo Order API for conditional orders
+          const algoParams = {
+            symbol: cleanOrderParams.symbol,
+            side: cleanOrderParams.side,
+            type: cleanOrderParams.type,
+            triggerPrice: cleanOrderParams.stopPrice, // Map stopPrice to triggerPrice
+            quantity: cleanOrderParams.quantity,
+            reduceOnly: cleanOrderParams.reduceOnly,
+            closePosition: cleanOrderParams.closePosition,
+          };
+          console.log("Using Algo Order API:", algoParams);
+          result = await binanceService.placeFuturesAlgoOrder(algoParams);
+        } else {
+          result = await binanceService.placeFuturesOrder(cleanOrderParams);
+        }
+
+        // Helper function to place SL/TP with retry logic using new Algo Order API
         const placeSLTPWithRetry = async (
           orderParams: Record<string, unknown>,
           orderType: string,
@@ -279,23 +358,24 @@ router.post("/place", async (req: Request, res: Response) => {
         ): Promise<{ success: boolean; error?: string }> => {
           for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-              await binanceService.placeFuturesOrder(orderParams as {
-                symbol: string;
-                side: "BUY" | "SELL";
-                type:
-                  | "LIMIT"
-                  | "MARKET"
+              // Use the new Algo Order API for conditional orders
+              // Map stopPrice to triggerPrice for the new API
+              const algoParams = {
+                symbol: orderParams.symbol as string,
+                side: orderParams.side as "BUY" | "SELL",
+                type: orderParams.type as
                   | "STOP"
                   | "TAKE_PROFIT"
                   | "STOP_MARKET"
-                  | "TAKE_PROFIT_MARKET";
-                quantity?: number;
-                price?: number;
-                stopPrice?: number;
-                timeInForce?: "GTC" | "IOC" | "FOK" | "GTX";
-                reduceOnly?: boolean;
-                closePosition?: boolean;
-              });
+                  | "TAKE_PROFIT_MARKET"
+                  | "TRAILING_STOP_MARKET",
+                triggerPrice: orderParams.stopPrice as number,
+                quantity: orderParams.quantity as number | undefined,
+                reduceOnly: orderParams.reduceOnly as boolean | undefined,
+                closePosition: orderParams.closePosition as boolean | undefined,
+              };
+
+              await binanceService.placeFuturesAlgoOrder(algoParams);
               return { success: true };
             } catch (err: unknown) {
               const errorMessage =

@@ -50,6 +50,16 @@ interface OrderForm {
   takeProfit: string;
 }
 
+interface RetryState {
+  symbol: string;
+  quantity: number;
+  originalSide: "BUY" | "SELL";
+  originalType: "MARKET" | "LIMIT" | "STOP_MARKET" | "TAKE_PROFIT_MARKET";
+  slPrice?: number;
+  tpPrice?: number;
+  failedTypes: ("sl_failed" | "tp_failed")[];
+}
+
 const DETAILS_REFRESH_INTERVAL = 60000; // 60 seconds between automatic refreshes
 const EXPONENTIAL_SLIDER_STORAGE_KEY = "openMandi_isExponentialSlider";
 const DEFAULT_RISK_PERCENT_STORAGE_KEY = "openMandi_defaultRiskPercent";
@@ -97,6 +107,7 @@ const TradingWindow = memo(function TradingWindow({
       return false;
     }
   });
+  const [retryState, setRetryState] = useState<RetryState | null>(null);
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
   const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
@@ -279,12 +290,11 @@ const TradingWindow = memo(function TradingWindow({
 
   // Helper to calculate decimals from price
   const calculatePriceDecimals = (price: number): number => {
-    if (price >= 1000) return 1;
-    if (price >= 100) return 2;
-    if (price >= 10) return 3;
-    if (price >= 1) return 4;
-    if (price >= 0.1) return 5;
-    return 6;
+    if (!tickSize) return 2;
+    if (tickSize.includes(".")) {
+      return tickSize.split(".")[1].replace(/0+$/, "").length;
+    }
+    return 0;
   };
 
   // Helper to manually sync price field to latest currentPrice (for Refresh button)
@@ -830,34 +840,186 @@ const TradingWindow = memo(function TradingWindow({
       onOrderPlaced();
       setOrderRefreshTrigger((prev) => prev + 1); // Trigger refresh of positions/orders tabs
 
-      // Reset form
-      setOrderForm((prev) => ({
-        ...prev,
-        quantity: "0.001",
-        price: currentPrice.toFixed(
-          tickSize.includes(".")
-            ? tickSize.split(".")[1].replace(/0+$/, "").length
-            : 2
-        ),
-        stopPrice: "",
-        stopLoss: "",
-        takeProfit: "",
-      }));
-      setPositionSizePercentage(0);
+      if (response.data.warnings && response.data.warnings.length > 0) {
+        // Parse warnings to see if they are SL/TP failures
+        const failedTypes: ("sl_failed" | "tp_failed")[] = [];
+        response.data.warnings.forEach((w: { type: string }) => {
+          if (w.type === "sl_failed") failedTypes.push("sl_failed");
+          if (w.type === "tp_failed") failedTypes.push("tp_failed");
+        });
+
+        if (failedTypes.length > 0) {
+          setRetryState({
+            symbol,
+            quantity: parseFloat(orderForm.quantity),
+            originalSide: orderForm.side,
+            originalType: orderForm.type,
+            slPrice: orderForm.stopLoss ? parseFloat(orderForm.stopLoss) : undefined,
+            tpPrice: orderForm.takeProfit ? parseFloat(orderForm.takeProfit) : undefined,
+            failedTypes,
+          });
+        } else {
+          // Reset form only if no critical SL/TP failures that need retry
+          setRetryState(null);
+          setOrderForm((prev) => ({
+            ...prev,
+            quantity: "0.001",
+            price: currentPrice.toFixed(
+              tickSize.includes(".")
+                ? tickSize.split(".")[1].replace(/0+$/, "").length
+                : 2
+            ),
+            stopPrice: "",
+            stopLoss: "",
+            takeProfit: "",
+          }));
+          setPositionSizePercentage(0);
+        }
+      } else {
+        // No warnings, safe to reset
+        setRetryState(null);
+        setOrderForm((prev) => ({
+          ...prev,
+          quantity: "0.001",
+          price: currentPrice.toFixed(
+            tickSize.includes(".")
+              ? tickSize.split(".")[1].replace(/0+$/, "").length
+              : 2
+          ),
+          stopPrice: "",
+          stopLoss: "",
+          takeProfit: "",
+        }));
+        setPositionSizePercentage(0);
+      }
+
     } catch (err: any) {
       // eslint-disable-next-line no-console -- surfaced during order error handling
       console.error("Order placement error:", err);
       const errorData = err.response?.data;
-      const errorMessage =
-        errorData?.details ||
-        errorData?.error ||
-        err.message ||
-        "Failed to place order";
-      setError(errorMessage);
+      setError(errorData?.error || "Failed to place order");
+      setSuccess(null);
+      setRetryState(null);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const handleRetrySlTp = async () => {
+    if (!retryState || !orderForm.accountId) return;
+
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+
+    const inputsToRetry: any[] = [];
+    const {
+      symbol: rSymbol,
+      quantity,
+      originalSide,
+      originalType,
+      slPrice,
+      tpPrice,
+      failedTypes,
+    } = retryState;
+
+    // Logic:
+    // If original was MARKET -> Close Position (closePosition=true)
+    // If original was LIMIT -> Reduce Only (reduceOnly=true, quantity=qty)
+    // Note: This logic assumes the MAIN order was filled.
+    const isMarket = originalType === "MARKET";
+
+    try {
+      if (failedTypes.includes("sl_failed") && slPrice) {
+        // SL is opposite side of entry
+        const slSide = originalSide === "BUY" ? "SELL" : "BUY";
+        inputsToRetry.push({
+          accountId: orderForm.accountId,
+          symbol: rSymbol,
+          side: slSide,
+          type: "STOP_MARKET",
+          stopPrice: slPrice,
+          quantity: isMarket ? undefined : quantity,
+          reduceOnly: isMarket ? undefined : true, // For Limit, reduceOnly
+          closePosition: isMarket ? true : undefined, // For Market, closePosition
+        });
+      }
+
+      if (failedTypes.includes("tp_failed") && tpPrice) {
+        // TP is opposite side of entry
+        const tpSide = originalSide === "BUY" ? "SELL" : "BUY";
+        inputsToRetry.push({
+          accountId: orderForm.accountId,
+          symbol: rSymbol,
+          side: tpSide,
+          type: "TAKE_PROFIT_MARKET",
+          stopPrice: tpPrice,
+          quantity: isMarket ? undefined : quantity,
+          reduceOnly: isMarket ? undefined : true,
+          closePosition: isMarket ? true : undefined,
+        });
+      }
+
+      const results = await Promise.allSettled(
+        inputsToRetry.map((input) => api.post("/orders/place", input))
+      );
+
+      const failures: string[] = [];
+      const successes: string[] = [];
+
+      results.forEach((res, idx) => {
+        const typeLabel = inputsToRetry[idx].type === "STOP_MARKET" ? "SL" : "TP";
+        if (res.status === "fulfilled" && res.value.data.success) {
+          successes.push(typeLabel);
+        } else {
+          const msg =
+            res.status === "rejected"
+              ? res.reason.message
+              : res.value.data.error || "Unknown error";
+          failures.push(`${typeLabel}: ${msg}`);
+        }
+      });
+
+      if (failures.length === 0) {
+        setSuccess(`Successfully retried: ${successes.join(", ")}`);
+        setRetryState(null); // Clear retry state on full success
+        // Reset form now that everything is done
+        setOrderForm((prev) => ({
+          ...prev,
+          quantity: "0.001",
+          price: currentPrice.toFixed(
+            tickSize.includes(".")
+              ? tickSize.split(".")[1].replace(/0+$/, "").length
+              : 2
+          ),
+          stopPrice: "",
+          stopLoss: "",
+          takeProfit: "",
+        }));
+        setPositionSizePercentage(0);
+
+      } else {
+        if (successes.length > 0) {
+          // Partial success
+          setSuccess(`Retried ${successes.join(", ")} successfully.`);
+          // Remove successful ones from failedTypes so user can retry again
+          const newFailedTypes = failedTypes.filter(t => {
+            if (t === "sl_failed" && !failures.some(f => f.startsWith("SL"))) return false;
+            if (t === "tp_failed" && !failures.some(f => f.startsWith("TP"))) return false;
+            return true;
+          });
+          setRetryState(prev => prev ? ({ ...prev, failedTypes: newFailedTypes }) : null);
+        }
+        setError(`Retry failed for: ${failures.join("; ")}`);
+      }
+    } catch (err: any) {
+      console.error("Retry error", err);
+      setError("System error during retry.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
 
   if (accounts.length === 0) {
     return (
@@ -945,9 +1107,8 @@ const TradingWindow = memo(function TradingWindow({
               disabled={!selectedAccount || isRefreshingDetails}
             >
               <RefreshCw
-                className={`h-4 w-4 mr-1 ${
-                  isRefreshingDetails ? "animate-spin" : ""
-                }`}
+                className={`h-4 w-4 mr-1 ${isRefreshingDetails ? "animate-spin" : ""
+                  }`}
               />
               Refresh
             </Button>
@@ -1148,11 +1309,10 @@ const TradingWindow = memo(function TradingWindow({
                 />
                 {calculateRiskedAmount.amount > 0 && (
                   <div
-                    className={`risk-amount ${
-                      calculateRiskedAmount.percentage > 5
-                        ? "risk-high"
-                        : "risk-normal"
-                    }`}
+                    className={`risk-amount ${calculateRiskedAmount.percentage > 5
+                      ? "risk-high"
+                      : "risk-normal"
+                      }`}
                   >
                     Risk: ${calculateRiskedAmount.amount.toFixed(2)} (
                     {calculateRiskedAmount.percentage.toFixed(1)}%)
@@ -1183,11 +1343,11 @@ const TradingWindow = memo(function TradingWindow({
                   >
                     {calculateProfitAmount.isValid
                       ? `Profit: $${calculateProfitAmount.amount.toFixed(
-                          2
-                        )} (${calculateProfitAmount.percentage.toFixed(1)}%)`
+                        2
+                      )} (${calculateProfitAmount.percentage.toFixed(1)}%)`
                       : `Invalid: TP is on wrong side (would lose $${calculateProfitAmount.amount.toFixed(
-                          2
-                        )})`}
+                        2
+                      )})`}
                   </div>
                 )}
               </div>
@@ -1251,7 +1411,22 @@ const TradingWindow = memo(function TradingWindow({
             </div>
 
             {/* Error/Success Messages */}
-            {error && <div className="error-message">{error}</div>}
+            {error && (
+              <div className="error-message flex flex-col gap-2">
+                <span>{error}</span>
+                {retryState && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full h-8 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-900/50"
+                    onClick={handleRetrySlTp}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "Retrying..." : "Retry SL/TP Orders"}
+                  </Button>
+                )}
+              </div>
+            )}
             {success && <div className="success-message">{success}</div>}
 
             {/* Submit Button */}
@@ -1271,9 +1446,8 @@ const TradingWindow = memo(function TradingWindow({
 
         {/* Right Side - Account Info and Position Details */}
         <div
-          className={`trading-info-panel ${
-            isInfoPanelCollapsed ? "collapsed" : ""
-          }`}
+          className={`trading-info-panel ${isInfoPanelCollapsed ? "collapsed" : ""
+            }`}
         >
           {/* Mobile Toggle Button */}
           <button
@@ -1294,9 +1468,8 @@ const TradingWindow = memo(function TradingWindow({
 
           {/* Collapsible Content */}
           <div
-            className={`info-panel-content ${
-              isInfoPanelCollapsed ? "hidden md:block" : ""
-            }`}
+            className={`info-panel-content ${isInfoPanelCollapsed ? "hidden md:block" : ""
+              }`}
           >
             {/* Order Side - At Top of Info Panel */}
             <div className="form-group full-width mb-4">
@@ -1554,9 +1727,8 @@ const TradingWindow = memo(function TradingWindow({
 
         {/* Order Book - Rightmost Column */}
         <div
-          className={`market-depth-panel ${
-            isOrderBookCollapsed ? "collapsed" : ""
-          }`}
+          className={`market-depth-panel ${isOrderBookCollapsed ? "collapsed" : ""
+            }`}
         >
           {/* Mobile Toggle Button */}
           <button
@@ -1574,9 +1746,8 @@ const TradingWindow = memo(function TradingWindow({
           </button>
 
           <div
-            className={`orderbook-content ${
-              isOrderBookCollapsed ? "hidden md:block" : ""
-            }`}
+            className={`orderbook-content ${isOrderBookCollapsed ? "hidden md:block" : ""
+              }`}
           >
             <MarketDepth
               symbol={symbol}

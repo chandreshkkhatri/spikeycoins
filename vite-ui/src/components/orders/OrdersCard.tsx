@@ -33,6 +33,8 @@ interface UnifiedOrderResponse {
   accountId: string;
   accountName: string;
   details: any;
+  orderCategory?: "basic" | "conditional";
+  stopPrice?: number;
 }
 
 interface OrdersCardProps {
@@ -377,15 +379,27 @@ export default function OrdersCard({
                   <div className="detail-row">
                     <span className="detail-label">Type:</span>
                     <span
-                      className={`detail-value ${
-                        order.transactionType.toLowerCase() === "buy"
-                          ? "buy-text"
-                          : "sell-text"
-                      }`}
+                      className={`detail-value ${order.transactionType?.toLowerCase() === "buy"
+                        ? "buy-text"
+                        : "sell-text"
+                        }`}
                     >
                       {order.transactionType} {order.orderType}
                     </span>
                   </div>
+                  {order.orderCategory && (
+                    <div className="detail-row">
+                      <span className="detail-label">Category:</span>
+                      <span className="detail-value">
+                        <Badge
+                          variant={order.orderCategory === "conditional" ? "warning" : "info"}
+                          tone="soft"
+                        >
+                          {order.orderCategory === "conditional" ? "Conditional" : "Basic"}
+                        </Badge>
+                      </span>
+                    </div>
+                  )}
                   <div className="detail-row">
                     <span className="detail-label">Qty:</span>
                     <span className="detail-value">{order.quantity}</span>
@@ -396,6 +410,14 @@ export default function OrdersCard({
                       {order.price > 0 ? formatCurrency(order.price) : "Market"}
                     </span>
                   </div>
+                  {order.stopPrice && order.stopPrice > 0 && (
+                    <div className="detail-row">
+                      <span className="detail-label">Trigger:</span>
+                      <span className="detail-value">
+                        {formatCurrency(order.stopPrice)}
+                      </span>
+                    </div>
+                  )}
                   {order.averagePrice > 0 && (
                     <div className="detail-row">
                       <span className="detail-label">Avg:</span>

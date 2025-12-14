@@ -135,9 +135,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     setError(null);
 
     try {
-      const cacheKey = `${selectedAccount._id}-${activeTab}-${
-        symbol || ""
-      }-${historyTimeframe}-${activeTab === "history" ? historyPage : 0}`;
+      const cacheKey = `${selectedAccount._id}-${activeTab}-${symbol || ""
+        }-${historyTimeframe}-${activeTab === "history" ? historyPage : 0}`;
       let promise = TABS_DATA_CACHE.get(cacheKey);
 
       if (!promise) {
@@ -265,15 +264,15 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           }));
           setTrades(
             (result.tradeData.trades || []).map((t: Record<string, unknown>) => ({
-                id: t.id,
-                symbol: t.symbol,
-                quantity: t.qty,
-                price: t.price,
-                side: t.side,
-                realizedPnl: t.realizedPnl || 0,
-                commission: t.commission || 0,
-                timestamp: t.time,
-              }))
+              id: t.id,
+              symbol: t.symbol,
+              quantity: t.qty,
+              price: t.price,
+              side: t.side,
+              realizedPnl: t.realizedPnl || 0,
+              commission: t.commission || 0,
+              timestamp: t.time,
+            }))
           );
         } else {
           setHistoryHasMore((prev) => ({ ...prev, trades: false }));
@@ -524,8 +523,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
       console.error("Failed to close all positions:", err);
       alert(
         err.response?.data?.error ||
-          err.message ||
-          "Failed to close all positions"
+        err.message ||
+        "Failed to close all positions"
       );
     } finally {
       setClosingPosition(null);
@@ -657,9 +656,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         {pos.margin ? `$${pos.margin.toFixed(2)}` : "-"}
                       </td>
                       <td
-                        className={`text-right px-2 py-2 font-medium ${
-                          pos.pnl >= 0 ? "text-green-500" : "text-red-500"
-                        }`}
+                        className={`text-right px-2 py-2 font-medium ${pos.pnl >= 0 ? "text-green-500" : "text-red-500"
+                          }`}
                       >
                         ${pos.pnl.toFixed(2)}
                       </td>
@@ -809,11 +807,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         {order.orderType}
                       </td>
                       <td
-                        className={`text-right px-2 py-2 ${
-                          order.side === "BUY"
-                            ? "text-green-500"
-                            : "text-red-500"
-                        }`}
+                        className={`text-right px-2 py-2 ${order.side === "BUY"
+                          ? "text-green-500"
+                          : "text-red-500"
+                          }`}
                       >
                         {order.side}
                       </td>
@@ -849,21 +846,19 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           <div className="flex items-center justify-between border-b px-2 text-base">
             <div className="flex gap-2">
               <button
-                className={`py-2 px-2 ${
-                  historySubTab === "orders"
-                    ? "border-b-2 border-primary font-medium"
-                    : "text-muted-foreground"
-                }`}
+                className={`py-2 px-2 ${historySubTab === "orders"
+                  ? "border-b-2 border-primary font-medium"
+                  : "text-muted-foreground"
+                  }`}
                 onClick={() => setHistorySubTab("orders")}
               >
                 Order History ({orderHistory.length})
               </button>
               <button
-                className={`py-2 px-2 ${
-                  historySubTab === "trades"
-                    ? "border-b-2 border-primary font-medium"
-                    : "text-muted-foreground"
-                }`}
+                className={`py-2 px-2 ${historySubTab === "trades"
+                  ? "border-b-2 border-primary font-medium"
+                  : "text-muted-foreground"
+                  }`}
                 onClick={() => setHistorySubTab("trades")}
               >
                 Trades ({trades.length})
@@ -973,11 +968,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                           </span>
                         </td>
                         <td
-                          className={`text-right px-2 py-2 ${
-                            order.side === "BUY"
-                              ? "text-green-500"
-                              : "text-red-500"
-                          }`}
+                          className={`text-right px-2 py-2 ${order.side === "BUY"
+                            ? "text-green-500"
+                            : "text-red-500"
+                            }`}
                         >
                           {order.side}
                         </td>
@@ -991,8 +985,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                               order.status === "FILLED"
                                 ? "success"
                                 : order.status === "CANCELED"
-                                ? "danger"
-                                : "neutral"
+                                  ? "danger"
+                                  : "neutral"
                             }
                             className="text-sm px-1.5 py-0.5"
                           >
@@ -1038,11 +1032,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         </span>
                       </td>
                       <td
-                        className={`text-right px-2 py-2 ${
-                          trade.side === "BUY"
-                            ? "text-green-500"
-                            : "text-red-500"
-                        }`}
+                        className={`text-right px-2 py-2 ${trade.side === "BUY"
+                          ? "text-green-500"
+                          : "text-red-500"
+                          }`}
                       >
                         {trade.side}
                       </td>
@@ -1051,11 +1044,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       </td>
                       <td className="text-right px-2 py-2">{trade.quantity}</td>
                       <td
-                        className={`text-right px-2 py-2 font-medium ${
-                          trade.realizedPnl >= 0
-                            ? "text-green-500"
-                            : "text-red-500"
-                        }`}
+                        className={`text-right px-2 py-2 font-medium ${trade.realizedPnl >= 0
+                          ? "text-green-500"
+                          : "text-red-500"
+                          }`}
                       >
                         {trade.realizedPnl !== 0
                           ? `$${trade.realizedPnl.toFixed(2)}`
