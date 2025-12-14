@@ -1,5 +1,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import api from "@/lib/api";
@@ -12,6 +20,8 @@ import {
   TrendingDown,
   TrendingUp,
   X,
+  Pencil,
+  Plus,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useState, useRef } from "react";
 
@@ -39,6 +49,8 @@ interface Position {
   breakEvenPrice?: number;
   margin?: number;
   marginType?: string;
+  slOrder?: { orderId: number; price: number; type: string };
+  tpOrder?: { orderId: number; price: number; type: string };
 }
 
 interface Order {
@@ -125,6 +137,12 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   const [activePriceInput, setActivePriceInput] = useState<string | null>(null);
   const [closingPosition, setClosingPosition] = useState<string | null>(null);
 
+  // TPSL Modal state
+  const [tpslModalOpen, setTpslModalOpen] = useState(false);
+  const [tpslPosition, setTpslPosition] = useState<Position | null>(null);
+  const [tpslInputs, setTpslInputs] = useState({ stopLoss: "", takeProfit: "" });
+  const [isUpdatingTpsl, setIsUpdatingTpsl] = useState(false);
+
   // Refs for price inputs to refocus after order book price is applied
   const priceInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -206,6 +224,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 breakEvenPrice: p.breakEvenPrice,
                 margin: p.margin,
                 marginType: p.marginType,
+                slOrder: p.slOrder,
+                tpOrder: p.tpOrder,
               }))
           );
         }
@@ -382,22 +402,30 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
   // Apply order book price to active price input
   useEffect(() => {
-    if (orderBookPrice && activePriceInput) {
-      const symbolToUpdate = activePriceInput;
-      setCloseInputs((prev) => ({
-        ...prev,
-        [symbolToUpdate]: {
-          ...prev[symbolToUpdate],
-          price: orderBookPrice,
-        },
-      }));
-      // Refocus the input after a short delay
-      setTimeout(() => {
-        priceInputRefs.current[symbolToUpdate]?.focus();
-      }, 10);
-      onOrderBookPriceApplied?.();
+    if (orderBookPrice) {
+      // Check for active close price input
+      if (activePriceInput) {
+        const symbolToUpdate = activePriceInput;
+        setCloseInputs((prev) => ({
+          ...prev,
+          [symbolToUpdate]: {
+            ...prev[symbolToUpdate],
+            price: orderBookPrice,
+          },
+        }));
+        // Refocus the input after a short delay
+        setTimeout(() => {
+          priceInputRefs.current[symbolToUpdate]?.focus();
+        }, 10);
+        onOrderBookPriceApplied?.();
+      }
+      // Also update TPSL inputs if modal is open
+      else if (tpslModalOpen) {
+        // Simple heuristic: if price is below entry (for LONG) assign to SL, else TP?
+        // Or just let user decide. For now, we won't auto-fill TPSL from order book to avoid confusion.
+      }
     }
-  }, [orderBookPrice, activePriceInput, onOrderBookPriceApplied]);
+  }, [orderBookPrice, activePriceInput, onOrderBookPriceApplied, tpslModalOpen]);
 
   const handleCloseInputChange = (
     symbol: string,
@@ -532,6 +560,39 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     }
   };
 
+  const openTpslModal = (position: Position) => {
+    setTpslPosition(position);
+    setTpslInputs({
+      stopLoss: position.slOrder ? formatPrice(position.slOrder.price) : "",
+      takeProfit: position.tpOrder ? formatPrice(position.tpOrder.price) : "",
+    });
+    setTpslModalOpen(true);
+  };
+
+  const handleUpdateTpsl = async () => {
+    if (!selectedAccount || !tpslPosition) return;
+
+    setIsUpdatingTpsl(true);
+    try {
+      await api.post("/positions/protection", {
+        accountId: selectedAccount._id,
+        symbol: tpslPosition.symbol,
+        stopLoss: tpslInputs.stopLoss,
+        takeProfit: tpslInputs.takeProfit,
+      });
+
+      setTpslModalOpen(false);
+      fetchData();
+    } catch (err: any) {
+      console.error("Failed to update TPSL:", err);
+      alert(
+        err.response?.data?.error || err.message || "Failed to update TPSL"
+      );
+    } finally {
+      setIsUpdatingTpsl(false);
+    }
+  };
+
   return (
     <div className="w-full bg-card rounded-md border shadow-sm">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -596,6 +657,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                     <th className="text-right px-2 py-2 font-medium">Liq</th>
                     <th className="text-right px-2 py-2 font-medium">Margin</th>
                     <th className="text-right px-2 py-2 font-medium">PNL</th>
+                    <th className="text-center px-2 py-2 font-medium">TP/SL</th>
                     <th className="text-center px-2 py-2 font-medium min-w-[160px]">
                       Price / Qty
                     </th>
@@ -662,6 +724,44 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         }`}
                       >
                         ${pos.pnl.toFixed(2)}
+                      </td>
+                      <td className="text-center px-2 py-2">
+                        <div className="flex flex-col items-center gap-1">
+                          {pos.slOrder || pos.tpOrder ? (
+                            <div className="flex flex-col text-xs">
+                              {pos.slOrder && (
+                                <span className="text-red-500">
+                                  SL: {formatPrice(pos.slOrder.price)}
+                                </span>
+                              )}
+                              {pos.tpOrder && (
+                                <span className="text-green-500">
+                                  TP: {formatPrice(pos.tpOrder.price)}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              -
+                            </span>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openTpslModal(pos);
+                            }}
+                          >
+                            {pos.slOrder || pos.tpOrder ? (
+                              <Pencil className="w-3 h-3 mr-1" />
+                            ) : (
+                              <Plus className="w-3 h-3 mr-1" />
+                            )}
+                            {pos.slOrder || pos.tpOrder ? "Edit" : "Add"}
+                          </Button>
+                        </div>
                       </td>
                       <td className="px-1 py-2">
                         <div className="relative flex gap-1">
@@ -1069,6 +1169,63 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* TPSL Modal */}
+      <Dialog open={tpslModalOpen} onOpenChange={setTpslModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Update TPSL - {tpslPosition?.symbol}</DialogTitle>
+            <DialogDescription>
+              Set Stop Loss and Take Profit for your position. Existing SL/TP orders will be cancelled.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="stopLoss" className="text-right text-sm font-medium">
+                Stop Loss
+              </label>
+              <input
+                id="stopLoss"
+                type="number"
+                value={tpslInputs.stopLoss}
+                onChange={(e) => setTpslInputs({...tpslInputs, stopLoss: e.target.value})}
+                className="col-span-3 h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                placeholder="SL Price"
+                step={tpslPosition ? getTickSize(tpslPosition.lastPrice) : "0.01"}
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="takeProfit" className="text-right text-sm font-medium">
+                Take Profit
+              </label>
+              <input
+                id="takeProfit"
+                type="number"
+                value={tpslInputs.takeProfit}
+                onChange={(e) => setTpslInputs({...tpslInputs, takeProfit: e.target.value})}
+                className="col-span-3 h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                placeholder="TP Price"
+                step={tpslPosition ? getTickSize(tpslPosition.lastPrice) : "0.01"}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTpslModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateTpsl} disabled={isUpdatingTpsl}>
+              {isUpdatingTpsl ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Update TPSL"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });

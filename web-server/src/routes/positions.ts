@@ -30,7 +30,11 @@ const toNumber = (value: unknown): number => {
   return 0;
 };
 
-const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
+const formatBinanceFuturesPosition = (
+  position: any,
+  account: IAccount,
+  openOrders: any[] = []
+) => {
   const quantity = toNumber(position.positionAmt);
   const averagePrice = toNumber(position.entryPrice);
   const lastPrice = toNumber(position.markPrice);
@@ -47,13 +51,19 @@ const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
   const liquidationPrice = toNumber(position.liquidationPrice);
   const initialMargin = toNumber(position.initialMargin); // Margin used by position
   const leverage = toNumber(position.leverage);
-  
+
   // Break Even Price calculation (entry price + trading fees)
   // Using 0.04% taker fee (entry + exit = 0.08% total)
   const TAKER_FEE = 0.0004;
-  const breakEvenPrice = quantity > 0 
-    ? averagePrice * (1 + TAKER_FEE * 2) // Long: entry + 2x fee
-    : averagePrice * (1 - TAKER_FEE * 2); // Short: entry - 2x fee
+  const breakEvenPrice =
+    quantity > 0
+      ? averagePrice * (1 + TAKER_FEE * 2) // Long: entry + 2x fee
+      : averagePrice * (1 - TAKER_FEE * 2); // Short: entry - 2x fee
+
+  // Find SL and TP orders
+  const symbolOrders = openOrders.filter((o) => o.symbol === symbol);
+  const slOrder = symbolOrders.find((o) => o.type === "STOP_MARKET");
+  const tpOrder = symbolOrders.find((o) => o.type === "TAKE_PROFIT_MARKET");
 
   return {
     ...position,
@@ -76,6 +86,20 @@ const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
     accountName: account.accountName,
     timestamp: new Date(position.updateTime || Date.now()).toISOString(),
     details: position,
+    slOrder: slOrder
+      ? {
+          orderId: slOrder.orderId,
+          price: toNumber(slOrder.stopPrice),
+          type: slOrder.type,
+        }
+      : undefined,
+    tpOrder: tpOrder
+      ? {
+          orderId: tpOrder.orderId,
+          price: toNumber(tpOrder.stopPrice),
+          type: tpOrder.type,
+        }
+      : undefined,
   };
 };
 
@@ -154,10 +178,14 @@ const formatDefaultPosition = (position: any, account: IAccount) => {
 const formatPosition = (
   account: IAccount,
   position: any,
-  options?: { tradingSegment?: string }
+  options?: { tradingSegment?: string; openOrders?: any[] }
 ) => {
   if (account.accountType === "binance" && options?.tradingSegment === "usdm") {
-    return formatBinanceFuturesPosition(position, account);
+    return formatBinanceFuturesPosition(
+      position,
+      account,
+      options.openOrders || []
+    );
   }
 
   return {
@@ -184,6 +212,7 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     let positions;
+    let openOrders: any[] = [];
     let tradingSegment: string | undefined;
 
     if (account.accountType === "kite") {
@@ -230,7 +259,13 @@ router.get("/", async (req: Request, res: Response) => {
 
       if (tradingSegment === "usdm") {
         // USD(S)-M Futures - Get positions
-        positions = await binanceService.getFuturesPositions();
+        // Run fetches in parallel for performance
+        const [posData, ordersData] = await Promise.all([
+          binanceService.getFuturesPositions(),
+          binanceService.getFuturesOpenOrders(),
+        ]);
+        positions = posData;
+        openOrders = ordersData;
       } else {
         // Spot trading doesn't have positions in the traditional sense
         // Return empty array for spot accounts
@@ -245,7 +280,7 @@ router.get("/", async (req: Request, res: Response) => {
     // Map positions to unified format
     const unifiedPositions = Array.isArray(positions)
       ? positions.map((position: any) =>
-          formatPosition(account, position, { tradingSegment })
+          formatPosition(account, position, { tradingSegment, openOrders })
         )
       : [];
 
@@ -264,6 +299,111 @@ router.get("/", async (req: Request, res: Response) => {
       error: `Failed to fetch positions: ${errorMessage}`,
       details: errorMessage,
       data: [], // Ensure data is always present
+    });
+  }
+});
+
+// POST /api/positions/protection - Update SL/TP for a position
+router.post("/protection", async (req: Request, res: Response) => {
+  try {
+    const { accountId, symbol, stopLoss, takeProfit } = req.body;
+
+    if (!accountId || !symbol) {
+      return res.status(400).json({ error: "accountId and symbol are required" });
+    }
+
+    const account = await getAccountById(accountId);
+    if (!account) {
+      return res.status(404).json({ error: "Account not found" });
+    }
+
+    if (account.accountType !== "binance") {
+      return res.status(400).json({
+        error: "Position protection is currently only supported for Binance",
+      });
+    }
+
+    // Initialize Binance service
+    const tradingSegment = account.metadata?.tradingSegment || "spot";
+    const isTestnet = account.metadata?.testnet || false;
+
+    if (tradingSegment !== "usdm") {
+      return res.status(400).json({
+        error: "Position protection is only supported for Binance Futures",
+      });
+    }
+
+    binanceService.initializeWithCredentials(
+      account.apiKey,
+      account.apiSecret,
+      isTestnet
+    );
+
+    // 1. Get current position to determine side (LONG/SHORT)
+    const positions = await binanceService.getFuturesPositions();
+    const position = positions.find((p: any) => p.symbol === symbol);
+
+    if (!position) {
+      return res.status(404).json({ error: "Position not found" });
+    }
+
+    const quantity = parseFloat(position.positionAmt);
+    if (quantity === 0) {
+      return res.status(400).json({ error: "Position is empty" });
+    }
+
+    const isLong = quantity > 0;
+    const side = isLong ? "SELL" : "BUY"; // Close side
+
+    // 2. Cancel existing SL/TP orders
+    await binanceService.cancelFuturesSlTpOrders(symbol, side);
+
+    const results: any = {
+      sl: null,
+      tp: null,
+    };
+
+    // 3. Place new SL order
+    if (stopLoss && parseFloat(stopLoss) > 0) {
+      try {
+        results.sl = await binanceService.placeFuturesOrder({
+          symbol,
+          side,
+          type: "STOP_MARKET",
+          stopPrice: parseFloat(stopLoss),
+          closePosition: true,
+        });
+      } catch (err: any) {
+        console.error("Failed to place SL:", err);
+        results.sl = { error: err.message };
+      }
+    }
+
+    // 4. Place new TP order
+    if (takeProfit && parseFloat(takeProfit) > 0) {
+      try {
+        results.tp = await binanceService.placeFuturesOrder({
+          symbol,
+          side,
+          type: "TAKE_PROFIT_MARKET",
+          stopPrice: parseFloat(takeProfit),
+          closePosition: true,
+        });
+      } catch (err: any) {
+        console.error("Failed to place TP:", err);
+        results.tp = { error: err.message };
+      }
+    }
+
+    return res.json({
+      success: true,
+      results,
+    });
+  } catch (error: any) {
+    console.error("Error updating position protection:", error);
+    return res.status(500).json({
+      error: "Failed to update position protection",
+      details: error.message,
     });
   }
 });
