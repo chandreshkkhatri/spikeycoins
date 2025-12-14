@@ -289,7 +289,7 @@ const TradingWindow = memo(function TradingWindow({
   ]);
 
   // Helper to calculate decimals from price
-  const calculatePriceDecimals = (price: number): number => {
+  const calculatePriceDecimals = (_price: number): number => {
     if (!tickSize) return 2;
     if (tickSize.includes(".")) {
       return tickSize.split(".")[1].replace(/0+$/, "").length;

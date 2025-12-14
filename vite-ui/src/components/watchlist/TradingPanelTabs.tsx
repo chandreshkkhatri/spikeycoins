@@ -156,8 +156,6 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     let existingSlQty = 0;
     let existingTpQty = 0;
 
-    // Debug logging
-    const symbolOrders = orders.filter(o => o.symbol === posSymbol);
     orders.forEach((o) => {
       // Check for conditional orders (STOP_MARKET / TAKE_PROFIT_MARKET)
       // Also check standard STOP/TAKE_PROFIT if they are being correctly categorized
