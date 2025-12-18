@@ -39,7 +39,26 @@ export default function SettingsPage() {
         setInvites(response.data.invites);
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || "Failed to load invites");
+      let message = "An error occurred while loading invites.";
+
+      // If using Axios or a similar HTTP client, distinguish error types
+      if (err?.response) {
+        const status = err.response.status;
+
+        if (status === 401 || status === 403) {
+          message = "You are not authorized to view invites. Please sign in again.";
+        } else if (status >= 500) {
+          message = "Our servers are having trouble loading invites. Please try again later.";
+        } else if (err.response.data?.error) {
+          message = err.response.data.error;
+        }
+      } else if (err?.request) {
+        message = "Network error while loading invites. Please check your internet connection and try again.";
+      } else if (err instanceof Error && err.message) {
+        message = err.message;
+      }
+
+      setError(message);
     } finally {
       setLoadingInvites(false);
     }
