@@ -99,7 +99,17 @@ export async function sendNotificationToUser(
  */
 export async function sendOrderNotification(
   userId: string,
-  type: "order_placed" | "order_filled" | "order_failed" | "sl_failed" | "tp_failed" | "sl_tp_failed",
+  type:
+    | "order_placed"
+    | "order_filled"
+    | "order_failed"
+    | "sl_failed"
+    | "tp_failed"
+    | "sl_tp_failed"
+    | "sl_triggered"
+    | "tp_triggered"
+    | "order_canceled"
+    | "liquidation",
   details: {
     symbol: string;
     side?: string;
@@ -108,11 +118,19 @@ export async function sendOrderNotification(
     error?: string;
     slError?: string;
     tpError?: string;
+    realizedPnl?: number;
+    orderType?: string;
   }
 ): Promise<void> {
   let title: string;
   let body: string;
   let requireInteraction = false;
+
+  // Format P&L display
+  const formatPnl = (pnl: number) => {
+    const sign = pnl >= 0 ? "+" : "";
+    return `${sign}$${pnl.toFixed(2)}`;
+  };
 
   switch (type) {
     case "order_placed":
@@ -141,6 +159,30 @@ export async function sendOrderNotification(
     case "sl_tp_failed":
       title = "🚨 SL & TP Orders Failed";
       body = `${details.symbol}: SL - ${details.slError || "N/A"}, TP - ${details.tpError || "N/A"}`;
+      requireInteraction = true;
+      break;
+    case "sl_triggered":
+      title = "🛑 Stop Loss Hit";
+      body = details.realizedPnl !== undefined
+        ? `${details.symbol} SL filled @ ${details.price} (${formatPnl(details.realizedPnl)})`
+        : `${details.symbol} SL filled @ ${details.price}`;
+      requireInteraction = true;
+      break;
+    case "tp_triggered":
+      title = "🎉 Take Profit Hit";
+      body = details.realizedPnl !== undefined
+        ? `${details.symbol} TP filled @ ${details.price} (${formatPnl(details.realizedPnl)})`
+        : `${details.symbol} TP filled @ ${details.price}`;
+      break;
+    case "order_canceled":
+      title = "❌ Order Canceled";
+      body = `${details.symbol} ${details.orderType || "order"} canceled`;
+      break;
+    case "liquidation":
+      title = "🚨 Liquidation";
+      body = details.realizedPnl !== undefined
+        ? `${details.symbol} position liquidated (${formatPnl(details.realizedPnl)})`
+        : `${details.symbol} position liquidated`;
       requireInteraction = true;
       break;
     default:

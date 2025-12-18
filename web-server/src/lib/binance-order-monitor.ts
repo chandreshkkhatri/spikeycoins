@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import Account from "../models/account";
 import connectDB from "./mongodb";
+import { sendOrderNotification } from "./push-notification-service";
 
 /**
  * Binance Order Monitor Service
@@ -17,6 +18,7 @@ import connectDB from "./mongodb";
 
 interface AccountConnection {
   accountId: string;
+  userId: string; // User ID for push notifications
   apiKey: string;
   apiSecret: string;
   testnet: boolean;
@@ -153,6 +155,7 @@ class BinanceOrderMonitor {
     // Create connection record
     const conn: AccountConnection = {
       accountId,
+      userId: account.userId?.toString() || "", // User ID for notifications
       apiKey: account.apiKey,
       apiSecret: account.apiSecret,
       testnet: isTestnet,
@@ -243,18 +246,71 @@ class BinanceOrderMonitor {
   }
 
   /**
-   * Handle order update event - cancel remaining SL/TP if one is filled
+   * Handle order update event - send notifications and cancel remaining SL/TP if one is filled
    */
   private async handleOrderUpdate(conn: AccountConnection, event: OrderTradeUpdate): Promise<void> {
     const order = event.o;
+    const symbol = order.s;
+    const realizedPnl = parseFloat(order.rp) || 0;
+    const price = parseFloat(order.L) || parseFloat(order.ap) || 0;
+    const quantity = parseFloat(order.z) || parseFloat(order.q) || 0;
 
-    // Only care about SL/TP orders that are FILLED
+    // Send notifications based on order status
+    if (conn.userId) {
+      try {
+        // Handle FILLED orders
+        if (order.X === "FILLED") {
+          if (order.ot === "STOP_MARKET") {
+            // Stop Loss triggered
+            console.log(`[OrderMonitor] SL triggered for ${symbol}, sending notification`);
+            await sendOrderNotification(conn.userId, "sl_triggered", {
+              symbol,
+              price,
+              quantity,
+              realizedPnl,
+              side: order.S,
+            });
+          } else if (order.ot === "TAKE_PROFIT_MARKET") {
+            // Take Profit triggered
+            console.log(`[OrderMonitor] TP triggered for ${symbol}, sending notification`);
+            await sendOrderNotification(conn.userId, "tp_triggered", {
+              symbol,
+              price,
+              quantity,
+              realizedPnl,
+              side: order.S,
+            });
+          } else if (order.ot === "LIQUIDATION") {
+            // Liquidation
+            console.log(`[OrderMonitor] Liquidation for ${symbol}, sending notification`);
+            await sendOrderNotification(conn.userId, "liquidation", {
+              symbol,
+              price,
+              quantity,
+              realizedPnl,
+              side: order.S,
+            });
+          } else {
+            // Regular order filled (MARKET, LIMIT, etc.)
+            console.log(`[OrderMonitor] Order filled for ${symbol}, sending notification`);
+            await sendOrderNotification(conn.userId, "order_filled", {
+              symbol,
+              price,
+              quantity,
+              side: order.S,
+            });
+          }
+        }
+      } catch (notifError) {
+        console.error(`[OrderMonitor] Failed to send notification:`, notifError);
+      }
+    }
+
+    // Only cancel remaining SL/TP for STOP_MARKET or TAKE_PROFIT_MARKET orders that are FILLED
     if (order.X !== "FILLED") return;
     if (order.ot !== "STOP_MARKET" && order.ot !== "TAKE_PROFIT_MARKET") return;
 
-    const symbol = order.s;
     const orderType = order.ot === "STOP_MARKET" ? "SL" : "TP";
-
     console.log(`[OrderMonitor] ${orderType} order FILLED for ${symbol} on account ${conn.accountId}`);
 
     // Cancel the other SL/TP order for this symbol
