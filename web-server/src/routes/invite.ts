@@ -49,7 +49,7 @@ router.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response) =
 
     // Calculate expiration date if specified
     let expiresAt = null;
-    if (expiresInDays && expiresInDays > 0) {
+    if (expiresInDays) {
       expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + expiresInDays);
     }
