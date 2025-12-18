@@ -63,7 +63,7 @@ inviteSchema.statics.generateCode = function (): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Removed ambiguous chars like 0, O, 1, I
   const segments = 4;
   const segmentLength = 4;
-
+  
   const codeSegments: string[] = [];
   for (let s = 0; s < segments; s++) {
     let segment = "";
@@ -73,7 +73,7 @@ inviteSchema.statics.generateCode = function (): string {
     }
     codeSegments.push(segment);
   }
-
+  
   return codeSegments.join("-");
 };
 
@@ -82,15 +82,15 @@ inviteSchema.methods.isValid = function (): { valid: boolean; error?: string } {
   if (!this.isActive) {
     return { valid: false, error: "Invite code is no longer active" };
   }
-
+  
   if (this.expiresAt && new Date() > this.expiresAt) {
     return { valid: false, error: "Invite code has expired" };
   }
-
+  
   if (this.usedCount >= this.maxUses) {
     return { valid: false, error: "Invite code has reached maximum uses" };
   }
-
+  
   return { valid: true };
 };
 
@@ -108,11 +108,11 @@ inviteSchema.statics.findAndValidate = async function (code: string): Promise<{
   error?: string;
 }> {
   const invite = await this.findOne({ code: code.toUpperCase().trim() });
-
+  
   if (!invite) {
     return { invite: null, valid: false, error: "Invalid invite code" };
   }
-
+  
   const validation = invite.isValid();
   return { invite, ...validation };
 };

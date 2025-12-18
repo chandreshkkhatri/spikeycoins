@@ -20,7 +20,7 @@ interface Invite {
 export default function SettingsPage() {
   const { user, isLoggedIn, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
-
+  
   const [invites, setInvites] = useState<Invite[]>([]);
   const [loadingInvites, setLoadingInvites] = useState(false);
   const [creatingInvite, setCreatingInvite] = useState(false);
@@ -30,7 +30,7 @@ export default function SettingsPage() {
   // Fetch invites
   const fetchInvites = useCallback(async () => {
     if (!isLoggedIn) return;
-
+    
     setLoadingInvites(true);
     setError(null);
     try {
@@ -162,12 +162,12 @@ export default function SettingsPage() {
         </EnhancedCard>
 
         {/* Invites Section */}
-        <EnhancedCard
+        <EnhancedCard 
           title="Invite Codes"
           action={
-            <Button
-              size="sm"
-              onClick={createInvite}
+            <Button 
+              size="sm" 
+              onClick={createInvite} 
               disabled={creatingInvite}
             >
               <Plus className="h-4 w-4 mr-1" />

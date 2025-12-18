@@ -1339,7 +1339,7 @@ const TradingWindow = memo(function TradingWindow({
                   <>
                     <div className="flex items-center gap-2 mb-1">
                       <Slider
-                        value={[isExponentialSlider
+                        value={[isExponentialSlider 
                           ? Math.sqrt(slPercentage / 20) * 100  // Reverse exponential for display
                           : slPercentage]}
                         min={0}
@@ -1351,15 +1351,15 @@ const TradingWindow = memo(function TradingWindow({
                           let pct = isExponentialSlider
                             ? 20 * Math.pow(value[0] / 100, 2)
                             : value[0] * 0.2; // Linear: 0-100 maps to 0-20%
-
+                          
                           // Clamp to reasonable range
                           pct = Math.max(0.1, Math.min(20, pct));
                           setSlPercentage(pct);
                           setHasUserEditedSL(true);
-
+                          
                           // Calculate SL price based on side
-                          const entryPrice = orderForm.type === "LIMIT"
-                            ? parseFloat(orderForm.price) || currentPrice
+                          const entryPrice = orderForm.type === "LIMIT" 
+                            ? parseFloat(orderForm.price) || currentPrice 
                             : currentPrice;
                           let slPrice: number;
                           if (orderForm.side === "BUY") {
@@ -1420,7 +1420,7 @@ const TradingWindow = memo(function TradingWindow({
                   <>
                     <div className="flex items-center gap-2 mb-1">
                       <Slider
-                        value={[isExponentialSlider
+                        value={[isExponentialSlider 
                           ? Math.sqrt(tpPercentage / 50) * 100  // Reverse exponential for display
                           : tpPercentage * 2]} // Linear: 0-50% maps to 0-100
                         min={0}
@@ -1432,15 +1432,15 @@ const TradingWindow = memo(function TradingWindow({
                           let pct = isExponentialSlider
                             ? 50 * Math.pow(value[0] / 100, 2)
                             : value[0] * 0.5; // Linear: 0-100 maps to 0-50%
-
+                          
                           // Clamp to reasonable range
                           pct = Math.max(0.1, Math.min(50, pct));
                           setTpPercentage(pct);
                           setHasUserEditedTP(true);
-
+                          
                           // Calculate TP price based on side
-                          const entryPrice = orderForm.type === "LIMIT"
-                            ? parseFloat(orderForm.price) || currentPrice
+                          const entryPrice = orderForm.type === "LIMIT" 
+                            ? parseFloat(orderForm.price) || currentPrice 
                             : currentPrice;
                           let tpPrice: number;
                           if (orderForm.side === "BUY") {
@@ -1463,7 +1463,7 @@ const TradingWindow = memo(function TradingWindow({
                       <span>TP: {orderForm.takeProfit || "—"}</span>
                       {calculateProfitAmount.amount > 0 && (
                         <span className={calculateProfitAmount.isValid ? "text-green-500" : "text-red-500"}>
-                          {calculateProfitAmount.isValid
+                          {calculateProfitAmount.isValid 
                             ? `Profit: $${calculateProfitAmount.amount.toFixed(2)} (${calculateProfitAmount.percentage.toFixed(1)}%)`
                             : `Invalid TP`}
                         </span>

@@ -32,16 +32,16 @@ router.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response) =
     // Generate unique code with async retry
     const maxAttempts = 10;
     let code: string | null = null;
-
+    
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const candidateCode = (Invite as any).generateCode();
       const existing = await Invite.findOne({ code: candidateCode });
-
+      
       if (!existing) {
         code = candidateCode;
         break;
       }
-
+      
       // If collision occurs, log it (should be extremely rare with 16-char codes)
       console.warn(`Invite code collision detected on attempt ${attempt + 1}/${maxAttempts}`);
     }
@@ -112,7 +112,7 @@ router.delete("/:code", requireAuth, async (req: AuthenticatedRequest, res: Resp
 
     await connectDB();
 
-    const invite = await Invite.findOne({
+    const invite = await Invite.findOne({ 
       code: code.toUpperCase(),
       createdBy: req.user!.id,
     });
