@@ -1054,7 +1054,7 @@ const TradingWindow = memo(function TradingWindow({
         lineWidth: 2,
         lineStyle: 0, // Solid
         title: `${orderForm.side} @ ${formatPrice(price, "$")}`,
-        axis: "left",
+        axis: "left" as const,
       });
     }
   }
@@ -1069,7 +1069,7 @@ const TradingWindow = memo(function TradingWindow({
         lineWidth: 1,
         lineStyle: 2, // Dashed
         title: `SL ${formatPrice(slPrice, "$")}`,
-        axis: "right",
+        axis: "right" as const,
       });
     }
   }
@@ -1084,7 +1084,7 @@ const TradingWindow = memo(function TradingWindow({
         lineWidth: 1,
         lineStyle: 2, // Dashed
         title: `TP ${formatPrice(tpPrice, "$")}`,
-        axis: "right",
+        axis: "right" as const,
       });
     }
   }
