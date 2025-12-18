@@ -35,6 +35,9 @@ import connectDB from "./lib/mongodb";
 // Import price service for server-side WebSocket
 import binancePriceService from "./lib/binance-price-service";
 
+// Import order monitor for auto-cancelling SL/TP
+import binanceOrderMonitor from "./lib/binance-order-monitor";
+
 const app: Application = express();
 const PORT = process.env.PORT || 8000;
 
@@ -165,6 +168,12 @@ app.listen(PORT, () => {
   // Start Binance price service for caching
   console.log("📡 Starting Binance price service...");
   binancePriceService.start();
+
+  // Start order monitor for auto-cancelling SL/TP orders
+  console.log("📡 Starting Binance order monitor...");
+  binanceOrderMonitor.start().catch((err) => {
+    console.error("Failed to start order monitor:", err);
+  });
 });
 
 export default app;
