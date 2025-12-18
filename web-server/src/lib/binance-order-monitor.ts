@@ -280,16 +280,6 @@ class BinanceOrderMonitor {
               realizedPnl,
               side: order.S,
             });
-          } else if (order.ot === "LIQUIDATION") {
-            // Liquidation
-            console.log(`[OrderMonitor] Liquidation for ${symbol}, sending notification`);
-            await sendOrderNotification(conn.userId, "liquidation", {
-              symbol,
-              price,
-              quantity,
-              realizedPnl,
-              side: order.S,
-            });
           } else {
             // Regular order filled (MARKET, LIMIT, etc.)
             console.log(`[OrderMonitor] Order filled for ${symbol}, sending notification`);
