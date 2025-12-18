@@ -13,6 +13,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -25,8 +26,13 @@ export default function Login() {
         google_auth_failed: "Google authentication failed",
         google_token_failed: "Failed to get Google token",
         google_userinfo_failed: "Failed to get Google user info",
+        invite_required: "Registration is invite-only. Please sign up with an invite code first, then you can link your Google account.",
       };
       setLocalError(errorMessages[error] || "Authentication failed");
+      // If invite required, switch to register mode
+      if (error === "invite_required") {
+        setMode("register");
+      }
     }
   }, [searchParams]);
 
@@ -48,9 +54,15 @@ export default function Login() {
       } else {
         if (!name.trim()) {
           setLocalError("Name is required");
+          setIsSubmitting(false);
           return;
         }
-        await register(email, password, name);
+        if (!inviteCode.trim()) {
+          setLocalError("Invite code is required");
+          setIsSubmitting(false);
+          return;
+        }
+        await register(email, password, name, inviteCode);
       }
       navigate("/");
     } catch (err) {
@@ -159,6 +171,27 @@ export default function Login() {
                   required={mode === "register"}
                   disabled={isSubmitting}
                 />
+              </div>
+            )}
+
+            {mode === "register" && (
+              <div>
+                <label htmlFor="inviteCode" className="block text-sm font-medium text-foreground">
+                  Invite Code
+                </label>
+                <input
+                  id="inviteCode"
+                  type="text"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono tracking-wider placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="XXXX-XXXX-XXXX"
+                  required={mode === "register"}
+                  disabled={isSubmitting}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Registration is invite-only. Contact an existing user for an invite code.
+                </p>
               </div>
             )}
 
