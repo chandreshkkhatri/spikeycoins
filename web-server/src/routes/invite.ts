@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import connectDB from "../lib/mongodb";
 import Invite from "../models/invite";
 import {
@@ -12,6 +12,20 @@ const router = Router();
 router.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { maxUses = 1, expiresInDays } = req.body;
+
+    // Validate expiresInDays parameter
+    if (expiresInDays !== null && expiresInDays !== undefined) {
+      if (typeof expiresInDays !== 'number' || !Number.isFinite(expiresInDays)) {
+        return res.status(400).json({
+          error: "expiresInDays must be a valid number",
+        });
+      }
+      if (expiresInDays < 1 || expiresInDays > 365) {
+        return res.status(400).json({
+          error: "expiresInDays must be between 1 and 365 days",
+        });
+      }
+    }
 
     await connectDB();
 
