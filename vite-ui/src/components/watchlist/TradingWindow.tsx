@@ -1042,6 +1042,7 @@ const TradingWindow = memo(function TradingWindow({
         lineWidth: 2,
         lineStyle: 0, // Solid
         title: `${orderForm.side} @ ${formatPrice(price, "$")}`,
+        axis: "left",
       });
     }
   }
@@ -1056,6 +1057,7 @@ const TradingWindow = memo(function TradingWindow({
         lineWidth: 1,
         lineStyle: 2, // Dashed
         title: `SL ${formatPrice(slPrice, "$")}`,
+        axis: "right",
       });
     }
   }
@@ -1070,6 +1072,7 @@ const TradingWindow = memo(function TradingWindow({
         lineWidth: 1,
         lineStyle: 2, // Dashed
         title: `TP ${formatPrice(tpPrice, "$")}`,
+        axis: "right",
       });
     }
   }
@@ -1085,32 +1088,56 @@ const TradingWindow = memo(function TradingWindow({
         marketType={marketType}
         priceLines={chartPriceLines}
       />
-      <div className="trading-header">
-        <h3>{symbol} Trading</h3>
-        <div className="trading-header-actions">
-          <div className="current-price">${currentPrice.toFixed(2)}</div>
-          <div className="refresh-controls">
+      <div className="trading-header flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
+        {/* Row 1: Symbol and Price */}
+        <div className="flex items-center justify-between md:gap-4">
+          <h3 className="text-base font-semibold md:text-lg">{symbol} Trading</h3>
+          <div className="text-lg font-bold text-primary md:order-last">${currentPrice.toFixed(2)}</div>
+        </div>
+
+        {/* Row 2: Buy/Sell Buttons and Refresh Controls */}
+        <div className="flex items-center justify-between gap-2 md:gap-4">
+          {/* Buy/Sell Buttons - Left on mobile */}
+          <div className="flex items-center gap-1">
+            <Button
+              variant={orderForm.side === "BUY" ? "success" : "outline"}
+              size="sm"
+              className={orderForm.side === "BUY" ? "bg-green-600 hover:bg-green-700 text-white h-7" : "h-7"}
+              onClick={() => handleInputChange("side", "BUY")}
+            >
+              Buy
+            </Button>
+            <Button
+              variant={orderForm.side === "SELL" ? "danger" : "outline"}
+              size="sm"
+              className={orderForm.side === "SELL" ? "bg-red-600 hover:bg-red-700 text-white h-7" : "h-7"}
+              onClick={() => handleInputChange("side", "SELL")}
+            >
+              Sell
+            </Button>
+          </div>
+
+          {/* Refresh Controls - Right on mobile */}
+          <div className="flex items-center gap-2">
             {lastDetailsRefresh && (
-              <span className="last-refresh-time">
+              <span className="text-[10px] text-muted-foreground hidden sm:inline">
                 Updated {new Date(lastDetailsRefresh).toLocaleTimeString()}
               </span>
             )}
             <Button
               variant="outline"
               size="sm"
-              className="refresh-details-button"
+              className="h-7 text-xs"
               onClick={() => {
-                // Manually refresh account/position details and sync price to latest LTP
                 fetchAccountAndPositionDetails();
                 syncPriceToCurrent();
               }}
               disabled={!selectedAccount || isRefreshingDetails}
             >
               <RefreshCw
-                className={`h-4 w-4 mr-1 ${isRefreshingDetails ? "animate-spin" : ""
-                  }`}
+                className={`h-3 w-3 mr-1 ${isRefreshingDetails ? "animate-spin" : ""}`}
               />
-              Refresh
+              <span className="hidden sm:inline">Refresh</span>
             </Button>
           </div>
         </div>
@@ -1471,28 +1498,7 @@ const TradingWindow = memo(function TradingWindow({
             className={`info-panel-content ${isInfoPanelCollapsed ? "hidden md:block" : ""
               }`}
           >
-            {/* Order Side - At Top of Info Panel */}
-            <div className="form-group full-width mb-4">
-              <label>Side</label>
-              <div className="button-group">
-                <Button
-                  type="button"
-                  variant={orderForm.side === "BUY" ? "success" : "outline"}
-                  size="sm"
-                  onClick={() => handleInputChange("side", "BUY")}
-                >
-                  Buy
-                </Button>
-                <Button
-                  type="button"
-                  variant={orderForm.side === "SELL" ? "danger" : "outline"}
-                  size="sm"
-                  onClick={() => handleInputChange("side", "SELL")}
-                >
-                  Sell
-                </Button>
-              </div>
-            </div>
+
 
             {/* Config Section */}
             <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
