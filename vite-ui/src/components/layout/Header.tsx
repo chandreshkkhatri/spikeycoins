@@ -7,7 +7,7 @@ import { useTheme } from "@/lib/theme-context";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { PAGE_ROUTES } from "@/lib/constants";
-import { LogOut, User, LogIn } from "lucide-react";
+import { LogOut, User, LogIn, Settings } from "lucide-react";
 
 const navItems = [
   { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
@@ -170,6 +170,16 @@ export function Header() {
                   <button
                     onClick={() => {
                       setShowUserMenu(false);
+                      navigate(PAGE_ROUTES.SETTINGS);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted rounded-sm transition-colors"
+                  >
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false);
                       logout();
                     }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 rounded-sm transition-colors"
@@ -273,6 +283,18 @@ export function Header() {
                     <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                   </div>
                 </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setOpen(false);
+                    navigate(PAGE_ROUTES.SETTINGS);
+                  }}
+                  className="w-full"
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  Settings
+                </Button>
                 <Button
                   size="sm"
                   variant="destructive"

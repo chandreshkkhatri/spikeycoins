@@ -1035,6 +1035,91 @@ class BinanceService {
       throw new Error("Failed to connect to Binance Futures API");
     }
   }
+
+  // ==================== USER DATA STREAM (for Order Monitoring) ====================
+
+  /**
+   * Create a listenKey for Futures User Data Stream
+   * Required for WebSocket connection to receive order/position updates
+   * POST /fapi/v1/listenKey
+   */
+  async createFuturesListenKey(): Promise<string> {
+    try {
+      this.checkRateLimit();
+      const response = await this.futuresClient.post("/fapi/v1/listenKey");
+      return response.data.listenKey;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures createListenKey error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg || "Failed to create Binance Futures listenKey"
+      );
+    }
+  }
+
+  /**
+   * Keep alive a Futures listenKey (extend validity by 60 minutes)
+   * Should be called every 30 minutes to prevent timeout
+   * PUT /fapi/v1/listenKey
+   */
+  async keepAliveFuturesListenKey(listenKey: string): Promise<void> {
+    try {
+      this.checkRateLimit();
+      await this.futuresClient.put("/fapi/v1/listenKey", null, {
+        params: { listenKey },
+      });
+    } catch (error: any) {
+      console.error(
+        "Binance Futures keepAliveListenKey error:",
+        error.response?.data || error.message
+      );
+      throw new Error(
+        error.response?.data?.msg || "Failed to keep alive Binance Futures listenKey"
+      );
+    }
+  }
+
+  /**
+   * Delete a Futures listenKey (close the User Data Stream)
+   * DELETE /fapi/v1/listenKey
+   */
+  async deleteFuturesListenKey(listenKey: string): Promise<void> {
+    try {
+      this.checkRateLimit();
+      await this.futuresClient.delete("/fapi/v1/listenKey", {
+        params: { listenKey },
+      });
+    } catch (error: any) {
+      console.error(
+        "Binance Futures deleteListenKey error:",
+        error.response?.data || error.message
+      );
+      // Don't throw - deletion is best effort
+    }
+  }
+
+  /**
+   * Get the WebSocket URL for Futures User Data Stream
+   */
+  getFuturesUserDataStreamUrl(listenKey: string): string {
+    const baseWs = this.testnet
+      ? "wss://stream.binancefuture.com"
+      : "wss://fstream.binance.com";
+    return `${baseWs}/ws/${listenKey}`;
+  }
+
+  /**
+   * Get credentials for external use (e.g., by order monitor service)
+   */
+  getCredentials(): { apiKey: string; apiSecret: string; testnet: boolean } {
+    return {
+      apiKey: this.apiKey,
+      apiSecret: this.apiSecret,
+      testnet: this.testnet,
+    };
+  }
 }
 
 // Export singleton instance
