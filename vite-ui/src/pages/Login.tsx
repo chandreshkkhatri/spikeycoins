@@ -181,7 +181,7 @@ export default function Login() {
                   id="inviteCode"
                   type="text"
                   value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  onChange={(e) => setInviteCode(e.target.value.trim().toUpperCase())}
                   className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono tracking-wider placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   placeholder="XXXX-XXXX-XXXX"
                   required={mode === "register"}
