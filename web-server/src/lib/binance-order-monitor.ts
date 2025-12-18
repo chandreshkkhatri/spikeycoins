@@ -152,10 +152,17 @@ class BinanceOrderMonitor {
 
     const isTestnet = account.metadata?.testnet || false;
 
+    const userId: string | undefined = account.userId;
+    if (!userId) {
+      console.warn(
+        `[OrderMonitor] Missing userId for account ${accountId}; push notifications will be disabled for this account.`
+      );
+    }
+
     // Create connection record
     const conn: AccountConnection = {
       accountId,
-      userId: account.userId?.toString() || "", // User ID for notifications
+      userId: userId || "", // User ID for notifications
       apiKey: account.apiKey,
       apiSecret: account.apiSecret,
       testnet: isTestnet,
