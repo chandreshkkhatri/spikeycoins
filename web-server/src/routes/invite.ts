@@ -15,19 +15,25 @@ router.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response) =
 
     await connectDB();
 
-    // Generate unique code
-    let code: string;
-    let attempts = 0;
+    // Generate unique code with async retry
     const maxAttempts = 10;
+    let code: string | null = null;
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const candidateCode = (Invite as any).generateCode();
+      const existing = await Invite.findOne({ code: candidateCode });
+      
+      if (!existing) {
+        code = candidateCode;
+        break;
+      }
+      
+      // If collision occurs, log it (should be extremely rare with 16-char codes)
+      console.warn(`Invite code collision detected on attempt ${attempt + 1}/${maxAttempts}`);
+    }
 
-    do {
-      code = (Invite as any).generateCode();
-      const existing = await Invite.findOne({ code });
-      if (!existing) break;
-      attempts++;
-    } while (attempts < maxAttempts);
-
-    if (attempts >= maxAttempts) {
+    if (!code) {
+      console.error("Failed to generate unique invite code after maximum attempts");
       return res.status(500).json({
         error: "Failed to generate unique invite code",
       });
