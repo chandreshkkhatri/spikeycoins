@@ -84,7 +84,7 @@ userSchema.statics.findOrCreateFromGoogle = async function (profile: {
   email: string;
   name: string;
   picture?: string;
-}): Promise<IUser> {
+}): Promise<IUserDocument> {
   let user = await this.findOne({ googleId: profile.id });
   
   if (user) {
