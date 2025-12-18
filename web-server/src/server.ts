@@ -28,12 +28,16 @@ import settingsRouter from "./routes/settings";
 import tradingRouter from "./routes/trading";
 import upstoxRouter from "./routes/upstox";
 import watchlistRouter from "./routes/watchlist";
+import inviteRouter from "./routes/invite";
 
 // Import database connection
 import connectDB from "./lib/mongodb";
 
 // Import price service for server-side WebSocket
 import binancePriceService from "./lib/binance-price-service";
+
+// Import order monitor for auto-cancelling SL/TP
+import binanceOrderMonitor from "./lib/binance-order-monitor";
 
 const app: Application = express();
 const PORT = process.env.PORT || 8000;
@@ -134,6 +138,7 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/trading", tradingRouter);
 app.use("/api/upstox", upstoxRouter);
 app.use("/api/watchlist", watchlistRouter);
+app.use("/api/invites", inviteRouter);
 
 // Error handling middleware
 app.use(
@@ -165,6 +170,12 @@ app.listen(PORT, () => {
   // Start Binance price service for caching
   console.log("📡 Starting Binance price service...");
   binancePriceService.start();
+
+  // Start order monitor for auto-cancelling SL/TP orders
+  console.log("📡 Starting Binance order monitor...");
+  binanceOrderMonitor.start().catch((err) => {
+    console.error("Failed to start order monitor:", err);
+  });
 });
 
 export default app;

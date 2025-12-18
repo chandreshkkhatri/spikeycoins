@@ -7,6 +7,7 @@ import Account from "../models/account";
 import User from "../models/user";
 import UserSettings from "../models/user-settings";
 import RefreshToken, { REFRESH_TOKEN_GRACE_PERIOD_MS } from "../models/refresh-token";
+import Invite from "../models/invite";
 import {
   generateToken,
   generateRefreshToken,
@@ -32,11 +33,17 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 // POST /api/auth/register - Register new user with email/password
 router.post("/register", async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, inviteCode } = req.body;
 
     if (!email || !password || !name) {
       return res.status(400).json({
         error: "Email, password, and name are required",
+      });
+    }
+
+    if (!inviteCode) {
+      return res.status(400).json({
+        error: "Invite code is required. Registration is invite-only.",
       });
     }
 
@@ -47,6 +54,14 @@ router.post("/register", async (req: Request, res: Response) => {
     }
 
     await connectDB();
+
+    // Validate invite code
+    const { invite, valid, error: inviteError } = await (Invite as any).findAndValidate(inviteCode);
+    if (!valid || !invite) {
+      return res.status(400).json({
+        error: inviteError || "Invalid invite code",
+      });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -63,6 +78,9 @@ router.post("/register", async (req: Request, res: Response) => {
     });
     user.setPassword(password);
     await user.save();
+
+    // Mark invite as used
+    await invite.useForUser(user._id);
 
     // Create default settings
     await UserSettings.create({
@@ -366,7 +384,20 @@ router.get("/google/callback", async (req: Request, res: Response) => {
 
     await connectDB();
 
-    // Find or create user
+    // Check if user already exists (by googleId or email)
+    const existingUser = await User.findOne({
+      $or: [
+        { googleId: googleUser.id },
+        { email: googleUser.email.toLowerCase() }
+      ]
+    });
+
+    // If user doesn't exist, they need to register with an invite code first
+    if (!existingUser) {
+      return res.redirect(`${FRONTEND_URL}/login?error=invite_required`);
+    }
+
+    // Find or update existing user with Google info
     const user = await (User as any).findOrCreateFromGoogle({
       id: googleUser.id,
       email: googleUser.email,
