@@ -54,12 +54,10 @@ export default function Login() {
       } else {
         if (!name.trim()) {
           setLocalError("Name is required");
-          setIsSubmitting(false);
           return;
         }
         if (!inviteCode.trim()) {
           setLocalError("Invite code is required");
-          setIsSubmitting(false);
           return;
         }
         await register(email, password, name, inviteCode);
