@@ -65,6 +65,7 @@ const EXPONENTIAL_SLIDER_STORAGE_KEY = "openMandi_isExponentialSlider";
 const DEFAULT_RISK_PERCENT_STORAGE_KEY = "openMandi_defaultRiskPercent";
 const DEFAULT_TP_PERCENT_STORAGE_KEY = "openMandi_defaultTakeProfitPercent";
 const USER_MAX_LEVERAGE_STORAGE_KEY = "openMandi_userMaxLeverage";
+const USE_SL_TP_SLIDER_STORAGE_KEY = "openMandi_useSlTpSlider";
 
 const TradingWindow = memo(function TradingWindow({
   symbol,
@@ -107,6 +108,17 @@ const TradingWindow = memo(function TradingWindow({
       return false;
     }
   });
+  const [useSlTpSlider, setUseSlTpSlider] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(USE_SL_TP_SLIDER_STORAGE_KEY);
+      return stored !== null ? stored === "true" : true; // Default to true (slider mode)
+    } catch {
+      return true;
+    }
+  });
+  // Slider percentage values for SL/TP (0-20%)
+  const [slPercentage, setSlPercentage] = useState<number>(1);
+  const [tpPercentage, setTpPercentage] = useState<number>(2);
   const [retryState, setRetryState] = useState<RetryState | null>(null);
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
   const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
@@ -1042,6 +1054,7 @@ const TradingWindow = memo(function TradingWindow({
         lineWidth: 2,
         lineStyle: 0, // Solid
         title: `${orderForm.side} @ ${formatPrice(price, "$")}`,
+        axis: "left" as const,
       });
     }
   }
@@ -1056,6 +1069,7 @@ const TradingWindow = memo(function TradingWindow({
         lineWidth: 1,
         lineStyle: 2, // Dashed
         title: `SL ${formatPrice(slPrice, "$")}`,
+        axis: "right" as const,
       });
     }
   }
@@ -1070,6 +1084,7 @@ const TradingWindow = memo(function TradingWindow({
         lineWidth: 1,
         lineStyle: 2, // Dashed
         title: `TP ${formatPrice(tpPrice, "$")}`,
+        axis: "right" as const,
       });
     }
   }
@@ -1085,32 +1100,56 @@ const TradingWindow = memo(function TradingWindow({
         marketType={marketType}
         priceLines={chartPriceLines}
       />
-      <div className="trading-header">
-        <h3>{symbol} Trading</h3>
-        <div className="trading-header-actions">
-          <div className="current-price">${currentPrice.toFixed(2)}</div>
-          <div className="refresh-controls">
+      <div className="trading-header flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
+        {/* Row 1: Symbol and Price */}
+        <div className="flex items-center justify-between md:gap-4">
+          <h3 className="text-base font-semibold md:text-lg">{symbol} Trading</h3>
+          <div className="text-lg font-bold text-primary md:order-last">${currentPrice.toFixed(2)}</div>
+        </div>
+
+        {/* Row 2: Buy/Sell Buttons and Refresh Controls */}
+        <div className="flex items-center justify-between gap-2 md:gap-4">
+          {/* Buy/Sell Buttons - Left on mobile */}
+          <div className="flex items-center gap-1">
+            <Button
+              variant={orderForm.side === "BUY" ? "success" : "outline"}
+              size="sm"
+              className={orderForm.side === "BUY" ? "bg-green-600 hover:bg-green-700 text-white h-7" : "h-7"}
+              onClick={() => handleInputChange("side", "BUY")}
+            >
+              Buy
+            </Button>
+            <Button
+              variant={orderForm.side === "SELL" ? "danger" : "outline"}
+              size="sm"
+              className={orderForm.side === "SELL" ? "bg-red-600 hover:bg-red-700 text-white h-7" : "h-7"}
+              onClick={() => handleInputChange("side", "SELL")}
+            >
+              Sell
+            </Button>
+          </div>
+
+          {/* Refresh Controls - Right on mobile */}
+          <div className="flex items-center gap-2">
             {lastDetailsRefresh && (
-              <span className="last-refresh-time">
+              <span className="text-[10px] text-muted-foreground hidden sm:inline">
                 Updated {new Date(lastDetailsRefresh).toLocaleTimeString()}
               </span>
             )}
             <Button
               variant="outline"
               size="sm"
-              className="refresh-details-button"
+              className="h-7 text-xs"
               onClick={() => {
-                // Manually refresh account/position details and sync price to latest LTP
                 fetchAccountAndPositionDetails();
                 syncPriceToCurrent();
               }}
               disabled={!selectedAccount || isRefreshingDetails}
             >
               <RefreshCw
-                className={`h-4 w-4 mr-1 ${isRefreshingDetails ? "animate-spin" : ""
-                  }`}
+                className={`h-3 w-3 mr-1 ${isRefreshingDetails ? "animate-spin" : ""}`}
               />
-              Refresh
+              <span className="hidden sm:inline">Refresh</span>
             </Button>
           </div>
         </div>
@@ -1296,18 +1335,72 @@ const TradingWindow = memo(function TradingWindow({
               {/* Stop Loss with Risk Amount */}
               <div className="form-group">
                 <label>Stop Loss *</label>
-                <input
-                  type="number"
-                  value={orderForm.stopLoss}
-                  onChange={(e) =>
-                    handleInputChange("stopLoss", e.target.value)
-                  }
-                  className="form-input"
-                  placeholder="SL Price"
-                  step={tickSize}
-                  required
-                />
-                {calculateRiskedAmount.amount > 0 && (
+                {useSlTpSlider ? (
+                  <>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Slider
+                        value={[isExponentialSlider
+                          ? Math.sqrt(slPercentage / 20) * 100  // Reverse exponential for display
+                          : slPercentage]}
+                        min={0}
+                        max={100}
+                        step={0.5}
+                        onValueChange={(value) => {
+                          // Apply exponential scaling if enabled: y = 20 * (x/100)^2
+                          // This gives more precision at lower values (0-5% range)
+                          let pct = isExponentialSlider
+                            ? 20 * Math.pow(value[0] / 100, 2)
+                            : value[0] * 0.2; // Linear: 0-100 maps to 0-20%
+
+                          // Clamp to reasonable range
+                          pct = Math.max(0.1, Math.min(20, pct));
+                          setSlPercentage(pct);
+                          setHasUserEditedSL(true);
+
+                          // Calculate SL price based on side
+                          const entryPrice = orderForm.type === "LIMIT"
+                            ? parseFloat(orderForm.price) || currentPrice
+                            : currentPrice;
+                          let slPrice: number;
+                          if (orderForm.side === "BUY") {
+                            slPrice = entryPrice * (1 - pct / 100);
+                          } else {
+                            slPrice = entryPrice * (1 + pct / 100);
+                          }
+                          const decimals = tickSize.includes(".")
+                            ? tickSize.split(".")[1].replace(/0+$/, "").length
+                            : 2;
+                          handleInputChange("stopLoss", slPrice.toFixed(decimals));
+                        }}
+                        className="flex-1"
+                      />
+                      <span className="text-xs font-medium w-14 text-right text-orange-500">
+                        {slPercentage.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>SL: {orderForm.stopLoss || "—"}</span>
+                      {calculateRiskedAmount.amount > 0 && (
+                        <span className={calculateRiskedAmount.percentage > 5 ? "text-red-500" : "text-orange-500"}>
+                          Risk: ${calculateRiskedAmount.amount.toFixed(2)} ({calculateRiskedAmount.percentage.toFixed(1)}%)
+                        </span>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <input
+                    type="number"
+                    value={orderForm.stopLoss}
+                    onChange={(e) =>
+                      handleInputChange("stopLoss", e.target.value)
+                    }
+                    className="form-input"
+                    placeholder="SL Price"
+                    step={tickSize}
+                    required
+                  />
+                )}
+                {!useSlTpSlider && calculateRiskedAmount.amount > 0 && (
                   <div
                     className={`risk-amount ${calculateRiskedAmount.percentage > 5
                       ? "risk-high"
@@ -1323,17 +1416,73 @@ const TradingWindow = memo(function TradingWindow({
               {/* Take Profit */}
               <div className="form-group">
                 <label>Take Profit</label>
-                <input
-                  type="number"
-                  value={orderForm.takeProfit}
-                  onChange={(e) =>
-                    handleInputChange("takeProfit", e.target.value)
-                  }
-                  className="form-input"
-                  placeholder="TP Price"
-                  step={tickSize}
-                />
-                {calculateProfitAmount.amount > 0 && (
+                {useSlTpSlider ? (
+                  <>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Slider
+                        value={[isExponentialSlider
+                          ? Math.sqrt(tpPercentage / 50) * 100  // Reverse exponential for display
+                          : tpPercentage * 2]} // Linear: 0-50% maps to 0-100
+                        min={0}
+                        max={100}
+                        step={0.5}
+                        onValueChange={(value) => {
+                          // Apply exponential scaling if enabled: y = 50 * (x/100)^2
+                          // This gives more precision at lower values (0-10% range)
+                          let pct = isExponentialSlider
+                            ? 50 * Math.pow(value[0] / 100, 2)
+                            : value[0] * 0.5; // Linear: 0-100 maps to 0-50%
+
+                          // Clamp to reasonable range
+                          pct = Math.max(0.1, Math.min(50, pct));
+                          setTpPercentage(pct);
+                          setHasUserEditedTP(true);
+
+                          // Calculate TP price based on side
+                          const entryPrice = orderForm.type === "LIMIT"
+                            ? parseFloat(orderForm.price) || currentPrice
+                            : currentPrice;
+                          let tpPrice: number;
+                          if (orderForm.side === "BUY") {
+                            tpPrice = entryPrice * (1 + pct / 100);
+                          } else {
+                            tpPrice = entryPrice * (1 - pct / 100);
+                          }
+                          const decimals = tickSize.includes(".")
+                            ? tickSize.split(".")[1].replace(/0+$/, "").length
+                            : 2;
+                          handleInputChange("takeProfit", tpPrice.toFixed(decimals));
+                        }}
+                        className="flex-1"
+                      />
+                      <span className="text-xs font-medium w-14 text-right text-blue-500">
+                        {tpPercentage.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>TP: {orderForm.takeProfit || "—"}</span>
+                      {calculateProfitAmount.amount > 0 && (
+                        <span className={calculateProfitAmount.isValid ? "text-green-500" : "text-red-500"}>
+                          {calculateProfitAmount.isValid
+                            ? `Profit: $${calculateProfitAmount.amount.toFixed(2)} (${calculateProfitAmount.percentage.toFixed(1)}%)`
+                            : `Invalid TP`}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <input
+                    type="number"
+                    value={orderForm.takeProfit}
+                    onChange={(e) =>
+                      handleInputChange("takeProfit", e.target.value)
+                    }
+                    className="form-input"
+                    placeholder="TP Price"
+                    step={tickSize}
+                  />
+                )}
+                {!useSlTpSlider && calculateProfitAmount.amount > 0 && (
                   <div
                     className={
                       calculateProfitAmount.isValid
@@ -1471,28 +1620,7 @@ const TradingWindow = memo(function TradingWindow({
             className={`info-panel-content ${isInfoPanelCollapsed ? "hidden md:block" : ""
               }`}
           >
-            {/* Order Side - At Top of Info Panel */}
-            <div className="form-group full-width mb-4">
-              <label>Side</label>
-              <div className="button-group">
-                <Button
-                  type="button"
-                  variant={orderForm.side === "BUY" ? "success" : "outline"}
-                  size="sm"
-                  onClick={() => handleInputChange("side", "BUY")}
-                >
-                  Buy
-                </Button>
-                <Button
-                  type="button"
-                  variant={orderForm.side === "SELL" ? "danger" : "outline"}
-                  size="sm"
-                  onClick={() => handleInputChange("side", "SELL")}
-                >
-                  Sell
-                </Button>
-              </div>
-            </div>
+
 
             {/* Config Section */}
             <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
@@ -1646,6 +1774,50 @@ const TradingWindow = memo(function TradingWindow({
                     >
                       ✕
                     </button>
+                  </div>
+                </div>
+
+                {/* SL/TP Slider Toggle */}
+                <div className="form-group mb-0 pt-2 border-t border-border/50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        Use SL/TP Sliders
+                      </span>
+                      <TooltipProvider delayDuration={100}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-[200px]">
+                            <p className="text-xs">
+                              <strong>SL/TP Slider Mode</strong>
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              When enabled, use sliders to set Stop Loss and
+                              Take Profit as percentages from entry price.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={useSlTpSlider}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setUseSlTpSlider(checked);
+                        try {
+                          localStorage.setItem(
+                            USE_SL_TP_SLIDER_STORAGE_KEY,
+                            String(checked)
+                          );
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      className="form-checkbox w-3.5 h-3.5"
+                    />
                   </div>
                 </div>
               </div>

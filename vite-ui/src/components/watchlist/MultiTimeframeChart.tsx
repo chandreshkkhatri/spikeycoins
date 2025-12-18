@@ -40,6 +40,7 @@ interface PriceLine {
   lineWidth?: number;
   lineStyle?: number; // 0 = Solid, 1 = Dotted, 2 = Dashed, 3 = LargeDashed
   title?: string;
+  axis?: "left" | "right";
 }
 
 interface MultiTimeframeChartProps {
@@ -68,7 +69,7 @@ interface ChartSettings {
   collapsedCharts: { [interval: string]: boolean };
 }
 
-const PRICE_SCALE_ID: "left" | "right" = "left";
+// Removed constant PRICE_SCALE_ID as we use both
 
 const getStoredSettings = (): ChartSettings | null => {
   try {
@@ -123,9 +124,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     const chartRefs = useRef<{
       chart: IChartApi | null;
       series: ISeriesApi<"Candlestick"> | null;
+      secondarySeries: ISeriesApi<"Candlestick"> | null;
       wheelHandler?: (e: WheelEvent) => void;
       container?: HTMLDivElement;
       priceLineRefs?: any[];
+      secondaryPriceLineRefs?: any[];
     }[]>([]);
     const [loading, setLoading] = useState(false);
     const [refreshingCharts, setRefreshingCharts] = useState(false);
@@ -164,7 +167,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       chartRefs.current.forEach((chartRef) => {
         if (!chartRef?.series) return;
 
-        // Remove existing price lines
+        // Remove existing price lines (Main/Left Axis)
         if (chartRef.priceLineRefs) {
           chartRef.priceLineRefs.forEach((line) => {
             try {
@@ -176,10 +179,23 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           chartRef.priceLineRefs = [];
         }
 
+        // Remove existing price lines (Secondary/Right Axis)
+        if (chartRef.secondaryPriceLineRefs) {
+          chartRef.secondaryPriceLineRefs.forEach((line) => {
+            try {
+              chartRef.secondarySeries?.removePriceLine(line);
+            } catch {
+              // Line might already be removed
+            }
+          });
+          chartRef.secondaryPriceLineRefs = [];
+        }
+
         // Add new price lines
         if (priceLines && priceLines.length > 0) {
+          // Left Axis Lines
           chartRef.priceLineRefs = priceLines
-            .filter((pl) => pl.price > 0)
+            .filter((pl) => pl.price > 0 && pl.axis !== "right")
             .map((pl) => {
               return chartRef.series?.createPriceLine({
                 price: pl.price,
@@ -190,6 +206,22 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 title: pl.title || "",
               });
             });
+
+          // Right Axis Lines
+          if (chartRef.secondarySeries) {
+            chartRef.secondaryPriceLineRefs = priceLines
+              .filter((pl) => pl.price > 0 && pl.axis === "right")
+              .map((pl) => {
+                return chartRef.secondarySeries?.createPriceLine({
+                  price: pl.price,
+                  color: pl.color,
+                  lineWidth: (pl.lineWidth || 1) as LineWidth,
+                  lineStyle: pl.lineStyle ?? 2, // Default to dashed
+                  axisLabelVisible: true,
+                  title: pl.title || "",
+                });
+              });
+          }
         }
       });
     }, [priceLines]);
@@ -226,6 +258,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               if (runIdRef.current !== thisRun) return;
               if (data.length > 0 && typeof chartRef.series.setData === "function") {
                 chartRef.series.setData(data);
+                chartRef.secondarySeries?.setData(data);
                 chartRef.chart?.timeScale().fitContent();
               }
             } catch (err) {
@@ -270,6 +303,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             chartRefs.current[chartIndex] = {
               chart: null,
               series: null,
+              secondarySeries: null,
             };
           }
         }
@@ -387,7 +421,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             },
           },
           crosshair: {
-            mode: 1,
+            mode: 0,
             vertLine: {
               color: isDarkMode ? "#3f3f46" : "#d4d4d8",
               width: 1,
@@ -416,7 +450,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             scaleMargins: { top: 0.08, bottom: 0.08 },
             mode: isLogScale ? 1 : 0,
             borderVisible: false,
-            visible: false,
+            visible: true,
           },
           timeScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
@@ -474,12 +508,28 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           borderUpColor: "#22c55e",
           wickDownColor: "#ef4444",
           wickUpColor: "#22c55e",
-          priceScaleId: PRICE_SCALE_ID,
+          priceScaleId: "left",
         };
 
         const series = chart.addSeries(CandlestickSeries, candlestickOptions);
 
-        return { chart, series, wheelHandler: handleWheel };
+        // Secondary series for Right Axis (Hidden but used for Price Lines)
+        // We use CandlestickSeries with transparent colors so it scales identically to the main one
+        const secondaryOptions = {
+          upColor: "rgba(0,0,0,0)",
+          downColor: "rgba(0,0,0,0)",
+          borderDownColor: "rgba(0,0,0,0)",
+          borderUpColor: "rgba(0,0,0,0)",
+          wickDownColor: "rgba(0,0,0,0)",
+          wickUpColor: "rgba(0,0,0,0)",
+          priceScaleId: "right",
+        };
+        const secondarySeries = chart.addSeries(
+          CandlestickSeries,
+          secondaryOptions
+        );
+
+        return { chart, series, secondarySeries, wheelHandler: handleWheel };
       },
       [autoScale, isLogScale]
     );
@@ -619,8 +669,16 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
 
             try {
-              const { chart, series, wheelHandler } = createSingleChart(container);
-              chartRefs.current[index] = { chart, series, wheelHandler, container };
+              const { chart, series, secondarySeries, wheelHandler } = createSingleChart(
+                container
+              );
+              chartRefs.current[index] = {
+                chart,
+                series,
+                secondarySeries,
+                wheelHandler,
+                container,
+              };
 
               // Use individual chart timeframe if set, otherwise use default
               const actualTimeframe =
@@ -636,10 +694,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 typeof series.setData === "function"
               ) {
                 series.setData(data);
+                secondarySeries.setData(data);
                 chart.timeScale().fitContent();
               }
 
-              return { chart, series };
+              return { chart, series, secondarySeries };
             } catch (chartError) {
               const errorMessage =
                 chartError instanceof Error
@@ -717,14 +776,23 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         }
 
         try {
-          const { chart, series, wheelHandler } = createSingleChart(container);
-          chartRefs.current[index] = { chart, series, wheelHandler, container };
+          const { chart, series, secondarySeries, wheelHandler } = createSingleChart(
+            container
+          );
+          chartRefs.current[index] = {
+            chart,
+            series,
+            secondarySeries,
+            wheelHandler,
+            container,
+          };
 
           const actualTimeframe = chartTimeframes[index] || timeframe.interval;
           const data = await fetchChartData(actualTimeframe);
 
           if (data.length > 0 && series && typeof series.setData === "function") {
             series.setData(data);
+            secondarySeries?.setData(data);
             chart.timeScale().fitContent();
           }
         } catch (error) {
@@ -767,6 +835,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 typeof chartRef.series.setData === "function"
               ) {
                 chartRef.series.setData(data);
+                chartRef.secondarySeries?.setData(data);
                 const timeScale = chartRef.chart?.timeScale();
                 timeScale?.fitContent();
               }
@@ -796,10 +865,19 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               if (!container) return;
 
               // Update scale mode
-              const priceScale = chart.priceScale(PRICE_SCALE_ID);
-              if (priceScale) {
-                priceScale.applyOptions({
-                  mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal
+              // Update scale mode
+              const leftScale = chart.priceScale("left");
+              const rightScale = chart.priceScale("right");
+              if (leftScale) {
+                leftScale.applyOptions({
+                  mode: isLogScale ? 1 : 0,
+                  autoScale: true, // Always autoScale
+                });
+              }
+              if (rightScale) {
+                rightScale.applyOptions({
+                  mode: isLogScale ? 1 : 0,
+                  autoScale: true,
                 });
               }
 

@@ -565,8 +565,17 @@ const Watchlist = memo(function Watchlist({
   const sortedWatchlistItems = useMemo(() => {
     const items = [...watchlistItems];
     items.sort((a, b) => {
-      const aValue = a[sortConfig.key];
-      const bValue = b[sortConfig.key];
+      let aValue: number | string;
+      let bValue: number | string;
+
+      // For volume, sort by dollar value (price × units)
+      if (sortConfig.key === "volume") {
+        aValue = a.volume * a.lastPrice;
+        bValue = b.volume * b.lastPrice;
+      } else {
+        aValue = a[sortConfig.key];
+        bValue = b[sortConfig.key];
+      }
 
       if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
       if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
@@ -1183,7 +1192,7 @@ const Watchlist = memo(function Watchlist({
             </div>
             <div className="text-right">
               <span className="text-xs text-muted-foreground">
-                {formatVolume(item.volume)}
+                {formatVolume(item.volume * item.lastPrice)}
               </span>
             </div>
 
