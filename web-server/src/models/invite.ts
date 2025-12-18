@@ -58,9 +58,10 @@ const inviteSchema = new mongoose.Schema<IInvite>(
 
 // Generate a unique invite code
 inviteSchema.statics.generateCode = function (): string {
-  // Format: XXXX-XXXX-XXXX (alphanumeric, uppercase)
+  // Format: XXXX-XXXX-XXXX-XXXX (alphanumeric, uppercase)
+  // 16 characters = 32^16 ≈ 1.21 × 10^24 possible codes (collision probability extremely low)
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Removed ambiguous chars like 0, O, 1, I
-  const segments = 3;
+  const segments = 4;
   const segmentLength = 4;
   
   const codeSegments: string[] = [];
