@@ -11,6 +11,10 @@ export interface IInvite extends Document {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
+  
+  // Instance methods
+  isValid(): { valid: boolean; error?: string };
+  useForUser(userId: mongoose.Types.ObjectId): Promise<void>;
 }
 
 const inviteSchema = new mongoose.Schema<IInvite>(
@@ -116,6 +120,18 @@ inviteSchema.statics.findAndValidate = async function (code: string): Promise<{
   return { invite, ...validation };
 };
 
-const Invite = mongoose.models.Invite || mongoose.model<IInvite>("Invite", inviteSchema);
+// Interface for the model with static methods
+interface IInviteModel extends mongoose.Model<IInvite> {
+  generateCode(): string;
+  findAndValidate(code: string): Promise<{
+    invite: IInvite | null;
+    valid: boolean;
+    error?: string;
+  }>;
+}
+
+const Invite: IInviteModel =
+  (mongoose.models.Invite as unknown as IInviteModel) ||
+  mongoose.model<IInvite, IInviteModel>("Invite", inviteSchema);
 
 export default Invite;

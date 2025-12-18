@@ -56,7 +56,7 @@ router.post("/register", async (req: Request, res: Response) => {
     await connectDB();
 
     // Validate invite code
-    const { invite, valid, error: inviteError } = await (Invite as any).findAndValidate(inviteCode);
+    const { invite, valid, error: inviteError } = await Invite.findAndValidate(inviteCode);
     if (!valid || !invite) {
       return res.status(400).json({
         error: inviteError || "Invalid invite code",
@@ -154,7 +154,7 @@ router.post("/login", async (req: Request, res: Response) => {
     });
 
     // Cleanup old tokens
-    await (RefreshToken as any).cleanupOldTokens(user._id.toString());
+    await RefreshToken.cleanupOldTokens(user._id.toString());
 
     return res.json({
       success: true,
@@ -398,7 +398,7 @@ router.get("/google/callback", async (req: Request, res: Response) => {
     }
 
     // Find or update existing user with Google info
-    const user = await (User as any).findOrCreateFromGoogle({
+    const user = await User.findOrCreateFromGoogle({
       id: googleUser.id,
       email: googleUser.email,
       name: googleUser.name,
@@ -406,7 +406,7 @@ router.get("/google/callback", async (req: Request, res: Response) => {
     });
 
     // Ensure user settings exist
-    await (UserSettings as any).getOrCreate(user._id.toString());
+    await UserSettings.getOrCreate(user._id.toString());
 
     // Generate tokens
     const accessToken = generateToken(user._id.toString(), user.email);

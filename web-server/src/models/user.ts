@@ -1,8 +1,7 @@
-import mongoose from "mongoose";
+import mongoose, { Document } from "mongoose";
 import crypto from "crypto";
 
 export interface IUser {
-  _id?: string;
   email: string;
   passwordHash?: string;
   passwordSalt?: string;
@@ -14,7 +13,13 @@ export interface IUser {
   updatedAt?: Date;
 }
 
-const userSchema = new mongoose.Schema<IUser>(
+// Document type with instance methods
+export interface IUserDocument extends Document, IUser {
+  setPassword(password: string): void;
+  validatePassword(password: string): boolean;
+}
+
+const userSchema = new mongoose.Schema<IUserDocument>(
   {
     email: {
       type: String,
@@ -126,6 +131,18 @@ userSchema.set("toJSON", {
   },
 });
 
-const User = mongoose.models.User || mongoose.model<IUser>("User", userSchema);
+// Interface for the model with static methods
+interface IUserModel extends mongoose.Model<IUserDocument> {
+  findOrCreateFromGoogle(profile: {
+    id: string;
+    email: string;
+    name: string;
+    picture?: string;
+  }): Promise<IUserDocument>;
+}
+
+const User: IUserModel =
+  (mongoose.models.User as unknown as IUserModel) ||
+  mongoose.model<IUserDocument, IUserModel>("User", userSchema);
 
 export default User;

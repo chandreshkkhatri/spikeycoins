@@ -21,7 +21,7 @@ router.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response) =
     const maxAttempts = 10;
 
     do {
-      code = (Invite as any).generateCode();
+      code = Invite.generateCode();
       const existing = await Invite.findOne({ code });
       if (!existing) break;
       attempts++;

@@ -81,8 +81,13 @@ refreshTokenSchema.statics.cleanupOldTokens = async function (
   });
 };
 
-const RefreshToken =
-  mongoose.models.RefreshToken ||
-  mongoose.model<IRefreshToken>("RefreshToken", refreshTokenSchema);
+// Interface for the model with static methods
+interface IRefreshTokenModel extends mongoose.Model<IRefreshToken> {
+  cleanupOldTokens(userId: string, keepCount?: number): Promise<void>;
+}
+
+const RefreshToken: IRefreshTokenModel =
+  (mongoose.models.RefreshToken as unknown as IRefreshTokenModel) ||
+  mongoose.model<IRefreshToken, IRefreshTokenModel>("RefreshToken", refreshTokenSchema);
 
 export default RefreshToken;
