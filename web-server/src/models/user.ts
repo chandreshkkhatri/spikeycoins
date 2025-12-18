@@ -141,6 +141,8 @@ interface IUserModel extends mongoose.Model<IUserDocument> {
   }): Promise<IUserDocument>;
 }
 
+// Type assertion needed because mongoose.models.User returns Model<any>
+// and we need to properly type our custom static methods
 const User: IUserModel =
   (mongoose.models.User as unknown as IUserModel) ||
   mongoose.model<IUserDocument, IUserModel>("User", userSchema);

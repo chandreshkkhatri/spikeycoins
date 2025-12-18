@@ -130,6 +130,8 @@ interface IInviteModel extends mongoose.Model<IInvite> {
   }>;
 }
 
+// Type assertion needed because mongoose.models.Invite returns Model<any>
+// and we need to properly type our custom static methods
 const Invite: IInviteModel =
   (mongoose.models.Invite as unknown as IInviteModel) ||
   mongoose.model<IInvite, IInviteModel>("Invite", inviteSchema);

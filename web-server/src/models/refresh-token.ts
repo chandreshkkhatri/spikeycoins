@@ -86,6 +86,8 @@ interface IRefreshTokenModel extends mongoose.Model<IRefreshToken> {
   cleanupOldTokens(userId: string, keepCount?: number): Promise<void>;
 }
 
+// Type assertion needed because mongoose.models.RefreshToken returns Model<any>
+// and we need to properly type our custom static methods
 const RefreshToken: IRefreshTokenModel =
   (mongoose.models.RefreshToken as unknown as IRefreshTokenModel) ||
   mongoose.model<IRefreshToken, IRefreshTokenModel>("RefreshToken", refreshTokenSchema);
