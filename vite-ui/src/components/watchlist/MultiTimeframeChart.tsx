@@ -755,10 +755,15 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
     // Effect to handle individual chart expand - recreate chart when a collapsed chart is expanded
     useEffect(() => {
+      const expandRunId = runIdRef.current;
+
       const initializeExpandedChart = async (index: number, timeframe: typeof selectedTimeframes[0]) => {
         // Wait a bit for the container to be rendered
         await new Promise((resolve) => setTimeout(resolve, 100));
-        
+
+        // Check if this run is still valid
+        if (runIdRef.current !== expandRunId) return;
+
         const container = containerRefs.current[index];
         if (!container) return;
 
@@ -770,7 +775,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             existingChart.chart.resize(container.clientWidth, container.clientHeight);
             existingChart.chart.timeScale().fitContent();
           } catch {
-            // Chart might be invalid, recreate it
+            // Chart might be invalid or disposed, ignore
           }
           return;
         }
@@ -790,10 +795,21 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           const actualTimeframe = chartTimeframes[index] || timeframe.interval;
           const data = await fetchChartData(actualTimeframe);
 
+          // Check again if run is still valid after async operation
+          if (runIdRef.current !== expandRunId) return;
+
+          // Verify chart ref is still the same chart we created
+          const currentChartRef = chartRefs.current[index];
+          if (currentChartRef?.chart !== chart) return;
+
           if (data.length > 0 && series && typeof series.setData === "function") {
-            series.setData(data);
-            secondarySeries?.setData(data);
-            chart.timeScale().fitContent();
+            try {
+              series.setData(data);
+              secondarySeries?.setData(data);
+              chart.timeScale().fitContent();
+            } catch {
+              // Chart might have been disposed, ignore
+            }
           }
         } catch (error) {
           console.error(`Error initializing expanded chart ${timeframe.interval}:`, error);

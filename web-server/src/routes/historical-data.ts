@@ -221,14 +221,87 @@ router.get("/", async (req: Request, res: Response) => {
         false
       );
     } else if (account.accountType === "upstox") {
-      if (!instrumentToken) {
+      // Resolve instrumentToken from symbol if not provided
+      let resolvedInstrumentToken = instrumentToken as string | undefined;
+
+      if (!resolvedInstrumentToken && symbol) {
+        const symbolStr = (symbol as string).toUpperCase();
+        if (symbolStr.includes("|")) {
+          // Already a fully qualified instrument token
+          resolvedInstrumentToken = symbolStr;
+        } else {
+          // Map common index symbols to Upstox format (with proper casing)
+          const indexMapping: Record<string, string> = {
+            "NIFTY": "NSE_INDEX|Nifty 50",
+            "NIFTY50": "NSE_INDEX|Nifty 50",
+            "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+            "NIFTYBANK": "NSE_INDEX|Nifty Bank",
+            "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+            "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
+            "SENSEX": "BSE_INDEX|SENSEX",
+          };
+
+          // Check if it's a known index
+          if (indexMapping[symbolStr]) {
+            resolvedInstrumentToken = indexMapping[symbolStr];
+          } else {
+            // Map marketType to appropriate exchange for non-index symbols
+            const marketTypeStr = (marketType as string)?.toLowerCase() || "";
+            let exchange = "NSE_EQ"; // default
+
+            if (marketTypeStr.includes("future") || marketTypeStr === "futures") {
+              // For futures on indices, use index data instead (futures need full contract ID)
+              if (["NIFTY", "NIFTY50", "BANKNIFTY", "NIFTYBANK", "FINNIFTY"].includes(symbolStr)) {
+                resolvedInstrumentToken = indexMapping[symbolStr] || `NSE_INDEX|${symbolStr}`;
+              } else {
+                exchange = "NSE_FO";
+                resolvedInstrumentToken = `${exchange}|${symbolStr}`;
+              }
+            } else if (marketTypeStr.includes("index")) {
+              exchange = "NSE_INDEX";
+              resolvedInstrumentToken = `${exchange}|${symbolStr}`;
+            } else if (marketTypeStr.includes("option")) {
+              exchange = "NSE_FO";
+              resolvedInstrumentToken = `${exchange}|${symbolStr}`;
+            } else if (marketTypeStr.includes("commodity") || marketTypeStr === "mcx") {
+              exchange = "MCX_FO";
+              resolvedInstrumentToken = `${exchange}|${symbolStr}`;
+            } else {
+              resolvedInstrumentToken = `${exchange}|${symbolStr}`;
+            }
+          }
+        }
+      }
+
+      if (!resolvedInstrumentToken) {
         return res.status(400).json({
-          error: "instrumentToken is required for Upstox accounts",
+          error: "instrumentToken or symbol is required for Upstox accounts",
         });
       }
 
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
+      }
+
+      // Map common interval formats to Upstox accepted intervals
+      // Upstox accepts: 1minute, 30minute, day, week, month
+      const intervalStr = (interval as string).toLowerCase();
+      let upstoxInterval: string;
+
+      if (intervalStr === "1m" || intervalStr === "5m" || intervalStr === "1minute") {
+        upstoxInterval = "1minute";
+      } else if (intervalStr === "15m" || intervalStr === "30m" || intervalStr === "30minute") {
+        upstoxInterval = "30minute";
+      } else if (intervalStr === "1h" || intervalStr === "4h" || intervalStr === "60m") {
+        upstoxInterval = "30minute"; // closest available
+      } else if (intervalStr === "1d" || intervalStr === "day") {
+        upstoxInterval = "day";
+      } else if (intervalStr === "1w" || intervalStr === "week") {
+        upstoxInterval = "week";
+      } else if (intervalStr === "1M" || intervalStr.toLowerCase() === "month") {
+        upstoxInterval = "month";
+      } else {
+        upstoxInterval = "day"; // default fallback
       }
 
       const isSandbox = account.metadata?.sandbox || false;
@@ -238,12 +311,27 @@ router.get("/", async (req: Request, res: Response) => {
         isSandbox
       );
       upstoxService.setAccessToken(account.accessToken);
-      historicalData = await upstoxService.getHistoricalData(
-        instrumentToken as string,
-        interval as string,
+      const rawCandles = await upstoxService.getHistoricalData(
+        resolvedInstrumentToken,
+        upstoxInterval,
         (toDate as string) || new Date().toISOString().split("T")[0],
         fromDate as string
       );
+
+      // Transform Upstox candle format to standard format
+      // Upstox format: [timestamp, open, high, low, close, volume, oi]
+      historicalData = (rawCandles || [])
+        .filter((candle: any[]) => Array.isArray(candle) && candle.length >= 5 && candle[0])
+        .map((candle: any[]) => ({
+          date: typeof candle[0] === 'string' ? candle[0] : new Date(candle[0]).toISOString(),
+          open: parseFloat(candle[1]) || 0,
+          high: parseFloat(candle[2]) || 0,
+          low: parseFloat(candle[3]) || 0,
+          close: parseFloat(candle[4]) || 0,
+          volume: parseFloat(candle[5]) || 0,
+        }))
+        .filter((d: any) => !isNaN(new Date(d.date).getTime()))
+        .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
     } else {
       return res
         .status(400)

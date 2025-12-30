@@ -161,17 +161,15 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
     }
 
     // Upstox V3 Market Data Feed URL
+    // Use sandbox URL for sandbox accounts
+    const isSandbox = account.metadata?.sandbox || false;
+    const baseUrl = isSandbox
+      ? "wss://api-sandbox.upstox.com/v2/feed/market-data-feed"
+      : "wss://api.upstox.com/v2/feed/market-data-feed";
+    const wsUrl = `${baseUrl}?response_type=json`;
+
     // We append the access token as a query parameter since browser WebSocket implementation
     // doesn't support custom headers
-    const wsUrl = `wss://api.upstox.com/v2/feed/market-data-feed?response_type=json`;
-
-    // Note: The official docs mention Authorization header.
-    // If query param doesn't work, we might need a different approach or proxy.
-    // However, for now we will try passing it in the URL if supported, or via the Upgrade request?
-    // Actually, checking Upstox docs, they recommend using the authorized URL (which might imply the token is valid).
-    // For now, let's return the URL with the token in the Authorization header format IF the client could use it,
-    // but the client just takes the URL.
-    // Let's try standard OAuth approach in URL: access_token param.
     const urlWithToken = `${wsUrl}&access_token=${account.accessToken}`;
 
     return res.json({
