@@ -373,23 +373,33 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
               );
               return { type: "orders", data: response.data };
             } else if (activeTab === "history") {
-              // Fetch both order history and trade history with timeframe
-              // Don't filter by symbol - show all symbols like positions/orders tabs
-              const timeframeQuery = `&timeframe=${historyTimeframe}`;
-              const pageQuery = `&page=${historyPage}&pageSize=${HISTORY_PAGE_SIZE}`;
-              const [orderRes, tradeRes] = await Promise.all([
-                api.get(
-                  `/binance/order-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
-                ),
-                api.get(
-                  `/binance/trade-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
-                ),
-              ]);
-              return {
-                type: "history",
-                orderData: orderRes.data,
-                tradeData: tradeRes.data,
-              };
+              // History endpoints only available for Binance accounts
+              if (selectedAccount.accountType === "binance") {
+                // Fetch both order history and trade history with timeframe
+                // Don't filter by symbol - show all symbols like positions/orders tabs
+                const timeframeQuery = `&timeframe=${historyTimeframe}`;
+                const pageQuery = `&page=${historyPage}&pageSize=${HISTORY_PAGE_SIZE}`;
+                const [orderRes, tradeRes] = await Promise.all([
+                  api.get(
+                    `/binance/order-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
+                  ),
+                  api.get(
+                    `/binance/trade-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
+                  ),
+                ]);
+                return {
+                  type: "history",
+                  orderData: orderRes.data,
+                  tradeData: tradeRes.data,
+                };
+              } else {
+                // Return empty history for non-Binance accounts
+                return {
+                  type: "history",
+                  orderData: { success: true, orders: [] },
+                  tradeData: { success: true, trades: [] },
+                };
+              }
             }
           } finally {
             // Clear cache after 2 seconds
@@ -455,16 +465,18 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
             console.warn("Failed to fetch orders for SL/TP calc:", ordersErr);
           }
 
-          // Also fetch account equity for percentage calculation
-          try {
-            const detailsResp = await api.get(
-              `/binance/position-details?accountId=${selectedAccount._id}`
-            );
-            if (detailsResp.data?.success && detailsResp.data?.account?.equity) {
-              setAccountEquity(detailsResp.data.account.equity);
+          // Also fetch account equity for percentage calculation (Binance only)
+          if (selectedAccount.accountType === "binance") {
+            try {
+              const detailsResp = await api.get(
+                `/binance/position-details?accountId=${selectedAccount._id}`
+              );
+              if (detailsResp.data?.success && detailsResp.data?.account?.equity) {
+                setAccountEquity(detailsResp.data.account.equity);
+              }
+            } catch (eqErr) {
+              console.warn("Failed to fetch account equity:", eqErr);
             }
-          } catch (eqErr) {
-            console.warn("Failed to fetch account equity:", eqErr);
           }
         }
       } else if (activeTab === "orders" && result?.type === "orders") {

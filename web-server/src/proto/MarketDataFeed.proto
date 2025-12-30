@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package com.upstox.marketdatafeederv3udapi.rpc.proto;
+
+message FeedResponse {
+  Type type = 1;
+  map<string, Feed> feeds = 2;
+  MarketInfo marketInfo = 3;
+
+  enum Type {
+    INITIAL_FEED = 0;
+    LIVE_FEED = 1;
+    MARKET_INFO = 2;
+  }
+}
+
+message MarketInfo {
+  map<string, string> segmentStatus = 1; // e.g., "NSE_EQ": "NORMAL_OPEN"
+}
+
+message Feed {
+  LTPC ltpc = 1;
+  OHLC ohlc = 2;
+  Quote bidAsk = 3;
+  FullFeed fullFeed = 4;
+  OptionGreeks firstLevelWithGreeks = 5;
+}
+
+message LTPC {
+  double ltp = 1;
+  int64 ltt = 2;
+  double cp = 3;
+}
+
+message OHLC {
+  double open = 1;
+  double high = 2;
+  double low = 3;
+  double close = 4;
+  int64 vol = 5; // Sometimes volume is here?
+}
+
+message Quote {
+  double bid = 1;
+  double ask = 2;
+  int32 bidQty = 3;
+  int32 askQty = 4;
+}
+
+message FullFeed {
+  FullFeedData marketFF = 1;
+  FullFeedData indexFF = 2;
+}
+
+message FullFeedData {
+  LTPC ltpc = 1;
+  MarketOHLC marketOHLC = 2;
+  ExtendedFeed eFeed = 3;
+}
+
+message MarketOHLC {
+  repeated OHLC ohlc = 1; // Usually daily, weekly, monthly etc? Or just a list of candles?
+}
+
+message ExtendedFeed {
+  double totalBuyQty = 1;
+  double totalSellQty = 2;
+  double totalTradedQty = 3;
+  double totalTradedValue = 4;
+  int64 lastTradedTime = 5;
+  double close = 6;
+}
+
+message OptionGreeks {
+  LTPC ltpc = 1;
+  Quote firstDepth = 2; // Using Quote structure for bid/ask/qtys
+  double impliedVolatility = 3;
+  double delta = 4;
+  double gamma = 5;
+  double theta = 6;
+  double vega = 7;
+  double rho = 8;
+}

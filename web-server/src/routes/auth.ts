@@ -898,6 +898,55 @@ router.get("/upstox/callback", async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/auth/upstox/sandbox-token - Store sandbox access token
+router.post("/upstox/sandbox-token", async (req: Request, res: Response) => {
+  try {
+    const { accountId, accessToken } = req.body;
+
+    if (!accountId) {
+      return res.status(400).json({ error: "accountId is required" });
+    }
+
+    if (!accessToken) {
+      return res.status(400).json({ error: "accessToken is required" });
+    }
+
+    await connectDB();
+    const account = await Account.findById(accountId);
+
+    if (!account) {
+      return res.status(404).json({ error: "Account not found" });
+    }
+
+    if (account.accountType !== "upstox") {
+      return res.status(400).json({ error: "Invalid account type" });
+    }
+
+    if (!account.metadata?.sandbox) {
+      return res.status(400).json({ error: "Account is not a sandbox account" });
+    }
+
+    // Store the sandbox access token
+    account.accessToken = accessToken;
+    account.metadata = {
+      ...account.metadata,
+      loginTime: new Date().toISOString(),
+    };
+    await account.save();
+
+    return res.json({
+      success: true,
+      message: "Sandbox token saved successfully",
+    });
+  } catch (error) {
+    console.error("Error saving sandbox token:", error);
+    return res.status(500).json({
+      error: "Failed to save sandbox token",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
 // ============================================================================
 // BINANCE AUTHENTICATION
 // ============================================================================
