@@ -157,7 +157,11 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
     }
 
     if (!account.accessToken) {
-      return res.status(401).json({ error: "Account not authenticated" });
+      return res.status(401).json({
+        error: "Account not authenticated",
+        code: "AUTH_REQUIRED",
+        message: "Please re-authenticate your Upstox account to enable live market data."
+      });
     }
 
     // Check if sandbox account - WebSocket not supported in sandbox mode
@@ -166,21 +170,85 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: "WebSocket market data feed is not available in sandbox mode",
+        code: "SANDBOX_NOT_SUPPORTED",
         sandbox: true,
       });
     }
 
-    // Upstox V3 Market Data Feed URL (production only)
-    const wsUrl = "wss://api.upstox.com/v2/feed/market-data-feed?response_type=json";
+    // Call Upstox API to get authorized WebSocket URL
+    // This is required - direct WebSocket connection with access_token doesn't work
+    try {
+      const authResponse = await fetch(
+        "https://api.upstox.com/v2/feed/market-data-feed/authorize",
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${account.accessToken}`,
+            "Api-Version": "2.0",
+          },
+        }
+      );
 
-    // We append the access token as a query parameter since browser WebSocket implementation
-    // doesn't support custom headers
-    const urlWithToken = `${wsUrl}&access_token=${account.accessToken}`;
+      const authData = await authResponse.json();
 
-    return res.json({
-      success: true,
-      url: urlWithToken,
-    });
+      if (!authResponse.ok) {
+        console.error("Upstox WebSocket auth failed:", authData);
+
+        // Check for specific error codes
+        if (authResponse.status === 401) {
+          return res.status(401).json({
+            success: false,
+            error: "Access token expired or invalid",
+            code: "TOKEN_EXPIRED",
+            message: "Your Upstox session has expired. Please re-authenticate from the Accounts page.",
+          });
+        }
+
+        // Check if market is closed
+        if (authData?.errors?.[0]?.message?.toLowerCase().includes("market")) {
+          return res.status(503).json({
+            success: false,
+            error: "Market data not available",
+            code: "MARKET_CLOSED",
+            message: "Live market data is not available outside trading hours. Historical data will still be shown.",
+          });
+        }
+
+        return res.status(authResponse.status).json({
+          success: false,
+          error: authData?.message || "Failed to authorize WebSocket",
+          code: "AUTH_FAILED",
+          details: authData,
+        });
+      }
+
+      // Upstox returns the authorized WebSocket URL in data.authorizedRedirectUri
+      const wsUrl = authData?.data?.authorizedRedirectUri;
+
+      if (!wsUrl) {
+        console.error("No WebSocket URL in Upstox response:", authData);
+        return res.status(500).json({
+          success: false,
+          error: "Invalid response from Upstox",
+          code: "INVALID_RESPONSE",
+        });
+      }
+
+      return res.json({
+        success: true,
+        url: wsUrl,
+      });
+    } catch (fetchError: any) {
+      console.error("Error calling Upstox WebSocket auth API:", fetchError);
+      return res.status(503).json({
+        success: false,
+        error: "Unable to connect to Upstox",
+        code: "CONNECTION_ERROR",
+        message: "Could not reach Upstox servers. Please check your internet connection.",
+        details: fetchError.message,
+      });
+    }
   } catch (error: any) {
     console.error("Error authorizing Upstox WebSocket:", error);
     return res.status(500).json({

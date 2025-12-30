@@ -140,14 +140,34 @@ export class UpstoxWebSocket implements WebSocketManager {
       );
       const authJson = await authResp.json().catch(() => ({}));
       if (!authResp.ok || !authJson?.success || !authJson?.url) {
-        // Check if this is a sandbox account - WebSocket not supported
-        if (authJson?.sandbox) {
+        // Handle specific error codes with user-friendly messages
+        const errorCode = authJson?.code;
+
+        if (authJson?.sandbox || errorCode === "SANDBOX_NOT_SUPPORTED") {
           console.log("📢 Upstox sandbox mode: WebSocket market data feed not available");
           this.isConnecting = false;
           return; // Silently skip WebSocket for sandbox
         }
-        const errMsg =
-          authJson?.error || `Authorization failed (${authResp.status})`;
+
+        if (errorCode === "MARKET_CLOSED") {
+          console.log("📢 Upstox: Live market data not available outside trading hours");
+          console.log("ℹ️ Historical chart data will still be displayed");
+          this.isConnecting = false;
+          return; // Gracefully handle market closed - don't retry
+        }
+
+        if (errorCode === "TOKEN_EXPIRED" || errorCode === "AUTH_REQUIRED") {
+          console.warn("⚠️ Upstox session expired. Please re-authenticate from the Accounts page.");
+          this.isConnecting = false;
+          return; // Don't retry - user needs to re-auth
+        }
+
+        if (errorCode === "CONNECTION_ERROR") {
+          console.warn("⚠️ Unable to reach Upstox servers. Will retry shortly.");
+          throw new Error(authJson?.message || "Connection error");
+        }
+
+        const errMsg = authJson?.message || authJson?.error || `Authorization failed (${authResp.status})`;
         throw new Error(errMsg);
       }
 
