@@ -263,10 +263,33 @@ export class UpstoxWebSocket implements WebSocketManager {
       );
     } catch (e) {
       console.warn("Failed to resolve instruments, using fallbacks:", e);
+      // Index symbol mapping for fallback (same as server-side)
+      const indexMapping: Record<string, string> = {
+        "NIFTY": "NSE_INDEX|Nifty 50",
+        "NIFTY 50": "NSE_INDEX|Nifty 50",
+        "NIFTY50": "NSE_INDEX|Nifty 50",
+        "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+        "BANK NIFTY": "NSE_INDEX|Nifty Bank",
+        "NIFTY BANK": "NSE_INDEX|Nifty Bank",
+        "NIFTYBANK": "NSE_INDEX|Nifty Bank",
+        "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+        "FIN NIFTY": "NSE_INDEX|Nifty Fin Service",
+        "NIFTY FIN SERVICE": "NSE_INDEX|Nifty Fin Service",
+        "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
+        "MIDCP NIFTY": "NSE_INDEX|NIFTY MID SELECT",
+        "NIFTY MID SELECT": "NSE_INDEX|NIFTY MID SELECT",
+        "SENSEX": "BSE_INDEX|SENSEX",
+      };
       for (const s of symbols) {
-        const token = this.normalizeInstrumentKey(
-          s.includes("|") ? s : `NSE_EQ|${s}`
-        );
+        const sUpper = s.toUpperCase();
+        let token: string;
+        if (s.includes("|")) {
+          token = this.normalizeInstrumentKey(s);
+        } else if (indexMapping[sUpper]) {
+          token = indexMapping[sUpper];
+        } else {
+          token = this.normalizeInstrumentKey(`NSE_EQ|${s}`);
+        }
         this.subscribedSymbols.set(s, token);
         this.symbolToInstrumentMap.set(s, token);
         this.instrumentToSymbolMap.set(token, s);

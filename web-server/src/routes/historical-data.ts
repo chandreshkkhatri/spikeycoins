@@ -231,13 +231,21 @@ router.get("/", async (req: Request, res: Response) => {
           resolvedInstrumentToken = symbolStr;
         } else {
           // Map common index symbols to Upstox format (with proper casing)
+          // Include variants with and without spaces to handle different frontend inputs
           const indexMapping: Record<string, string> = {
             "NIFTY": "NSE_INDEX|Nifty 50",
+            "NIFTY 50": "NSE_INDEX|Nifty 50",
             "NIFTY50": "NSE_INDEX|Nifty 50",
             "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+            "BANK NIFTY": "NSE_INDEX|Nifty Bank",
+            "NIFTY BANK": "NSE_INDEX|Nifty Bank",
             "NIFTYBANK": "NSE_INDEX|Nifty Bank",
             "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+            "FIN NIFTY": "NSE_INDEX|Nifty Fin Service",
+            "NIFTY FIN SERVICE": "NSE_INDEX|Nifty Fin Service",
             "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
+            "MIDCP NIFTY": "NSE_INDEX|NIFTY MID SELECT",
+            "NIFTY MID SELECT": "NSE_INDEX|NIFTY MID SELECT",
             "SENSEX": "BSE_INDEX|SENSEX",
           };
 

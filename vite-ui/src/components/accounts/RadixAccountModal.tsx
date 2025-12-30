@@ -126,13 +126,6 @@ export default function RadixAccountModal({ isOpen, onClose, onSubmit }: RadixAc
 
   const brokerOptions = [
     {
-      id: 'kite',
-      name: 'Zerodha Kite',
-      description: "India's largest stock broker",
-      icon: '🟢',
-      available: true,
-    },
-    {
       id: 'upstox',
       name: 'Upstox',
       description: 'Technology-first discount broker',
@@ -146,6 +139,7 @@ export default function RadixAccountModal({ isOpen, onClose, onSubmit }: RadixAc
       icon: '🟡',
       available: true,
     },
+    // Zerodha Kite temporarily removed - will be added back once proper integration is complete
   ];
 
   const getModalTitle = () => {

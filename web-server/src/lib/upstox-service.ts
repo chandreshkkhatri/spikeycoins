@@ -174,10 +174,29 @@ class UpstoxService {
   }
 
   async getProfile(): Promise<any> {
-    const userApi = new UpstoxClient.UserApi(this.client);
-    const apiVersion = "2.0";
+    // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+    const baseUrl = this.isSandbox
+      ? "https://api-sandbox.upstox.com"
+      : "https://api.upstox.com";
 
-    return limiter.schedule(() => userApi.getProfile(apiVersion));
+    const response = await fetch(`${baseUrl}/v2/user/profile`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${this.accessToken}`,
+        "Api-Version": "2.0",
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+      );
+    }
+
+    return data?.data;
   }
 
   async getFunds(): Promise<any> {
@@ -221,14 +240,29 @@ class UpstoxService {
     }
 
     try {
-      const userApi = new UpstoxClient.UserApi(this.client);
-      const apiVersion = "2.0";
+      // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+      const baseUrl = this.isSandbox
+        ? "https://api-sandbox.upstox.com"
+        : "https://api.upstox.com";
 
-      const response = await limiter.schedule(() =>
-        userApi.getUserFundMargin(apiVersion),
-      );
+      const response = await fetch(`${baseUrl}/v2/user/get-funds-and-margin`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      });
 
-      return (response as any).data;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+        );
+      }
+
+      return data?.data;
     } catch (error) {
       throw error;
     }
@@ -250,14 +284,29 @@ class UpstoxService {
     }
 
     try {
-      const portfolioApi = new UpstoxClient.PortfolioApi(this.client);
-      const apiVersion = "2.0";
+      // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+      const baseUrl = this.isSandbox
+        ? "https://api-sandbox.upstox.com"
+        : "https://api.upstox.com";
 
-      const response = await limiter.schedule(() =>
-        portfolioApi.getPositions(apiVersion),
-      );
+      const response = await fetch(`${baseUrl}/v2/portfolio/short-term-positions`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      });
 
-      const responseData = (response as any).data;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+        );
+      }
+
+      const responseData = data?.data;
       if (responseData) {
         return Array.isArray(responseData) ? responseData : [];
       }
@@ -284,14 +333,29 @@ class UpstoxService {
     }
 
     try {
-      const portfolioApi = new UpstoxClient.PortfolioApi(this.client);
-      const apiVersion = "2.0";
+      // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+      const baseUrl = this.isSandbox
+        ? "https://api-sandbox.upstox.com"
+        : "https://api.upstox.com";
 
-      const response = await limiter.schedule(() =>
-        portfolioApi.getHoldings(apiVersion),
-      );
+      const response = await fetch(`${baseUrl}/v2/portfolio/long-term-holdings`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      });
 
-      const responseData = (response as any).data;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+        );
+      }
+
+      const responseData = data?.data;
       if (responseData) {
         return Array.isArray(responseData) ? responseData : [];
       }
@@ -318,14 +382,29 @@ class UpstoxService {
     }
 
     try {
-      const orderApi = new UpstoxClient.OrderApi(this.client);
-      const apiVersion = "2.0";
+      // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+      const baseUrl = this.isSandbox
+        ? "https://api-sandbox.upstox.com"
+        : "https://api.upstox.com";
 
-      const response = await limiter.schedule(() =>
-        orderApi.getOrderBook(apiVersion),
-      );
+      const response = await fetch(`${baseUrl}/v2/order/retrieve-all`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      });
 
-      const responseData = (response as any).data;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+        );
+      }
+
+      const responseData = data?.data;
       if (responseData) {
         return Array.isArray(responseData) ? responseData : [];
       }
@@ -465,16 +544,35 @@ class UpstoxService {
   async resolveInstruments(symbols: string[]): Promise<Record<string, string>> {
     const mappings: Record<string, string> = {};
 
-    // In a real implementation, this would search for the instrument keys.
-    // For now, we use a heuristic based on common Upstox patterns.
-    // Ideally, we should fetch the master instrument list or use a search API.
+    // Map common index symbols to Upstox format (with proper casing)
+    // Include variants with and without spaces to handle different inputs
+    const indexMapping: Record<string, string> = {
+      "NIFTY": "NSE_INDEX|Nifty 50",
+      "NIFTY 50": "NSE_INDEX|Nifty 50",
+      "NIFTY50": "NSE_INDEX|Nifty 50",
+      "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+      "BANK NIFTY": "NSE_INDEX|Nifty Bank",
+      "NIFTY BANK": "NSE_INDEX|Nifty Bank",
+      "NIFTYBANK": "NSE_INDEX|Nifty Bank",
+      "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+      "FIN NIFTY": "NSE_INDEX|Nifty Fin Service",
+      "NIFTY FIN SERVICE": "NSE_INDEX|Nifty Fin Service",
+      "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
+      "MIDCP NIFTY": "NSE_INDEX|NIFTY MID SELECT",
+      "NIFTY MID SELECT": "NSE_INDEX|NIFTY MID SELECT",
+      "SENSEX": "BSE_INDEX|SENSEX",
+    };
 
     for (const symbol of symbols) {
       const s = symbol.toUpperCase();
       if (s.includes("|")) {
+        // Already a fully qualified instrument key
         mappings[symbol] = s;
+      } else if (indexMapping[s]) {
+        // Known index symbol
+        mappings[symbol] = indexMapping[s];
       } else {
-        // Default to NSE_EQ for common stocks, could be improved with regex or search
+        // Default to NSE_EQ for common stocks
         mappings[symbol] = `NSE_EQ|${s}`;
       }
     }

@@ -858,19 +858,19 @@ router.get("/upstox/callback", async (req: Request, res: Response) => {
     const { code } = req.query;
 
     if (!code) {
-      return res.redirect(`/accounts?error=no_authorization_code`);
+      return res.redirect(`${FRONTEND_URL}/accounts?error=no_authorization_code`);
     }
 
     const accountId = req.cookies.upstox_account_id;
     if (!accountId) {
-      return res.redirect(`/accounts?error=session_expired`);
+      return res.redirect(`${FRONTEND_URL}/accounts?error=session_expired`);
     }
 
     await connectDB();
     const account = await Account.findById(accountId);
 
     if (!account) {
-      return res.redirect(`/accounts?error=account_not_found`);
+      return res.redirect(`${FRONTEND_URL}/accounts?error=account_not_found`);
     }
 
     const isSandbox = account.metadata?.sandbox || false;
@@ -890,11 +890,11 @@ router.get("/upstox/callback", async (req: Request, res: Response) => {
     await account.save();
 
     res.clearCookie("upstox_account_id");
-    return res.redirect(`/accounts?success=upstox_connected`);
+    return res.redirect(`${FRONTEND_URL}/accounts?success=upstox_connected`);
   } catch (error) {
     console.error("Error in Upstox callback:", error);
     res.clearCookie("upstox_account_id");
-    return res.redirect(`/accounts?error=upstox_session_failed`);
+    return res.redirect(`${FRONTEND_URL}/accounts?error=upstox_session_failed`);
   }
 });
 
