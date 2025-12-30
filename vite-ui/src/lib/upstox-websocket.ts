@@ -138,6 +138,12 @@ export class UpstoxWebSocket implements WebSocketManager {
       );
       const authJson = await authResp.json().catch(() => ({}));
       if (!authResp.ok || !authJson?.success || !authJson?.url) {
+        // Check if this is a sandbox account - WebSocket not supported
+        if (authJson?.sandbox) {
+          console.log("📢 Upstox sandbox mode: WebSocket market data feed not available");
+          this.isConnecting = false;
+          return; // Silently skip WebSocket for sandbox
+        }
         const errMsg =
           authJson?.error || `Authorization failed (${authResp.status})`;
         throw new Error(errMsg);

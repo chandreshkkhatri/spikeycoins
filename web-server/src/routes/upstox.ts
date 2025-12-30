@@ -160,13 +160,18 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Account not authenticated" });
     }
 
-    // Upstox V3 Market Data Feed URL
-    // Use sandbox URL for sandbox accounts
+    // Check if sandbox account - WebSocket not supported in sandbox mode
     const isSandbox = account.metadata?.sandbox || false;
-    const baseUrl = isSandbox
-      ? "wss://api-sandbox.upstox.com/v2/feed/market-data-feed"
-      : "wss://api.upstox.com/v2/feed/market-data-feed";
-    const wsUrl = `${baseUrl}?response_type=json`;
+    if (isSandbox) {
+      return res.status(400).json({
+        success: false,
+        error: "WebSocket market data feed is not available in sandbox mode",
+        sandbox: true,
+      });
+    }
+
+    // Upstox V3 Market Data Feed URL (production only)
+    const wsUrl = "wss://api.upstox.com/v2/feed/market-data-feed?response_type=json";
 
     // We append the access token as a query parameter since browser WebSocket implementation
     // doesn't support custom headers
