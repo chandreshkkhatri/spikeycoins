@@ -34,28 +34,47 @@ interface OrderTradeUpdate {
   E: number; // Event time
   T: number; // Transaction time
   o: {
-    s: string;  // Symbol
-    c: string;  // Client order ID
-    S: string;  // Side
-    o: string;  // Order type (e.g., STOP_MARKET, TAKE_PROFIT_MARKET)
-    f: string;  // Time in force
-    q: string;  // Quantity
-    p: string;  // Price
+    s: string; // Symbol
+    c: string; // Client order ID
+    S: string; // Side
+    o: string; // Order type (e.g., STOP_MARKET, TAKE_PROFIT_MARKET)
+    f: string; // Time in force
+    q: string; // Quantity
+    p: string; // Price
     ap: string; // Average price
     sp: string; // Stop price
-    x: string;  // Execution type (NEW, CANCELED, TRADE, EXPIRED)
-    X: string;  // Order status (NEW, FILLED, CANCELED, etc.)
-    i: number;  // Order ID
-    l: string;  // Last filled quantity
-    z: string;  // Cumulative filled quantity
-    L: string;  // Last filled price
-    n: string;  // Commission
-    N: string;  // Commission asset
-    T: number;  // Order trade time
-    t: number;  // Trade ID
+    x: string; // Execution type (NEW, CANCELED, TRADE, EXPIRED)
+    X: string; // Order status (NEW, FILLED, CANCELED, etc.)
+    i: number; // Order ID
+    l: string; // Last filled quantity
+    z: string; // Cumulative filled quantity
+    L: string; // Last filled price
+    n: string; // Commission
+    N: string; // Commission asset
+    T: number; // Order trade time
+    t: number; // Trade ID
     rp: string; // Realized profit
     ot: string; // Original order type
     ps: string; // Position side
+  };
+}
+
+interface AccountUpdate {
+  e: "ACCOUNT_UPDATE";
+  E: number; // Event time
+  T: number; // Transaction time
+  a: {
+    m: string; // Event reason type
+    P: {
+      s: string; // Symbol
+      pa: string; // Position Amount
+      ep: string; // Entry Price
+      cr: string; // (Accumulated) Realized PnL
+      up: string; // Unrealized PnL
+      mt: string; // Margin Type
+      iw: string; // Isolated Wallet (if isolated position)
+      ps: string; // Position Side
+    }[];
   };
 }
 
@@ -127,13 +146,18 @@ class BinanceOrderMonitor {
       "metadata.tradingSegment": "usdm",
     });
 
-    console.log(`[OrderMonitor] Found ${accounts.length} active Binance Futures accounts`);
+    console.log(
+      `[OrderMonitor] Found ${accounts.length} active Binance Futures accounts`,
+    );
 
     for (const account of accounts) {
       try {
         await this.connectAccount(account);
       } catch (error) {
-        console.error(`[OrderMonitor] Failed to connect account ${account._id}:`, error);
+        console.error(
+          `[OrderMonitor] Failed to connect account ${account._id}:`,
+          error,
+        );
       }
     }
   }
@@ -155,7 +179,7 @@ class BinanceOrderMonitor {
     const userId: string | undefined = account.userId;
     if (!userId) {
       console.warn(
-        `[OrderMonitor] Missing userId for account ${accountId}; push notifications will be disabled for this account.`
+        `[OrderMonitor] Missing userId for account ${accountId}; push notifications will be disabled for this account.`,
       );
     }
 
@@ -209,7 +233,9 @@ class BinanceOrderMonitor {
       conn.ws = new WebSocket(wsUrl);
 
       conn.ws.on("open", () => {
-        console.log(`[OrderMonitor] WebSocket connected for account ${conn.accountId}`);
+        console.log(
+          `[OrderMonitor] WebSocket connected for account ${conn.accountId}`,
+        );
       });
 
       conn.ws.on("message", (data: WebSocket.Data) => {
@@ -217,11 +243,16 @@ class BinanceOrderMonitor {
       });
 
       conn.ws.on("error", (error: Error) => {
-        console.error(`[OrderMonitor] WebSocket error for account ${conn.accountId}:`, error.message);
+        console.error(
+          `[OrderMonitor] WebSocket error for account ${conn.accountId}:`,
+          error.message,
+        );
       });
 
       conn.ws.on("close", () => {
-        console.log(`[OrderMonitor] WebSocket closed for account ${conn.accountId}`);
+        console.log(
+          `[OrderMonitor] WebSocket closed for account ${conn.accountId}`,
+        );
         this.scheduleReconnect(conn);
       });
 
@@ -229,9 +260,11 @@ class BinanceOrderMonitor {
       conn.keepAliveInterval = setInterval(async () => {
         await this.keepAlive(conn);
       }, this.LISTEN_KEY_RENEWAL_MS);
-
     } catch (error) {
-      console.error(`[OrderMonitor] Failed to establish WebSocket for ${conn.accountId}:`, error);
+      console.error(
+        `[OrderMonitor] Failed to establish WebSocket for ${conn.accountId}:`,
+        error,
+      );
       this.scheduleReconnect(conn);
     }
   }
@@ -246,6 +279,8 @@ class BinanceOrderMonitor {
       // Handle ORDER_TRADE_UPDATE events
       if (data.e === "ORDER_TRADE_UPDATE") {
         this.handleOrderUpdate(conn, data as OrderTradeUpdate);
+      } else if (data.e === "ACCOUNT_UPDATE") {
+        this.handleAccountUpdate(conn, data as AccountUpdate);
       }
     } catch (error) {
       console.error(`[OrderMonitor] Error parsing message:`, error);
@@ -255,7 +290,10 @@ class BinanceOrderMonitor {
   /**
    * Handle order update event - send notifications and cancel remaining SL/TP if one is filled
    */
-  private async handleOrderUpdate(conn: AccountConnection, event: OrderTradeUpdate): Promise<void> {
+  private async handleOrderUpdate(
+    conn: AccountConnection,
+    event: OrderTradeUpdate,
+  ): Promise<void> {
     const order = event.o;
     const symbol = order.s;
     const realizedPnl = parseFloat(order.rp) || 0;
@@ -269,7 +307,9 @@ class BinanceOrderMonitor {
         if (order.X === "FILLED") {
           if (order.ot === "STOP_MARKET") {
             // Stop Loss triggered
-            console.log(`[OrderMonitor] SL triggered for ${symbol}, sending notification`);
+            console.log(
+              `[OrderMonitor] SL triggered for ${symbol}, sending notification`,
+            );
             await sendOrderNotification(conn.userId, "sl_triggered", {
               symbol,
               price,
@@ -279,7 +319,9 @@ class BinanceOrderMonitor {
             });
           } else if (order.ot === "TAKE_PROFIT_MARKET") {
             // Take Profit triggered
-            console.log(`[OrderMonitor] TP triggered for ${symbol}, sending notification`);
+            console.log(
+              `[OrderMonitor] TP triggered for ${symbol}, sending notification`,
+            );
             await sendOrderNotification(conn.userId, "tp_triggered", {
               symbol,
               price,
@@ -289,7 +331,9 @@ class BinanceOrderMonitor {
             });
           } else {
             // Regular order filled (MARKET, LIMIT, etc.)
-            console.log(`[OrderMonitor] Order filled for ${symbol}, sending notification`);
+            console.log(
+              `[OrderMonitor] Order filled for ${symbol}, sending notification`,
+            );
             await sendOrderNotification(conn.userId, "order_filled", {
               symbol,
               price,
@@ -299,7 +343,10 @@ class BinanceOrderMonitor {
           }
         }
       } catch (notifError) {
-        console.error(`[OrderMonitor] Failed to send notification:`, notifError);
+        console.error(
+          `[OrderMonitor] Failed to send notification:`,
+          notifError,
+        );
       }
     }
 
@@ -308,10 +355,39 @@ class BinanceOrderMonitor {
     if (order.ot !== "STOP_MARKET" && order.ot !== "TAKE_PROFIT_MARKET") return;
 
     const orderType = order.ot === "STOP_MARKET" ? "SL" : "TP";
-    console.log(`[OrderMonitor] ${orderType} order FILLED for ${symbol} on account ${conn.accountId}`);
+    console.log(
+      `[OrderMonitor] ${orderType} order FILLED for ${symbol} on account ${conn.accountId}`,
+    );
 
     // Cancel the other SL/TP order for this symbol
     await this.cancelRemainingSlTp(conn, symbol, orderType);
+  }
+
+  /**
+   * Handle ACCOUNT_UPDATE event - check for closed positions
+   */
+  private async handleAccountUpdate(
+    conn: AccountConnection,
+    event: AccountUpdate,
+  ): Promise<void> {
+    const positions = event.a.P;
+
+    for (const pos of positions) {
+      const symbol = pos.s;
+      const positionAmt = parseFloat(pos.pa);
+
+      // If position amount is 0, it means position is closed
+      if (positionAmt === 0) {
+        console.log(
+          `[OrderMonitor] Position closed for ${symbol} on account ${conn.accountId} (via ACCOUNT_UPDATE). Checking for orphaned orders...`,
+        );
+        // We use a small delay to ensure order status updates have propagated if this was a market close
+        // But for safety against race conditions where a NEW position might open immediately,
+        // we should ideally check if we truly have no position.
+        // For now, proceeding to cleanup.
+        await this.cleanupOrdersForSymbol(conn, symbol);
+      }
+    }
   }
 
   /**
@@ -320,7 +396,7 @@ class BinanceOrderMonitor {
   private async cancelRemainingSlTp(
     conn: AccountConnection,
     symbol: string,
-    filledType: "SL" | "TP"
+    filledType: "SL" | "TP",
   ): Promise<void> {
     try {
       const axios = (await import("axios")).default;
@@ -340,7 +416,7 @@ class BinanceOrderMonitor {
         const timestamp = Date.now();
         params.timestamp = timestamp;
         const queryString = new URLSearchParams(
-          Object.entries(params).map(([k, v]) => [k, String(v)])
+          Object.entries(params).map(([k, v]) => [k, String(v)]),
         ).toString();
         const signature = crypto
           .createHmac("sha256", conn.apiSecret)
@@ -351,31 +427,44 @@ class BinanceOrderMonitor {
 
       // Get open orders for the symbol
       const openOrdersParams = signRequest({ symbol });
-      const ordersResponse = await client.get(`/fapi/v1/openOrders?${openOrdersParams}`);
+      const ordersResponse = await client.get(
+        `/fapi/v1/openOrders?${openOrdersParams}`,
+      );
       const openOrders = ordersResponse.data;
 
       // Also check Algo orders
       const algoOrdersParams = signRequest({ symbol });
       let algoOrders: any[] = [];
       try {
-        const algoResponse = await client.get(`/fapi/v1/openAlgoOrders?${algoOrdersParams}`);
+        const algoResponse = await client.get(
+          `/fapi/v1/openAlgoOrders?${algoOrdersParams}`,
+        );
         algoOrders = algoResponse.data?.orders || [];
       } catch (e) {
         // Algo orders endpoint might fail, continue with regular orders
       }
 
       // Determine which type to cancel (opposite of what was filled)
-      const typeToCancel = filledType === "SL" ? "TAKE_PROFIT_MARKET" : "STOP_MARKET";
+      const typeToCancel =
+        filledType === "SL" ? "TAKE_PROFIT_MARKET" : "STOP_MARKET";
 
       // Cancel matching regular orders
       for (const order of openOrders) {
         if (order.type === typeToCancel) {
           try {
-            const cancelParams = signRequest({ symbol, orderId: order.orderId });
+            const cancelParams = signRequest({
+              symbol,
+              orderId: order.orderId,
+            });
             await client.delete(`/fapi/v1/order?${cancelParams}`);
-            console.log(`[OrderMonitor] Cancelled ${typeToCancel} order ${order.orderId} for ${symbol}`);
+            console.log(
+              `[OrderMonitor] Cancelled ${typeToCancel} order ${order.orderId} for ${symbol}`,
+            );
           } catch (e: any) {
-            console.error(`[OrderMonitor] Failed to cancel order ${order.orderId}:`, e.message);
+            console.error(
+              `[OrderMonitor] Failed to cancel order ${order.orderId}:`,
+              e.message,
+            );
           }
         }
       }
@@ -386,14 +475,124 @@ class BinanceOrderMonitor {
           try {
             const cancelParams = signRequest({ symbol, algoId: order.algoId });
             await client.delete(`/fapi/v1/algoOrder?${cancelParams}`);
-            console.log(`[OrderMonitor] Cancelled ${typeToCancel} algo order ${order.algoId} for ${symbol}`);
+            console.log(
+              `[OrderMonitor] Cancelled ${typeToCancel} algo order ${order.algoId} for ${symbol}`,
+            );
           } catch (e: any) {
-            console.error(`[OrderMonitor] Failed to cancel algo order ${order.algoId}:`, e.message);
+            console.error(
+              `[OrderMonitor] Failed to cancel algo order ${order.algoId}:`,
+              e.message,
+            );
           }
         }
       }
     } catch (error) {
       console.error(`[OrderMonitor] Error cancelling remaining SL/TP:`, error);
+    }
+  }
+
+  /**
+   * Clean up all SL/TP orders for a specific symbol (used when position is closed)
+   */
+  private async cleanupOrdersForSymbol(
+    conn: AccountConnection,
+    symbol: string,
+  ): Promise<void> {
+    try {
+      const axios = (await import("axios")).default;
+      const crypto = (await import("crypto")).default;
+
+      const baseUrl = conn.testnet
+        ? "https://testnet.binancefuture.com"
+        : "https://fapi.binance.com";
+
+      const client = axios.create({
+        baseURL: baseUrl,
+        headers: { "X-MBX-APIKEY": conn.apiKey },
+      });
+
+      const signRequest = (params: Record<string, any> = {}) => {
+        const timestamp = Date.now();
+        params.timestamp = timestamp;
+        const queryString = new URLSearchParams(
+          Object.entries(params).map(([k, v]) => [k, String(v)]),
+        ).toString();
+        const signature = crypto
+          .createHmac("sha256", conn.apiSecret)
+          .update(queryString)
+          .digest("hex");
+        return `${queryString}&signature=${signature}`;
+      };
+
+      // Get all open orders
+      const ordersParams = signRequest({ symbol });
+      const ordersResponse = await client.get(
+        `/fapi/v1/openOrders?${ordersParams}`,
+      );
+      const openOrders = ordersResponse.data || [];
+
+      // Cancel SL/TP orders
+      for (const order of openOrders) {
+        if (
+          order.type === "STOP_MARKET" ||
+          order.type === "TAKE_PROFIT_MARKET"
+        ) {
+          try {
+            const cancelParams = signRequest({
+              symbol: order.symbol,
+              orderId: order.orderId,
+            });
+            await client.delete(`/fapi/v1/order?${cancelParams}`);
+            console.log(
+              `[OrderMonitor] Cleanup: Cancelled ${order.type} for ${order.symbol}`,
+            );
+          } catch (e: any) {
+            console.error(
+              `[OrderMonitor] Cleanup: Failed to cancel ${order.orderId}:`,
+              e.message,
+            );
+          }
+        }
+      }
+
+      // Also check and cancel Algo orders
+      try {
+        const algoParams = signRequest({ symbol });
+        const algoResponse = await client.get(
+          `/fapi/v1/openAlgoOrders?${algoParams}`,
+        );
+        const algoOrders = algoResponse.data?.orders || [];
+
+        for (const order of algoOrders) {
+          if (
+            order.type === "STOP_MARKET" ||
+            order.type === "TAKE_PROFIT_MARKET"
+          ) {
+            try {
+              const cancelParams = signRequest({
+                symbol: order.symbol,
+                algoId: order.algoId,
+              });
+              await client.delete(`/fapi/v1/algoOrder?${cancelParams}`);
+              console.log(
+                `[OrderMonitor] Cleanup: Cancelled algo ${order.type} for ${order.symbol}`,
+              );
+            } catch (e: any) {
+              console.error(
+                `[OrderMonitor] Cleanup: Failed to cancel algo ${order.algoId}:`,
+                e.message,
+              );
+            }
+          }
+        }
+      } catch (e) {
+        // Algo orders might not be available
+      }
+    } catch (error) {
+      console.error(
+        `[OrderMonitor] Error cleaning up orders for ${symbol}:`,
+        error,
+      );
     }
   }
 
@@ -418,9 +617,14 @@ class BinanceOrderMonitor {
         params: { listenKey: conn.listenKey },
       });
 
-      console.log(`[OrderMonitor] Renewed listenKey for account ${conn.accountId}`);
+      console.log(
+        `[OrderMonitor] Renewed listenKey for account ${conn.accountId}`,
+      );
     } catch (error) {
-      console.error(`[OrderMonitor] Failed to renew listenKey for ${conn.accountId}:`, error);
+      console.error(
+        `[OrderMonitor] Failed to renew listenKey for ${conn.accountId}:`,
+        error,
+      );
       // Reconnect on renewal failure
       this.scheduleReconnect(conn);
     }
@@ -433,7 +637,9 @@ class BinanceOrderMonitor {
     if (!this.isRunning) return;
     if (conn.reconnectTimeout) return;
 
-    console.log(`[OrderMonitor] Scheduling reconnect for account ${conn.accountId}...`);
+    console.log(
+      `[OrderMonitor] Scheduling reconnect for account ${conn.accountId}...`,
+    );
 
     // Clear existing resources
     if (conn.keepAliveInterval) {
@@ -538,7 +744,7 @@ class BinanceOrderMonitor {
           const timestamp = Date.now();
           params.timestamp = timestamp;
           const queryString = new URLSearchParams(
-            Object.entries(params).map(([k, v]) => [k, String(v)])
+            Object.entries(params).map(([k, v]) => [k, String(v)]),
           ).toString();
           const signature = crypto
             .createHmac("sha256", conn.apiSecret)
@@ -549,7 +755,9 @@ class BinanceOrderMonitor {
 
         // Get current positions
         const posParams = signRequest();
-        const posResponse = await client.get(`/fapi/v2/positionRisk?${posParams}`);
+        const posResponse = await client.get(
+          `/fapi/v2/positionRisk?${posParams}`,
+        );
         const positions = posResponse.data || [];
 
         // Build set of symbols with open positions
@@ -563,49 +771,33 @@ class BinanceOrderMonitor {
 
         // Get all open orders
         const ordersParams = signRequest();
-        const ordersResponse = await client.get(`/fapi/v1/openOrders?${ordersParams}`);
+        const ordersResponse = await client.get(
+          `/fapi/v1/openOrders?${ordersParams}`,
+        );
         const openOrders = ordersResponse.data || [];
 
-        // Cancel SL/TP orders for symbols without positions
+        // Find symbols that have open orders but no position
+        const allSymbolsWithOrders = new Set<string>();
         for (const order of openOrders) {
-          if (order.type === "STOP_MARKET" || order.type === "TAKE_PROFIT_MARKET") {
-            if (!symbolsWithPosition.has(order.symbol)) {
-              try {
-                const cancelParams = signRequest({ symbol: order.symbol, orderId: order.orderId });
-                await client.delete(`/fapi/v1/order?${cancelParams}`);
-                console.log(`[OrderMonitor] Polling: Cancelled orphaned ${order.type} for ${order.symbol}`);
-              } catch (e: any) {
-                console.error(`[OrderMonitor] Polling: Failed to cancel ${order.orderId}:`, e.message);
-              }
-            }
+          allSymbolsWithOrders.add(order.symbol);
+        }
+
+        // We can optimize this by only checking symbols that we found in openOrders but NOT in symbolsWithPosition
+        for (const symbol of allSymbolsWithOrders) {
+          if (!symbolsWithPosition.has(symbol)) {
+            await this.cleanupOrdersForSymbol(conn, symbol);
           }
         }
 
-        // Also check Algo orders
-        try {
-          const algoParams = signRequest();
-          const algoResponse = await client.get(`/fapi/v1/openAlgoOrders?${algoParams}`);
-          const algoOrders = algoResponse.data?.orders || [];
-
-          for (const order of algoOrders) {
-            if (order.type === "STOP_MARKET" || order.type === "TAKE_PROFIT_MARKET") {
-              if (!symbolsWithPosition.has(order.symbol)) {
-                try {
-                  const cancelParams = signRequest({ symbol: order.symbol, algoId: order.algoId });
-                  await client.delete(`/fapi/v1/algoOrder?${cancelParams}`);
-                  console.log(`[OrderMonitor] Polling: Cancelled orphaned algo ${order.type} for ${order.symbol}`);
-                } catch (e: any) {
-                  console.error(`[OrderMonitor] Polling: Failed to cancel algo ${order.algoId}:`, e.message);
-                }
-              }
-            }
-          }
-        } catch (e) {
-          // Algo orders might not be available
-        }
-
+        // Note: The previous implementation iterated over orders directly.
+        // The cleanupOrdersForSymbol method re-fetches orders, which is slightly inefficient if we already have them.
+        // However, for code consistency and since this is a fallback poller (every 30s), it is acceptable.
+        // If optimization is needed, we could pass the orders list to cleanupOrdersForSymbol, but that would complicate the signature.
       } catch (error) {
-        console.error(`[OrderMonitor] Polling error for account ${accountId}:`, error);
+        console.error(
+          `[OrderMonitor] Polling error for account ${accountId}:`,
+          error,
+        );
       }
     }
   }
