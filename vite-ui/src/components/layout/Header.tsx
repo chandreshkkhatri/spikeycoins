@@ -8,12 +8,14 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { PAGE_ROUTES } from "@/lib/constants";
 import { LogOut, User, LogIn, Settings } from "lucide-react";
+import { HeaderFundsDisplay } from "./HeaderFundsDisplay";
 
 const navItems = [
   { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
   { href: PAGE_ROUTES.TRADING_PANEL, label: "Trading Panel" },
   { href: PAGE_ROUTES.TRADING_GYM, label: "Trading Gym" },
   { href: PAGE_ROUTES.HOLDINGS, label: "Holdings" },
+  { href: PAGE_ROUTES.FUNDS, label: "Funds" },
   { href: PAGE_ROUTES.ACCOUNTS, label: "Accounts" },
 ];
 
@@ -79,9 +81,9 @@ export function Header() {
           </button>
           <Link to="/dashboard" className="flex items-center gap-2">
             <div className="flex items-center gap-2 px-2">
-              <img 
-                src="/logo.png" 
-                alt="Open Mandi" 
+              <img
+                src="/logo.png"
+                alt="Open Mandi"
                 className="h-8 w-8 rounded-md object-contain"
               />
               <span className="hidden md:block font-bold text-lg">
@@ -96,11 +98,10 @@ export function Header() {
             <Link
               key={item.href}
               to={item.href}
-              className={`px-3 py-2 rounded-md transition-colors hover:bg-muted/60 hover:text-foreground ${
-                pathname === item.href
-                  ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
-                  : "text-muted-foreground"
-              }`}
+              className={`px-3 py-2 rounded-md transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
+                ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+                : "text-muted-foreground"
+                }`}
             >
               {item.label}
             </Link>
@@ -108,26 +109,32 @@ export function Header() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Account Selector - Show on dashboard and trading pages */}
+          {/* Header Funds Display - Show if logged in and account selected */}
+          {isLoggedIn && selectedAccount && (
+            <HeaderFundsDisplay />
+          )}
+
+          {/* Account Selector - Show on dashboard, trading pages, and funds */}
           {(pathname.startsWith(PAGE_ROUTES.DASHBOARD) ||
             pathname.startsWith(PAGE_ROUTES.TRADING_PANEL) ||
             pathname.startsWith(PAGE_ROUTES.HOLDINGS) ||
             pathname.startsWith(PAGE_ROUTES.TRADING) ||
             pathname.startsWith(PAGE_ROUTES.POSITIONS) ||
-            pathname.startsWith(PAGE_ROUTES.ORDERS)) && (
-            <div className="hidden md:block mr-2">
-              <AccountSelector
-                accounts={tradingAccounts}
-                selectedAccount={selectedAccount}
-                onAccountSelect={setSelectedAccount}
-                loading={accountsLoading}
-              />
-            </div>
-          )}
-          
+            pathname.startsWith(PAGE_ROUTES.ORDERS) ||
+            pathname.startsWith(PAGE_ROUTES.FUNDS)) && (
+              <div className="hidden md:block mr-2">
+                <AccountSelector
+                  accounts={tradingAccounts}
+                  selectedAccount={selectedAccount}
+                  onAccountSelect={setSelectedAccount}
+                  loading={accountsLoading}
+                />
+              </div>
+            )}
+
           {/* Notification Toggle - Only show when logged in */}
           {isLoggedIn && <NotificationToggle />}
-          
+
           <button
             aria-label="Toggle theme"
             onClick={toggleTheme}
@@ -137,7 +144,7 @@ export function Header() {
               {isDark ? "☀️" : "🌙"}
             </span>
           </button>
-          
+
           {/* User Menu */}
           {isLoggedIn && user ? (
             <div className="relative" ref={userMenuRef}>
@@ -160,7 +167,7 @@ export function Header() {
                   {user.name}
                 </span>
               </button>
-              
+
               {showUserMenu && (
                 <div className="absolute right-0 top-full mt-1 w-48 rounded-md border border-border bg-popover p-1 shadow-lg z-50">
                   <div className="px-3 py-2 border-b border-border">
@@ -214,9 +221,8 @@ export function Header() {
 
       {/* Mobile drawer */}
       <div
-        className={`md:hidden fixed left-0 top-14 h-[calc(100vh-56px)] w-64 transform border-r border-border bg-background px-3 py-4 transition-transform duration-300 ease-out z-50 shadow-xl ${
-          open ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`md:hidden fixed left-0 top-14 h-[calc(100vh-56px)] w-64 transform border-r border-border bg-background px-3 py-4 transition-transform duration-300 ease-out z-50 shadow-xl ${open ? "translate-x-0" : "-translate-x-full"
+          }`}
       >
         <div className="flex flex-col gap-0.5 text-sm">
           {/* Mobile Account Selector */}
@@ -225,30 +231,30 @@ export function Header() {
             pathname.startsWith(PAGE_ROUTES.HOLDINGS) ||
             pathname.startsWith(PAGE_ROUTES.TRADING) ||
             pathname.startsWith(PAGE_ROUTES.POSITIONS) ||
-            pathname.startsWith(PAGE_ROUTES.ORDERS)) && (
-            <div className="mb-3 px-3">
-              <div className="text-xs font-medium text-muted-foreground mb-2">
-                Selected Account:
+            pathname.startsWith(PAGE_ROUTES.ORDERS) ||
+            pathname.startsWith(PAGE_ROUTES.FUNDS)) && (
+              <div className="mb-3 px-3">
+                <div className="text-xs font-medium text-muted-foreground mb-2">
+                  Selected Account:
+                </div>
+                <AccountSelector
+                  accounts={tradingAccounts}
+                  selectedAccount={selectedAccount}
+                  onAccountSelect={setSelectedAccount}
+                  loading={accountsLoading}
+                />
               </div>
-              <AccountSelector
-                accounts={tradingAccounts}
-                selectedAccount={selectedAccount}
-                onAccountSelect={setSelectedAccount}
-                loading={accountsLoading}
-              />
-            </div>
-          )}
+            )}
 
           {navItems.map((item) => (
             <Link
               key={item.href}
               to={item.href}
               onClick={() => setOpen(false)}
-              className={`rounded-md px-3 py-2 transition-colors hover:bg-muted/60 hover:text-foreground ${
-                pathname === item.href
-                  ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
-                  : "text-muted-foreground"
-              }`}
+              className={`rounded-md px-3 py-2 transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
+                ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+                : "text-muted-foreground"
+                }`}
             >
               {item.label}
             </Link>
@@ -261,7 +267,7 @@ export function Header() {
               {isDark ? "☀️ Light" : "🌙 Dark"} Mode
             </button>
           </div>
-          
+
           {/* Mobile User Section */}
           <div className="mt-4 pt-4 border-t border-border">
             {isLoggedIn && user ? (

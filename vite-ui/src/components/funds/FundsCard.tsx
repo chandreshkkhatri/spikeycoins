@@ -13,7 +13,7 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 interface UnifiedFundsResponse {
   totalBalance: string;
@@ -52,9 +52,9 @@ export default function FundsCard({
   const [refreshing, setRefreshing] = useState<string | null>(null);
 
   // Filter accounts to show - if selectedAccountId is provided, show only that account
-  const accountsToShow = selectedAccountId
+  const accountsToShow = useMemo(() => selectedAccountId
     ? accounts.filter((acc) => acc._id === selectedAccountId)
-    : accounts;
+    : accounts, [accounts, selectedAccountId]);
 
   const fetchFundsForAccount = async (account: IAccount, isRefresh = false) => {
     if (isRefresh) {
@@ -219,9 +219,8 @@ export default function FundsCard({
               <div className="summary-item">
                 <div className="summary-label">Unrealized P&L</div>
                 <div
-                  className={`summary-value ${
-                    totalUnrealized >= 0 ? "positive" : "negative"
-                  }`}
+                  className={`summary-value ${totalUnrealized >= 0 ? "positive" : "negative"
+                    }`}
                 >
                   {totalUnrealized >= 0 ? (
                     <TrendingUp size={16} />
@@ -342,10 +341,10 @@ export default function FundsCard({
                         {account.accountType === "kite"
                           ? "🟠"
                           : account.accountType === "upstox"
-                          ? "🔵"
-                          : account.accountType === "binance"
-                          ? "🟡"
-                          : "🔗"}
+                            ? "🔵"
+                            : account.accountType === "binance"
+                              ? "🟡"
+                              : "🔗"}
                       </span>
                       {account.accountType.toUpperCase()}
                     </Badge>
@@ -401,11 +400,10 @@ export default function FundsCard({
                       <div className="funds-row">
                         <span className="label">Unrealized P&L:</span>
                         <span
-                          className={`value ${
-                            parseFloat(accountFunds.unrealizedPnl) >= 0
-                              ? "positive"
-                              : "negative"
-                          }`}
+                          className={`value ${parseFloat(accountFunds.unrealizedPnl) >= 0
+                            ? "positive"
+                            : "negative"
+                            }`}
                         >
                           {parseFloat(accountFunds.unrealizedPnl) >= 0 ? (
                             <TrendingUp size={14} />
