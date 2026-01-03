@@ -14,6 +14,7 @@ import {
   ColorType,
   createChart,
   IChartApi,
+  IRange,
   ISeriesApi,
   LineWidth,
   UTCTimestamp,
@@ -89,6 +90,20 @@ const saveSettings = (settings: ChartSettings) => {
   }
 };
 
+// Utility function to compare price ranges with epsilon tolerance for floating point precision
+const rangesEqual = (
+  range1: IRange<number> | null,
+  range2: IRange<number> | null,
+  epsilon: number = 0.0001
+): boolean => {
+  if (range1 === null && range2 === null) return true;
+  if (range1 === null || range2 === null) return false;
+  return (
+    Math.abs(range1.from - range2.from) < epsilon &&
+    Math.abs(range1.to - range2.to) < epsilon
+  );
+};
+
 const AVAILABLE_TIMEFRAMES = [
   { interval: "1m", label: "1 Minute" },
   { interval: "5m", label: "5 Minutes" },
@@ -150,6 +165,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       [interval: string]: boolean;
     }>(storedSettings.current?.collapsedCharts || {});
     const runIdRef = useRef(0);
+    const syncStateRef = useRef<{
+      [chartIndex: number]: {
+        lastLeftRange: IRange<number> | null;
+        lastRightRange: IRange<number> | null;
+        isSyncing: boolean;
+      };
+    }>({});
 
     // Persist settings to localStorage whenever they change
     const isLogScaleRef = useRef(isLogScale);
@@ -316,6 +338,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               series: null,
               secondarySeries: null,
             };
+            // Clean up sync state for this chart
+            delete syncStateRef.current[chartIndex];
           }
         }
 
@@ -664,6 +688,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
           });
           chartRefs.current = [];
+          // Clean up all sync state when clearing charts
+          syncStateRef.current = {};
 
           // Wait for container refs to be available
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -685,6 +711,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 secondarySeries,
                 wheelHandler,
                 container,
+              };
+
+              // Initialize sync state for this chart's axes
+              syncStateRef.current[index] = {
+                lastLeftRange: null,
+                lastRightRange: null,
+                isSyncing: false,
               };
 
               // Use individual chart timeframe if set, otherwise use default
@@ -751,6 +784,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
           }
         });
+        // Clean up sync state on unmount
+        syncStateRef.current = {};
       };
     }, [
       displaySymbol,
@@ -797,6 +832,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             secondarySeries,
             wheelHandler,
             container,
+          };
+
+          // Initialize sync state for this chart's axes
+          syncStateRef.current[index] = {
+            lastLeftRange: null,
+            lastRightRange: null,
+            isSyncing: false,
           };
 
           const actualTimeframe = chartTimeframes[index] || timeframe.interval;
@@ -917,10 +959,83 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
           }
         });
+
+        // Reset sync state when autoScale changes (autoScale handles synchronization implicitly)
+        Object.keys(syncStateRef.current).forEach((key) => {
+          const index = parseInt(key);
+          syncStateRef.current[index] = {
+            lastLeftRange: null,
+            lastRightRange: null,
+            isSyncing: false,
+          };
+        });
       };
 
       updateChartSettings();
     }, [autoScale, isLogScale]);
+
+    // Effect to synchronize left and right price axes
+    // Polls for axis range changes and propagates them to keep axes coupled
+    useEffect(() => {
+      // Don't sync when autoScale is enabled (it handles synchronization implicitly)
+      if (autoScale) {
+        return;
+      }
+
+      let animationFrameId: number;
+
+      const checkAndSyncAxes = () => {
+        chartRefs.current.forEach((chartRef, index) => {
+          if (!chartRef?.chart) return;
+
+          const syncState = syncStateRef.current[index];
+          if (!syncState || syncState.isSyncing) return;
+
+          try {
+            const leftScale = chartRef.chart.priceScale("left");
+            const rightScale = chartRef.chart.priceScale("right");
+
+            if (!leftScale || !rightScale) return;
+
+            const currentLeftRange = leftScale.getVisibleRange();
+            const currentRightRange = rightScale.getVisibleRange();
+
+            // Detect left axis change and synchronize to right
+            if (
+              currentLeftRange &&
+              !rangesEqual(currentLeftRange, syncState.lastLeftRange)
+            ) {
+              syncState.isSyncing = true;
+              syncState.lastLeftRange = currentLeftRange;
+              syncState.lastRightRange = currentLeftRange;
+              rightScale.setVisibleRange(currentLeftRange);
+              syncState.isSyncing = false;
+            }
+            // Detect right axis change and synchronize to left
+            else if (
+              currentRightRange &&
+              !rangesEqual(currentRightRange, syncState.lastRightRange)
+            ) {
+              syncState.isSyncing = true;
+              syncState.lastRightRange = currentRightRange;
+              syncState.lastLeftRange = currentRightRange;
+              leftScale.setVisibleRange(currentRightRange);
+              syncState.isSyncing = false;
+            }
+          } catch (error) {
+            // Silently handle any errors during sync (chart might be disposed)
+          }
+        });
+
+        animationFrameId = requestAnimationFrame(checkAndSyncAxes);
+      };
+
+      animationFrameId = requestAnimationFrame(checkAndSyncAxes);
+
+      return () => {
+        cancelAnimationFrame(animationFrameId);
+      };
+    }, [autoScale]);
 
     return (
       <div className="flex w-full flex-col gap-3 p-3">
