@@ -653,7 +653,7 @@ export class UpstoxWebSocket implements WebSocketManager {
         this.priceCache.set(symbol, upd);
         console.log(`Final price update for ${symbol}:`, {
           symbol,
-          instrument: keyUpper,
+          instrument: symbol,
           ltp: upd.lastPrice,
           change: upd.priceChange,
           changePercent: upd.priceChangePercent,

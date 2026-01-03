@@ -75,7 +75,7 @@ const MarketDepth = memo(function MarketDepth({
   const [rowCount, setRowCount] = useState(7);
 
   // Throttle state updates to reduce re-renders
-  const throttleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const throttleTimeoutRef = useRef<number | null>(null);
   const pendingDataRef = useRef<{ asks: OrderBookItem[], bids: OrderBookItem[] } | null>(null);
 
   // Reset precision when symbol changes
