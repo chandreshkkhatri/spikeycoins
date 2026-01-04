@@ -1104,6 +1104,7 @@ const TradingWindow = memo(function TradingWindow({
         marketType={marketType}
         priceLines={chartPriceLines}
         legend={chartLegend}
+        currentPrice={currentPrice}
       />
       <div className="trading-header flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
         {/* Row 1: Symbol and Price */}

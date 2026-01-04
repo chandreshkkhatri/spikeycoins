@@ -50,6 +50,7 @@ interface MultiTimeframeChartProps {
   marketType?: "spot" | "futures";
   priceLines?: PriceLine[];
   legend?: { label: string; color: string }[];
+  currentPrice?: number; // LTP for live candle updates
 }
 
 const DEFAULT_TIMEFRAMES = [
@@ -106,8 +107,48 @@ const AVAILABLE_TIMEFRAMES = [
   { interval: "1M", label: "1 Month" },
 ];
 
+// Parse interval string to milliseconds
+const parseIntervalToMs = (interval: string): number => {
+  const match = interval.match(/^(\d+)([mhHdwM])$/);
+  if (!match) return 0;
+  const value = parseInt(match[1], 10);
+  const unit = match[2];
+  switch (unit) {
+    case "m": return value * 60 * 1000;
+    case "h":
+    case "H": return value * 60 * 60 * 1000;
+    case "d": return value * 24 * 60 * 60 * 1000;
+    case "w": return value * 7 * 24 * 60 * 60 * 1000;
+    case "M": return value * 30 * 24 * 60 * 60 * 1000; // Approximate
+    default: return 0;
+  }
+};
+
+// Format remaining time as HH:MM:SS or MM:SS
+const formatCountdown = (ms: number): string => {
+  if (ms <= 0) return "00:00";
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  }
+  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+};
+
+// Calculate time remaining for current candle
+const getTimeRemaining = (interval: string): number => {
+  const intervalMs = parseIntervalToMs(interval);
+  if (intervalMs === 0) return 0;
+  const now = Date.now();
+  const currentPeriodStart = Math.floor(now / intervalMs) * intervalMs;
+  const nextPeriodStart = currentPeriodStart + intervalMs;
+  return nextPeriodStart - now;
+};
+
 const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
-  ({ symbol, accountId, accountType, marketType, priceLines, legend }) => {
+  ({ symbol, accountId, accountType, marketType, priceLines, legend, currentPrice }) => {
     // Use default symbol (BTCUSDT) if none provided
     const displaySymbol = symbol || "BTCUSDT";
     const isDefaultSymbol = !symbol;
@@ -150,6 +191,110 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       [interval: string]: boolean;
     }>(storedSettings.current?.collapsedCharts || {});
     const runIdRef = useRef(0);
+
+    // Countdown timers for each chart's current candle
+    const [countdowns, setCountdowns] = useState<{ [key: string]: string }>({});
+    // Track the last known candle period to detect new candle
+    const lastPeriodRef = useRef<{ [key: string]: number }>({});
+    // Flag to trigger refresh when candle closes
+    const [candleCloseRefresh, setCandleCloseRefresh] = useState(0);
+    // Track current candle OHLC data for each chart
+    const currentCandleRef = useRef<{ [key: string]: { open: number; high: number; low: number; close: number } }>({});
+
+    // Update countdown timers every second + detect new candle periods
+    useEffect(() => {
+      const updateCountdowns = () => {
+        const newCountdowns: { [key: string]: string } = {};
+        const currentTime = Date.now();
+        let shouldRefresh = false;
+
+        selectedTimeframes.forEach((tf, index) => {
+          const actualInterval = chartTimeframes[index] || tf.interval;
+          const intervalMs = parseIntervalToMs(actualInterval);
+          const remaining = getTimeRemaining(actualInterval);
+          newCountdowns[`${index}-${actualInterval}`] = formatCountdown(remaining);
+
+          if (intervalMs === 0) return;
+
+          // Calculate current period start time
+          const currentPeriodStart = Math.floor(currentTime / intervalMs) * intervalMs;
+          const periodKey = `${index}-${actualInterval}`;
+          const lastPeriod = lastPeriodRef.current[periodKey];
+
+          // Check if we've entered a new candle period
+          if (lastPeriod !== undefined && lastPeriod !== currentPeriodStart) {
+            shouldRefresh = true;
+            // Reset current candle data for this chart
+            delete currentCandleRef.current[periodKey];
+          }
+          lastPeriodRef.current[periodKey] = currentPeriodStart;
+
+          // Update last candle close price with current LTP
+          if (currentPrice && currentPrice > 0) {
+            const chartRef = chartRefs.current[index];
+            if (chartRef?.series) {
+              try {
+                // Get the current time as UTCTimestamp for the update
+                const candleTime = Math.floor(currentPeriodStart / 1000) as UTCTimestamp;
+
+                // Get or initialize current candle OHLC
+                let candleData = currentCandleRef.current[periodKey];
+                if (!candleData) {
+                  // Try to get the last bar data from the series
+                  const seriesData = chartRef.series.data();
+                  const lastBar = seriesData.length > 0 ? seriesData[seriesData.length - 1] : null;
+
+                  if (lastBar && 'open' in lastBar && 'high' in lastBar && 'low' in lastBar) {
+                    // Use the actual last candle data - double cast to access OHLC properties
+                    const ohlcBar = lastBar as unknown as { open: number; high: number; low: number; close: number };
+                    candleData = {
+                      open: ohlcBar.open,
+                      high: Math.max(ohlcBar.high, currentPrice),
+                      low: Math.min(ohlcBar.low, currentPrice),
+                      close: currentPrice,
+                    };
+                  } else {
+                    // Fallback: Initialize with current price
+                    candleData = {
+                      open: currentPrice,
+                      high: currentPrice,
+                      low: currentPrice,
+                      close: currentPrice,
+                    };
+                  }
+                  currentCandleRef.current[periodKey] = candleData;
+                } else {
+                  // Update existing candle data
+                  candleData.close = currentPrice;
+                  candleData.high = Math.max(candleData.high, currentPrice);
+                  candleData.low = Math.min(candleData.low, currentPrice);
+                }
+
+                // Update the current candle
+                chartRef.series.update({
+                  time: candleTime,
+                  open: candleData.open,
+                  high: candleData.high,
+                  low: candleData.low,
+                  close: candleData.close,
+                });
+              } catch (err) {
+                // Series might not be ready or chart disposed
+                console.debug("Chart update error:", err);
+              }
+            }
+          }
+        });
+        setCountdowns(newCountdowns);
+        if (shouldRefresh) {
+          setCandleCloseRefresh(prev => prev + 1);
+        }
+      };
+
+      updateCountdowns(); // Initial update
+      const intervalId = setInterval(updateCountdowns, 1000);
+      return () => clearInterval(intervalId);
+    }, [selectedTimeframes, chartTimeframes, currentPrice]);
 
     // Persist settings to localStorage whenever they change
     useEffect(() => {
@@ -588,6 +733,30 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       },
       [displaySymbol, accountId, accountType, marketType]
     );
+
+    // Refresh all charts when a candle closes
+    useEffect(() => {
+      if (candleCloseRefresh === 0) return; // Skip initial render
+
+      selectedTimeframes.forEach((tf, index) => {
+        const actualInterval = chartTimeframes[index] || tf.interval;
+        const chartRef = chartRefs.current[index];
+        if (chartRef?.series) {
+          fetchChartData(actualInterval).then((data) => {
+            if (data.length > 0 && chartRef.series && typeof chartRef.series.setData === "function") {
+              try {
+                chartRef.series.setData(data);
+                chartRef.chart?.timeScale().scrollToRealTime();
+              } catch {
+                // Chart might be disposed
+              }
+            }
+          }).catch(() => {
+            // Ignore fetch errors silently
+          });
+        }
+      });
+    }, [candleCloseRefresh, selectedTimeframes, chartTimeframes, fetchChartData]);
 
     useEffect(() => {
       // Increment run id to invalidate any in-flight async work from the previous render
@@ -1051,6 +1220,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                           ))}
                         </SelectContent>
                       </Select>
+                      {/* Countdown timer */}
+                      <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+                        {countdowns[`${timeframe.index}-${chartTimeframes[timeframe.index] || timeframe.interval}`] || "--:--"}
+                      </span>
                     </div>
 
                     {selectedTimeframes.length > 1 && (
