@@ -280,7 +280,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 });
               } catch (err) {
                 // Series might not be ready or chart disposed
-                console.debug("Chart update error:", err);
               }
             }
           }
@@ -510,10 +509,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
         const containerWidth = Math.max(container.clientWidth || 300, 300);
 
-        console.log(
-          `Creating chart with dimensions: ${containerWidth}x${chartHeight} (autoScale: ${autoScale})`
-        );
-
         const chart = createChart(container, {
           width: containerWidth,
           height: chartHeight,
@@ -717,9 +712,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 close: d.close,
               })
             );
-          } catch (error) {
-            console.error(`Error fetching chart data for ${interval}:`, error);
-            throw error;
           } finally {
             // Clear cache after 2 seconds to allow refetching
             setTimeout(() => {
@@ -920,7 +912,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             chart.timeScale().fitContent();
           }
         } catch (error) {
-          console.error(`Error initializing expanded chart ${timeframe.interval}:`, error);
+          // Ignore error initializing expanded chart
         }
       };
 

@@ -48,7 +48,7 @@ interface WebSocketManager {
   connect: (
     symbols: string[],
     onMessage: (data: PriceUpdate) => void,
-    opts?: { accountId?: string; mode?: RequestMode }
+    opts?: { accountId?: string; mode?: RequestMode },
   ) => void | Promise<void>;
   disconnect: () => void;
   addSymbol: (symbol: string) => void | Promise<void>;
@@ -105,7 +105,7 @@ export class UpstoxWebSocket implements WebSocketManager {
   async connect(
     symbols: string[],
     onMessage: (data: PriceUpdate) => void,
-    opts?: { accountId?: string; mode?: RequestMode }
+    opts?: { accountId?: string; mode?: RequestMode },
   ): Promise<void> {
     if (this.isConnecting) return;
 
@@ -134,9 +134,9 @@ export class UpstoxWebSocket implements WebSocketManager {
       // Authorize via server
       const authResp = await fetch(
         `/api/upstox/market-data/authorize?accountId=${encodeURIComponent(
-          this.accountId
+          this.accountId,
         )}`,
-        { cache: "no-store" }
+        { cache: "no-store" },
       );
       const authJson = await authResp.json().catch(() => ({}));
       if (!authResp.ok || !authJson?.success || !authJson?.url) {
@@ -144,44 +144,38 @@ export class UpstoxWebSocket implements WebSocketManager {
         const errorCode = authJson?.code;
 
         if (authJson?.sandbox || errorCode === "SANDBOX_NOT_SUPPORTED") {
-          console.log("📢 Upstox sandbox mode: WebSocket market data feed not available");
           this.isConnecting = false;
           return; // Silently skip WebSocket for sandbox
         }
 
         if (errorCode === "MARKET_CLOSED") {
-          console.log("📢 Upstox: Live market data not available outside trading hours");
-          console.log("ℹ️ Historical chart data will still be displayed");
           this.isConnecting = false;
           return; // Gracefully handle market closed - don't retry
         }
 
         if (errorCode === "TOKEN_EXPIRED" || errorCode === "AUTH_REQUIRED") {
-          console.warn("⚠️ Upstox session expired. Please re-authenticate from the Accounts page.");
           this.isConnecting = false;
           return; // Don't retry - user needs to re-auth
         }
 
         if (errorCode === "CONNECTION_ERROR") {
-          console.warn("⚠️ Unable to reach Upstox servers. Will retry shortly.");
           throw new Error(authJson?.message || "Connection error");
         }
 
-        const errMsg = authJson?.message || authJson?.error || `Authorization failed (${authResp.status})`;
+        const errMsg =
+          authJson?.message ||
+          authJson?.error ||
+          `Authorization failed (${authResp.status})`;
         throw new Error(errMsg);
       }
 
       const wsUrl = authJson.url as string;
-      console.log(
-        "Connecting to authorized Upstox WebSocket v3:",
-        wsUrl.substring(0, 50) + "..."
-      );
       this.ws = new WebSocket(wsUrl);
       this.ws.binaryType = "arraybuffer";
 
-      this.ws.onopen = async (ev: Event) => {
-        const socket = ev.target as WebSocket;
-        console.log("Upstox WebSocket connected successfully");
+      this.ws.onopen = async () => {
+        const socket = this.ws;
+        if (!socket) return;
         this.isConnecting = false;
         this.reconnectAttempts = 0;
         if (this.reconnectTimer) {
@@ -199,32 +193,21 @@ export class UpstoxWebSocket implements WebSocketManager {
               instrumentKeys,
             },
           };
-          console.log("Subscribing to instruments:", instrumentKeys);
-          console.log(
-            "Subscription message:",
-            JSON.stringify(subscribeMessage, null, 2)
-          );
           // Use a guarded send and the specific socket to avoid races across HMR
           this.sendWhenOpen(subscribeMessage, socket);
         }
         this.setupPingInterval();
       };
 
-      this.ws.onmessage = async (event) => {
+      this.ws.onmessage = async (event: MessageEvent) => {
         try {
           if (typeof event.data === "string") {
-            console.log("Received text message:", event.data);
             const data: UpstoxWebSocketMessage = JSON.parse(event.data);
             this.handleTextMessage(data);
           } else if (event.data instanceof ArrayBuffer) {
-            console.log(
-              "Received binary message, size:",
-              event.data.byteLength
-            );
             await this.handleBinaryMessage(event.data);
           } else if (event.data && "arrayBuffer" in event.data) {
             const buff = await (event.data as Blob).arrayBuffer();
-            console.log("Received blob message, size:", buff.byteLength);
             await this.handleBinaryMessage(buff);
           }
         } catch (e) {
@@ -233,11 +216,6 @@ export class UpstoxWebSocket implements WebSocketManager {
       };
 
       this.ws.onclose = (ev: CloseEvent) => {
-        console.log("Upstox WebSocket disconnected", {
-          code: ev.code,
-          reason: ev.reason,
-          wasClean: ev.wasClean,
-        });
         this.isConnecting = false;
         this.clearPingInterval();
         if (!this.intentionalDisconnect) this.scheduleReconnect();
@@ -275,32 +253,24 @@ export class UpstoxWebSocket implements WebSocketManager {
         this.symbolToInstrumentMap.set(s, token);
         this.instrumentToSymbolMap.set(token, s);
       }
-      console.log(
-        "Upstox mapping (symbol -> instrumentKey):",
-        Object.fromEntries(this.subscribedSymbols)
-      );
-      console.log(
-        "Upstox reverse mapping (instrumentKey -> symbol):",
-        Object.fromEntries(this.instrumentToSymbolMap)
-      );
     } catch (e) {
       console.warn("Failed to resolve instruments, using fallbacks:", e);
       // Index symbol mapping for fallback (same as server-side)
       const indexMapping: Record<string, string> = {
-        "NIFTY": "NSE_INDEX|Nifty 50",
+        NIFTY: "NSE_INDEX|Nifty 50",
         "NIFTY 50": "NSE_INDEX|Nifty 50",
-        "NIFTY50": "NSE_INDEX|Nifty 50",
-        "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+        NIFTY50: "NSE_INDEX|Nifty 50",
+        BANKNIFTY: "NSE_INDEX|Nifty Bank",
         "BANK NIFTY": "NSE_INDEX|Nifty Bank",
         "NIFTY BANK": "NSE_INDEX|Nifty Bank",
-        "NIFTYBANK": "NSE_INDEX|Nifty Bank",
-        "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+        NIFTYBANK: "NSE_INDEX|Nifty Bank",
+        FINNIFTY: "NSE_INDEX|Nifty Fin Service",
         "FIN NIFTY": "NSE_INDEX|Nifty Fin Service",
         "NIFTY FIN SERVICE": "NSE_INDEX|Nifty Fin Service",
-        "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
+        MIDCPNIFTY: "NSE_INDEX|NIFTY MID SELECT",
         "MIDCP NIFTY": "NSE_INDEX|NIFTY MID SELECT",
         "NIFTY MID SELECT": "NSE_INDEX|NIFTY MID SELECT",
-        "SENSEX": "BSE_INDEX|SENSEX",
+        SENSEX: "BSE_INDEX|SENSEX",
       };
       for (const s of symbols) {
         const sUpper = s.toUpperCase();
@@ -316,24 +286,10 @@ export class UpstoxWebSocket implements WebSocketManager {
         this.symbolToInstrumentMap.set(s, token);
         this.instrumentToSymbolMap.set(token, s);
       }
-      console.log(
-        "Upstox mapping fallback (symbol -> instrumentKey):",
-        Object.fromEntries(this.subscribedSymbols)
-      );
-      console.log(
-        "Upstox reverse mapping fallback (instrumentKey -> symbol):",
-        Object.fromEntries(this.instrumentToSymbolMap)
-      );
     }
 
     // Skip quotes API seeding if market is closed or no account ID
     if (!this.isMarketOpen || !this.accountId) {
-      if (!this.isMarketOpen) {
-        console.log("⏸️ Skipping quotes API call - market is closed");
-      }
-      if (!this.accountId) {
-        console.log("⏸️ Skipping quotes API call - no account ID provided");
-      }
       return;
     }
 
@@ -341,7 +297,6 @@ export class UpstoxWebSocket implements WebSocketManager {
     try {
       const instrumentKeys = Array.from(this.subscribedSymbols.values());
       if (instrumentKeys.length) {
-        console.log("📈 Market is open - fetching initial quotes for seeding");
         const resp = await fetch(getApiUrl("/api/upstox/market-data/quotes"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -352,9 +307,10 @@ export class UpstoxWebSocket implements WebSocketManager {
           const entries = Object.entries(json.data) as [string, any][];
           for (const [ik, feed] of entries) {
             // Try original key first (for proper casing like "Nifty 50"), then uppercase
-            const symbol = this.instrumentToSymbolMap.get(ik) ||
-                           this.instrumentToSymbolMap.get(ik.toUpperCase()) ||
-                           ik;
+            const symbol =
+              this.instrumentToSymbolMap.get(ik) ||
+              this.instrumentToSymbolMap.get(ik.toUpperCase()) ||
+              ik;
             const upd: PriceUpdate = this.priceCache.get(symbol) || {
               symbol,
               instrumentToken: ik,
@@ -399,29 +355,24 @@ export class UpstoxWebSocket implements WebSocketManager {
         }
       }
     } catch (e) {
-      console.warn("Failed to seed Upstox quotes snapshot:", e);
+      // Failed to seed Upstox quotes snapshot
     }
   }
 
   private handleTextMessage(data: UpstoxWebSocketMessage): void {
-    console.log("Handling text message:", data);
     if (data.type === "error") {
       console.error("Upstox WebSocket error:", data.error || data.message);
       return;
     }
     if (data.type !== "success" || !data.data) {
-      console.log(
-        "Message not success type or no data:",
-        data.type,
-        !!data.data
-      );
       return;
     }
     for (const [instrumentToken, feed] of Object.entries(data.data)) {
       // Try original key first (for proper casing like "Nifty 50"), then uppercase
-      const symbol = this.instrumentToSymbolMap.get(instrumentToken) ||
-                     this.instrumentToSymbolMap.get(instrumentToken.toUpperCase()) ||
-                     instrumentToken;
+      const symbol =
+        this.instrumentToSymbolMap.get(instrumentToken) ||
+        this.instrumentToSymbolMap.get(instrumentToken.toUpperCase()) ||
+        instrumentToken;
       const key = instrumentToken;
       const upd: PriceUpdate = this.priceCache.get(symbol) || {
         symbol,
@@ -468,14 +419,12 @@ export class UpstoxWebSocket implements WebSocketManager {
 
   private async handleBinaryMessage(buffer: ArrayBuffer): Promise<void> {
     try {
-      console.log("Processing binary message...");
       if (!this.protoLoaded) await this.ensureProtoLoaded();
       if (!this.FeedResponseType) {
         console.error("FeedResponseType not loaded");
         return;
       }
       const bytes = new Uint8Array(buffer);
-      console.log("Decoding protobuf bytes, length:", bytes.length);
       const decoded: any = this.FeedResponseType.decode(bytes);
       const messageType = decoded?.type || "unknown";
 
@@ -489,59 +438,33 @@ export class UpstoxWebSocket implements WebSocketManager {
           ? typeNames[messageType] || `unknown_${messageType}`
           : messageType;
 
-      console.log(`📨 Upstox message type: ${messageType} (${typeName})`);
-
       if (messageType === 2 || typeName === "market_info") {
-        console.log(
-          "📊 Market status update received:",
-          decoded.marketInfo?.segmentStatus
-        );
         const nseEqStatus = decoded.marketInfo?.segmentStatus?.NSE_EQ;
         if (nseEqStatus === "CLOSING_END" || nseEqStatus === "NORMAL_CLOSE") {
-          console.log("🔴 Market is closed - no live price data expected");
           this.isMarketOpen = false;
         } else if (
           nseEqStatus === "NORMAL_OPEN" ||
           nseEqStatus === "OPENING_START"
         ) {
-          console.log("🟢 Market is open - price data should be flowing");
           this.isMarketOpen = true;
         }
         return; // Skip further processing for market info messages
       }
 
       // If this is feed data (type 1), process it
-      console.log("Decoded protobuf:", decoded);
-      console.log(
-        "Message type:",
-        messageType,
-        "Properties:",
-        Object.keys(decoded || {})
-      );
-
       const feeds = decoded?.feeds || {};
-      console.log("Feeds extracted:", feeds);
       const keys = Object.keys(feeds);
-      console.log("Feed keys found:", keys);
       if (keys.length === 0) {
-        console.log(
-          "⚠️ No feed data in this message - likely market closed or subscription pending"
-        );
         return;
       }
 
-      console.log(`📈 Processing ${keys.length} instrument feed(s):`, keys);
       for (const instrumentKey of Object.keys(feeds)) {
         const feed = feeds[instrumentKey];
         // Try original key first (for proper casing like "Nifty 50"), then uppercase
-        const symbol = this.instrumentToSymbolMap.get(instrumentKey) ||
-                       this.instrumentToSymbolMap.get(String(instrumentKey).toUpperCase()) ||
-                       instrumentKey;
-        console.log(
-          `Processing feed for instrument: ${instrumentKey} -> symbol: ${symbol}`
-        );
-        console.log(`Feed data:`, feed);
-        console.log(`Feed structure keys:`, Object.keys(feed || {}));
+        const symbol =
+          this.instrumentToSymbolMap.get(instrumentKey) ||
+          this.instrumentToSymbolMap.get(String(instrumentKey).toUpperCase()) ||
+          instrumentKey;
 
         const upd: PriceUpdate = this.priceCache.get(symbol) || {
           symbol,
@@ -562,7 +485,6 @@ export class UpstoxWebSocket implements WebSocketManager {
 
         // ltpc direct
         if (feed?.ltpc) {
-          console.log(`Found direct ltpc for ${symbol}:`, feed.ltpc);
           const ltp = feed.ltpc.ltp ?? upd.lastPrice;
           const cp = feed.ltpc.cp ?? upd.close;
           upd.lastPrice = ltp;
@@ -571,21 +493,12 @@ export class UpstoxWebSocket implements WebSocketManager {
             upd.priceChange = ltp - cp;
             upd.priceChangePercent = ((ltp - cp) / cp) * 100;
           }
-          console.log(
-            `Updated prices for ${symbol}: ltp=${ltp}, cp=${cp}, change=${upd.priceChange}`
-          );
         }
 
         // fullFeed.marketFF and fullFeed.indexFF
         const marketFF = feed?.fullFeed?.marketFF;
         const indexFF = feed?.fullFeed?.indexFF;
-        console.log(`Checking fullFeed for ${symbol}:`, {
-          hasFullFeed: !!feed?.fullFeed,
-          hasMarketFF: !!marketFF,
-          hasIndexFF: !!indexFF,
-        });
         if (marketFF?.ltpc) {
-          console.log(`Found marketFF ltpc for ${symbol}:`, marketFF.ltpc);
           const ltp = marketFF.ltpc.ltp ?? upd.lastPrice;
           const cp = marketFF.ltpc.cp ?? upd.close;
           upd.lastPrice = ltp;
@@ -594,12 +507,8 @@ export class UpstoxWebSocket implements WebSocketManager {
             upd.priceChange = ltp - cp;
             upd.priceChangePercent = ((ltp - cp) / cp) * 100;
           }
-          console.log(
-            `Updated prices from marketFF for ${symbol}: ltp=${ltp}, cp=${cp}`
-          );
         }
         if (indexFF?.ltpc) {
-          console.log(`Found indexFF ltpc for ${symbol}:`, indexFF.ltpc);
           const ltp = indexFF.ltpc.ltp ?? upd.lastPrice;
           const cp = indexFF.ltpc.cp ?? upd.close;
           upd.lastPrice = ltp;
@@ -608,9 +517,6 @@ export class UpstoxWebSocket implements WebSocketManager {
             upd.priceChange = ltp - cp;
             upd.priceChangePercent = ((ltp - cp) / cp) * 100;
           }
-          console.log(
-            `Updated prices from indexFF for ${symbol}: ltp=${ltp}, cp=${cp}`
-          );
         }
         if (marketFF?.marketOHLC?.ohlc?.length) {
           const last =
@@ -651,23 +557,9 @@ export class UpstoxWebSocket implements WebSocketManager {
         }
 
         this.priceCache.set(symbol, upd);
-        console.log(`Final price update for ${symbol}:`, {
-          symbol,
-          instrument: symbol,
-          ltp: upd.lastPrice,
-          change: upd.priceChange,
-          changePercent: upd.priceChangePercent,
-          callbackExists: !!this.onMessageCallback,
-        });
 
         if (this.onMessageCallback) {
-          console.log(
-            `Calling onMessage callback for ${symbol} with update:`,
-            upd
-          );
           this.onMessageCallback(upd);
-        } else {
-          console.warn(`No onMessage callback available for ${symbol}`);
         }
       }
     } catch (e) {
@@ -698,7 +590,6 @@ export class UpstoxWebSocket implements WebSocketManager {
     const jitter = Math.floor(Math.random() * 500);
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
-      console.log("Attempting to reconnect Upstox WebSocket...");
       this.reconnectTimer = null;
       if (this.onMessageCallback && this.subscribedSymbols.size > 0) {
         this.connect(
@@ -707,7 +598,7 @@ export class UpstoxWebSocket implements WebSocketManager {
           {
             accountId: this.accountId,
             mode: this.mode,
-          }
+          },
         );
       }
     }, delay + jitter);
@@ -836,7 +727,7 @@ export class UpstoxWebSocket implements WebSocketManager {
       this.root = await protobuf.load(url);
       const ns = "com.upstox.marketdatafeederv3udapi.rpc.proto";
       this.FeedResponseType = this.root.lookupType(
-        `${ns}.FeedResponse`
+        `${ns}.FeedResponse`,
       ) as protobuf.Type;
       this.protoLoaded = true;
     } catch (e) {

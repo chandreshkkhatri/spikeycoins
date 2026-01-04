@@ -71,9 +71,6 @@ export default function AccountCard({
       const data = await response.json();
 
       if (data.success) {
-        console.log("=== Upstox Debug Results ===");
-        console.log("Account:", data.account);
-        console.log("Debug Info:", data.debugInfo);
         alert(
           `Debug completed! Check console for detailed results.\n\nEnvironment: ${data.debugInfo.environment}\nAPI Key Valid: ${data.debugInfo.apiKeyValid}\nRedirect URI Valid: ${data.debugInfo.redirectUriValid}`
         );
@@ -115,9 +112,8 @@ export default function AccountCard({
         </div>
         <div className="account-status">
           <span
-            className={`status-indicator ${
-              isAuthenticated ? "active" : "inactive"
-            }`}
+            className={`status-indicator ${isAuthenticated ? "active" : "inactive"
+              }`}
           >
             {isAuthenticated ? "●" : "○"}
           </span>

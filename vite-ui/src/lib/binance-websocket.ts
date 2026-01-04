@@ -46,15 +46,13 @@ class BinanceWebSocketService {
    */
   connect(
     segment: TradingSegment = "spot",
-    testnet: boolean = false
+    testnet: boolean = false,
   ): Promise<void> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      console.log("Binance WebSocket already connected");
       return Promise.resolve();
     }
 
     if (this.isConnecting) {
-      console.log("Binance WebSocket connection already in progress");
       return Promise.resolve();
     }
 
@@ -72,15 +70,9 @@ class BinanceWebSocketService {
           wsUrl = testnet ? this.SPOT_TESTNET_WS_URL : this.SPOT_WS_URL;
         }
 
-        console.log(
-          `Connecting to Binance ${segment} WebSocket${
-            testnet ? " (testnet)" : ""
-          }...`
-        );
         this.ws = new WebSocket(wsUrl);
 
         this.ws.onopen = () => {
-          console.log(`Binance ${segment} WebSocket connected`);
           this.isConnecting = false;
           this.reconnectAttempts = 0;
 
@@ -105,7 +97,6 @@ class BinanceWebSocketService {
         };
 
         this.ws.onclose = () => {
-          console.log("Binance WebSocket closed");
           this.isConnecting = false;
           this.stopPingInterval();
           this.handleReconnect();
@@ -134,7 +125,6 @@ class BinanceWebSocketService {
     };
 
     this.ws.send(JSON.stringify(subscribeMessage));
-    console.log("Subscribed to All Market Tickers (!ticker@arr)");
   }
 
   /**
@@ -186,7 +176,6 @@ class BinanceWebSocketService {
         }
       } else if (message.result === null) {
         // Subscription confirmation
-        console.log("Subscription confirmed");
       } else if (message.error) {
         // Error message
         console.error("Binance WebSocket error:", message.error);
@@ -220,7 +209,6 @@ class BinanceWebSocketService {
   subscribe(symbol: string, callback: SubscriptionCallback) {
     // Safety check
     if (!symbol) {
-      console.warn("Attempted to subscribe with null/undefined symbol");
       return;
     }
 
@@ -261,9 +249,6 @@ class BinanceWebSocketService {
     }
 
     this.reconnectAttempts++;
-    console.log(
-      `Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${this.reconnectDelay}ms...`
-    );
 
     setTimeout(() => {
       if (!this.intentionalDisconnect) {
@@ -320,7 +305,7 @@ class BinanceWebSocketService {
    */
   disconnect() {
     this.intentionalDisconnect = true;
-    
+
     if (this.ws) {
       this.stopPingInterval();
       // Clear all event handlers before closing
@@ -328,8 +313,11 @@ class BinanceWebSocketService {
       this.ws.onerror = null;
       this.ws.onmessage = null;
       this.ws.onopen = null;
-      
-      if (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN) {
+
+      if (
+        this.ws.readyState === WebSocket.CONNECTING ||
+        this.ws.readyState === WebSocket.OPEN
+      ) {
         this.ws.close();
       }
       this.ws = null;

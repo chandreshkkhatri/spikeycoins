@@ -73,7 +73,6 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
     async (isBackground = false) => {
       // Require authentication - don't fetch if not logged in
       if (!isLoggedIn || !user?._id) {
-        console.log('[AccountContext] User not logged in, skipping fetch');
         setLoadingAccounts(false);
         return;
       }
@@ -81,13 +80,11 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
       // Prevent duplicate fetches
       const now = Date.now();
       if (fetchInProgress.current) {
-        console.log('[AccountContext] Fetch already in progress, skipping');
         return;
       }
-      
+
       // Rate limit: don't fetch more than once every 2 seconds
       if (now - lastFetchTime.current < MIN_FETCH_INTERVAL && !isBackground) {
-        console.log('[AccountContext] Rate limited, skipping fetch');
         return;
       }
 
@@ -116,7 +113,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
               setSelectedAccountState(savedAccount);
             }
           }
-          
+
           // Only do background refresh if cache is older than 30 seconds
           // This prevents the immediate 100ms refresh that was causing duplicate calls
           if (cacheAge > 30000) {
@@ -195,14 +192,14 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
                 return prevMatch;
               }
             }
-            
+
             // Fallback to an active account or the first available
             if (allAccounts.length > 0) {
               const defaultAccount = allAccounts.find(acc => acc.isActive) || allAccounts[0];
               localStorage.setItem('selectedAccountId', defaultAccount._id);
               return defaultAccount;
             }
-            
+
             localStorage.removeItem('selectedAccountId');
             return null;
           });
@@ -235,22 +232,22 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   // Single initialization effect - no more duplicate useEffects
   const hasInitialized = useRef(false);
   const lastUserId = useRef<string | null>(null);
-  
+
   useEffect(() => {
     // Reset initialization if user changes
     if (user?._id !== lastUserId.current) {
       hasInitialized.current = false;
       lastUserId.current = user?._id || null;
     }
-    
+
     if (hasInitialized.current) return;
-    
+
     // Require authentication - don't initialize if not logged in
     if (!isLoggedIn) {
       setLoadingAccounts(false);
       return;
     }
-    
+
     hasInitialized.current = true;
 
     const cacheKey = 'accountsCache';

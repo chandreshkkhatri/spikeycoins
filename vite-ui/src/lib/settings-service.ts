@@ -1,21 +1,25 @@
 /**
  * Settings Sync Service
- * 
+ *
  * Syncs localStorage settings to the server when user is authenticated.
  * Falls back to localStorage when offline or not logged in.
  */
 
-import { api } from './auth-context';
+import { api } from "./auth-context";
 
 // Settings keys in localStorage
-const THEME_KEY = 'theme';
-const CHART_SETTINGS_KEY = 'openMandi_chartSettings';
-const WATCHLIST_SETTINGS_KEY = 'openMandi_watchlistSettings';
+const THEME_KEY = "theme";
+const CHART_SETTINGS_KEY = "openMandi_chartSettings";
+const WATCHLIST_SETTINGS_KEY = "openMandi_watchlistSettings";
 
 export interface CloudSettings {
-  theme: 'light' | 'dark' | 'system';
+  theme: "light" | "dark" | "system";
   chartSettings: {
-    selectedTimeframes?: Array<{ interval: string; label: string; index: number }>;
+    selectedTimeframes?: Array<{
+      interval: string;
+      label: string;
+      index: number;
+    }>;
     chartTimeframes?: { [index: number]: string };
     autoScale?: boolean;
     isLogScale?: boolean;
@@ -24,13 +28,13 @@ export interface CloudSettings {
   };
   watchlistSettings: {
     sortKey?: string;
-    sortDirection?: 'asc' | 'desc';
+    sortDirection?: "asc" | "desc";
     lastSelectedSymbol?: string;
   };
   tradingDefaults: {
     defaultQuantity?: number;
     defaultLeverage?: number;
-    defaultOrderType?: 'market' | 'limit';
+    defaultOrderType?: "market" | "limit";
     showConfirmation?: boolean;
   };
 }
@@ -47,24 +51,24 @@ class SettingsSyncService {
    * Load settings from server if authenticated, otherwise from localStorage
    */
   async loadSettings(): Promise<CloudSettings> {
-    const token = localStorage.getItem('openMandi_accessToken');
-    
+    const token = localStorage.getItem("openMandi_accessToken");
+
     if (token) {
       try {
-        const response = await api.get('/settings');
+        const response = await api.get("/settings");
         if (response.data.success) {
           const serverSettings = response.data.settings;
-          
+
           // Save to localStorage as cache
           this.saveToLocalStorage(serverSettings);
-          
+
           return serverSettings;
         }
       } catch (error) {
-        console.warn('Failed to load settings from server, using localStorage:', error);
+        // Fall back to localStorage if server fails
       }
     }
-    
+
     // Fall back to localStorage
     return this.loadFromLocalStorage();
   }
@@ -96,7 +100,10 @@ class SettingsSyncService {
   /**
    * Save a specific setting
    */
-  saveSetting<K extends keyof CloudSettings>(key: K, value: CloudSettings[K]): void {
+  saveSetting<K extends keyof CloudSettings>(
+    key: K,
+    value: CloudSettings[K],
+  ): void {
     this.saveSettings({ [key]: value } as Partial<CloudSettings>);
   }
 
@@ -104,9 +111,13 @@ class SettingsSyncService {
    * Sync pending changes to server
    */
   private async syncToServer(): Promise<void> {
-    const token = localStorage.getItem('openMandi_accessToken');
-    
-    if (!token || this.isSyncing || Object.keys(this.pendingChanges).length === 0) {
+    const token = localStorage.getItem("openMandi_accessToken");
+
+    if (
+      !token ||
+      this.isSyncing ||
+      Object.keys(this.pendingChanges).length === 0
+    ) {
       return;
     }
 
@@ -115,10 +126,8 @@ class SettingsSyncService {
     this.pendingChanges = {};
 
     try {
-      await api.patch('/settings', changesToSync);
-      console.log('Settings synced to server');
+      await api.patch("/settings", changesToSync);
     } catch (error) {
-      console.warn('Failed to sync settings to server:', error);
       // Re-queue failed changes
       this.pendingChanges = {
         ...changesToSync,
@@ -144,8 +153,10 @@ class SettingsSyncService {
    * Load settings from localStorage
    */
   private loadFromLocalStorage(): CloudSettings {
-    const theme = (localStorage.getItem(THEME_KEY) as 'light' | 'dark' | 'system') || 'system';
-    
+    const theme =
+      (localStorage.getItem(THEME_KEY) as "light" | "dark" | "system") ||
+      "system";
+
     let chartSettings = {};
     try {
       const stored = localStorage.getItem(CHART_SETTINGS_KEY);
@@ -177,13 +188,19 @@ class SettingsSyncService {
     if (settings.theme !== undefined) {
       localStorage.setItem(THEME_KEY, settings.theme);
     }
-    
+
     if (settings.chartSettings !== undefined) {
-      localStorage.setItem(CHART_SETTINGS_KEY, JSON.stringify(settings.chartSettings));
+      localStorage.setItem(
+        CHART_SETTINGS_KEY,
+        JSON.stringify(settings.chartSettings),
+      );
     }
-    
+
     if (settings.watchlistSettings !== undefined) {
-      localStorage.setItem(WATCHLIST_SETTINGS_KEY, JSON.stringify(settings.watchlistSettings));
+      localStorage.setItem(
+        WATCHLIST_SETTINGS_KEY,
+        JSON.stringify(settings.watchlistSettings),
+      );
     }
   }
 
@@ -191,39 +208,37 @@ class SettingsSyncService {
    * Migrate localStorage settings to server after login
    */
   async migrateLocalSettingsToServer(): Promise<void> {
-    const token = localStorage.getItem('openMandi_accessToken');
+    const token = localStorage.getItem("openMandi_accessToken");
     if (!token) return;
 
     try {
       // Load current local settings
       const localSettings = this.loadFromLocalStorage();
-      
+
       // Check if any settings exist locally
-      const hasLocalSettings = 
-        localSettings.theme !== 'system' ||
+      const hasLocalSettings =
+        localSettings.theme !== "system" ||
         Object.keys(localSettings.chartSettings).length > 0 ||
         Object.keys(localSettings.watchlistSettings).length > 0;
 
       if (hasLocalSettings) {
         // Get server settings first
-        const response = await api.get('/settings');
+        const response = await api.get("/settings");
         const serverSettings = response.data.settings;
-        
+
         // Check if server has any settings (not default)
-        const hasServerSettings = 
-          serverSettings.theme !== 'system' ||
+        const hasServerSettings =
+          serverSettings.theme !== "system" ||
           Object.keys(serverSettings.chartSettings || {}).length > 0 ||
           Object.keys(serverSettings.watchlistSettings || {}).length > 0;
 
         // If server is empty but local has settings, migrate
         if (!hasServerSettings && hasLocalSettings) {
-          console.log('Migrating local settings to server...');
-          await api.put('/settings', localSettings);
-          console.log('Settings migrated successfully');
+          await api.put("/settings", localSettings);
         }
       }
     } catch (error) {
-      console.warn('Failed to migrate settings:', error);
+      // Ignore migration failures
     }
   }
 }
