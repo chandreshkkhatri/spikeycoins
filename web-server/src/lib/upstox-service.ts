@@ -29,7 +29,7 @@ class UpstoxService {
   public initializeWithCredentials(
     apiKey: string,
     apiSecret: string,
-    isSandbox: boolean = false
+    isSandbox: boolean = false,
   ): void {
     this.apiKey = apiKey;
     this.apiSecret = apiSecret;
@@ -45,7 +45,7 @@ class UpstoxService {
   getUpstoxClient(): any {
     if (!this.client) {
       throw new Error(
-        "Upstox client not initialized. Call initializeWithCredentials() first."
+        "Upstox client not initialized. Call initializeWithCredentials() first.",
       );
     }
     return this.client;
@@ -80,7 +80,7 @@ class UpstoxService {
   getLoginURL(): string {
     if (!this.apiKey) {
       throw new Error(
-        "API key not set. Call initializeWithCredentials() first."
+        "API key not set. Call initializeWithCredentials() first.",
       );
     }
 
@@ -94,7 +94,7 @@ class UpstoxService {
     const fullUrl = `${authDomain}/v2/login/authorization/dialog?response_type=code&client_id=${
       this.apiKey
     }&redirect_uri=${encodeURIComponent(
-      redirectUri
+      redirectUri,
     )}&state=upstox_auth&scope=${encodeURIComponent(scope)}`;
 
     return fullUrl;
@@ -103,7 +103,7 @@ class UpstoxService {
   async generateSession(authorizationCode: string): Promise<any> {
     if (!this.apiKey || !this.apiSecret) {
       throw new Error(
-        "API credentials not set. Call initializeWithCredentials() first."
+        "API credentials not set. Call initializeWithCredentials() first.",
       );
     }
 
@@ -132,22 +132,22 @@ class UpstoxService {
         body: new URLSearchParams(requestData).toString(),
       });
 
-    const responseData = (await response.json()) as any;
+      const responseData = (await response.json()) as any;
 
-    if (!response.ok) {
-      throw new Error(
-        responseData.message ||
-          responseData.error ||
-          "Failed to exchange authorization code for token"
-      );
-    }
+      if (!response.ok) {
+        throw new Error(
+          responseData.message ||
+            responseData.error ||
+            "Failed to exchange authorization code for token",
+        );
+      }
 
-    if (responseData && responseData.access_token) {
-      this.setAccessToken(responseData.access_token);
-      return responseData;
-    } else {
-      throw new Error("Invalid response from token endpoint");
-    }
+      if (responseData && responseData.access_token) {
+        this.setAccessToken(responseData.access_token);
+        return responseData;
+      } else {
+        throw new Error("Invalid response from token endpoint");
+      }
     } catch (error: any) {
       throw error;
     }
@@ -163,7 +163,7 @@ class UpstoxService {
       const apiVersion = "2.0";
 
       const response = await limiter.schedule(() =>
-        tokenApi.logout(apiVersion, this.accessToken)
+        tokenApi.logout(apiVersion, this.accessToken),
       );
 
       this.reset();
@@ -174,16 +174,35 @@ class UpstoxService {
   }
 
   async getProfile(): Promise<any> {
-    const userApi = new UpstoxClient.UserApi(this.client);
-    const apiVersion = "2.0";
+    // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+    const baseUrl = this.isSandbox
+      ? "https://api-sandbox.upstox.com"
+      : "https://api.upstox.com";
 
-    return limiter.schedule(() => userApi.getProfile(apiVersion));
+    const response = await fetch(`${baseUrl}/v2/user/profile`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${this.accessToken}`,
+        "Api-Version": "2.0",
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+      );
+    }
+
+    return data?.data;
   }
 
   async getFunds(): Promise<any> {
     if (!this.client) {
       throw new Error(
-        "Upstox client not initialized. Call initializeWithCredentials() first."
+        "Upstox client not initialized. Call initializeWithCredentials() first.",
       );
     }
 
@@ -221,14 +240,29 @@ class UpstoxService {
     }
 
     try {
-      const userApi = new UpstoxClient.UserApi(this.client);
-      const apiVersion = "2.0";
+      // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+      const baseUrl = this.isSandbox
+        ? "https://api-sandbox.upstox.com"
+        : "https://api.upstox.com";
 
-      const response = await limiter.schedule(() =>
-        userApi.getUserFundMargin(apiVersion)
-      );
+      const response = await fetch(`${baseUrl}/v2/user/get-funds-and-margin`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      });
 
-      return (response as any).data;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+        );
+      }
+
+      return data?.data;
     } catch (error) {
       throw error;
     }
@@ -237,7 +271,7 @@ class UpstoxService {
   async getPositions(): Promise<any[]> {
     if (!this.client) {
       throw new Error(
-        "Upstox client not initialized. Call initializeWithCredentials() first."
+        "Upstox client not initialized. Call initializeWithCredentials() first.",
       );
     }
 
@@ -250,14 +284,29 @@ class UpstoxService {
     }
 
     try {
-      const portfolioApi = new UpstoxClient.PortfolioApi(this.client);
-      const apiVersion = "2.0";
+      // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+      const baseUrl = this.isSandbox
+        ? "https://api-sandbox.upstox.com"
+        : "https://api.upstox.com";
 
-      const response = await limiter.schedule(() =>
-        portfolioApi.getPositions(apiVersion)
-      );
+      const response = await fetch(`${baseUrl}/v2/portfolio/short-term-positions`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      });
 
-      const responseData = (response as any).data;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+        );
+      }
+
+      const responseData = data?.data;
       if (responseData) {
         return Array.isArray(responseData) ? responseData : [];
       }
@@ -271,7 +320,7 @@ class UpstoxService {
   async getHoldings(): Promise<any[]> {
     if (!this.client) {
       throw new Error(
-        "Upstox client not initialized. Call initializeWithCredentials() first."
+        "Upstox client not initialized. Call initializeWithCredentials() first.",
       );
     }
 
@@ -284,14 +333,29 @@ class UpstoxService {
     }
 
     try {
-      const portfolioApi = new UpstoxClient.PortfolioApi(this.client);
-      const apiVersion = "2.0";
+      // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+      const baseUrl = this.isSandbox
+        ? "https://api-sandbox.upstox.com"
+        : "https://api.upstox.com";
 
-      const response = await limiter.schedule(() =>
-        portfolioApi.getHoldings(apiVersion)
-      );
+      const response = await fetch(`${baseUrl}/v2/portfolio/long-term-holdings`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      });
 
-      const responseData = (response as any).data;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+        );
+      }
+
+      const responseData = data?.data;
       if (responseData) {
         return Array.isArray(responseData) ? responseData : [];
       }
@@ -305,7 +369,7 @@ class UpstoxService {
   async getOrders(): Promise<any[]> {
     if (!this.client) {
       throw new Error(
-        "Upstox client not initialized. Call initializeWithCredentials() first."
+        "Upstox client not initialized. Call initializeWithCredentials() first.",
       );
     }
 
@@ -318,14 +382,29 @@ class UpstoxService {
     }
 
     try {
-      const orderApi = new UpstoxClient.OrderApi(this.client);
-      const apiVersion = "2.0";
+      // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
+      const baseUrl = this.isSandbox
+        ? "https://api-sandbox.upstox.com"
+        : "https://api.upstox.com";
 
-      const response = await limiter.schedule(() =>
-        orderApi.getOrderBook(apiVersion)
-      );
+      const response = await fetch(`${baseUrl}/v2/order/retrieve-all`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      });
 
-      const responseData = (response as any).data;
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          `Upstox API error: ${response.status} - ${data?.message || data?.error || "Unknown error"}`,
+        );
+      }
+
+      const responseData = data?.data;
       if (responseData) {
         return Array.isArray(responseData) ? responseData : [];
       }
@@ -341,20 +420,20 @@ class UpstoxService {
     const apiVersion = "2.0";
 
     const response = await limiter.schedule(() =>
-      orderApi.placeOrder(apiVersion, params)
+      orderApi.placeOrder(apiVersion, params),
     );
     return (response as any).data;
   }
 
   async modifyOrder(
     orderId: string,
-    params: any
+    params: any,
   ): Promise<{ order_id: string }> {
     const orderApi = new UpstoxClient.OrderApi(this.client);
     const apiVersion = "2.0";
 
     const response = await limiter.schedule(() =>
-      orderApi.modifyOrder(apiVersion, orderId, params)
+      orderApi.modifyOrder(apiVersion, orderId, params),
     );
     return (response as any).data;
   }
@@ -364,7 +443,7 @@ class UpstoxService {
     const apiVersion = "2.0";
 
     const response = await limiter.schedule(() =>
-      orderApi.cancelOrder(apiVersion, orderId)
+      orderApi.cancelOrder(apiVersion, orderId),
     );
     return (response as any).data;
   }
@@ -374,7 +453,7 @@ class UpstoxService {
     const instrumentKey = instruments.join(",");
 
     const response = await limiter.schedule(() =>
-      marketQuoteApi.getFullMarketQuote(instrumentKey)
+      marketQuoteApi.getFullMarketQuote(instrumentKey),
     );
     return (response as any).data;
   }
@@ -384,7 +463,7 @@ class UpstoxService {
     const instrumentKey = instruments.join(",");
 
     const response = await limiter.schedule(() =>
-      marketQuoteApi.getLtp(instrumentKey)
+      marketQuoteApi.getLtp(instrumentKey),
     );
     return (response as any).data;
   }
@@ -394,7 +473,7 @@ class UpstoxService {
     const instrumentKey = instruments.join(",");
 
     const response = await limiter.schedule(() =>
-      marketQuoteApi.getMarketQuoteOHLC(instrumentKey)
+      marketQuoteApi.getMarketQuoteOHLC(instrumentKey),
     );
     return (response as any).data;
   }
@@ -403,7 +482,7 @@ class UpstoxService {
     instrumentKey: string,
     interval: string,
     toDate: string,
-    fromDate?: string
+    fromDate?: string,
   ): Promise<any> {
     if (!this.accessToken) {
       throw new Error("Access token not set. Call setAccessToken() first.");
@@ -417,9 +496,9 @@ class UpstoxService {
         .split("T")[0];
 
     const url = `https://api.upstox.com/v2/historical-candle/${encodeURIComponent(
-      instrumentKey
+      instrumentKey,
     )}/${encodeURIComponent(interval)}/${encodeURIComponent(
-      to
+      to,
     )}/${encodeURIComponent(from)}`;
 
     const resp = await fetch(url, {
@@ -449,7 +528,7 @@ class UpstoxService {
 
       if (resp.status === 401) {
         const err: any = new Error(
-          `Authentication failed: ${message}. Please re-authenticate your Upstox account.`
+          `Authentication failed: ${message}. Please re-authenticate your Upstox account.`,
         );
         err.code = "TOKEN_EXPIRED";
         err.statusCode = 401;
@@ -462,12 +541,57 @@ class UpstoxService {
     return data?.data?.candles || [];
   }
 
+  async resolveInstruments(symbols: string[]): Promise<Record<string, string>> {
+    const mappings: Record<string, string> = {};
+
+    // Map common index symbols to Upstox format (with proper casing)
+    // Include variants with and without spaces to handle different inputs
+    const indexMapping: Record<string, string> = {
+      "NIFTY": "NSE_INDEX|Nifty 50",
+      "NIFTY 50": "NSE_INDEX|Nifty 50",
+      "NIFTY50": "NSE_INDEX|Nifty 50",
+      "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+      "BANK NIFTY": "NSE_INDEX|Nifty Bank",
+      "NIFTY BANK": "NSE_INDEX|Nifty Bank",
+      "NIFTYBANK": "NSE_INDEX|Nifty Bank",
+      "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+      "FIN NIFTY": "NSE_INDEX|Nifty Fin Service",
+      "NIFTY FIN SERVICE": "NSE_INDEX|Nifty Fin Service",
+      "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
+      "MIDCP NIFTY": "NSE_INDEX|NIFTY MID SELECT",
+      "NIFTY MID SELECT": "NSE_INDEX|NIFTY MID SELECT",
+      "SENSEX": "BSE_INDEX|SENSEX",
+    };
+
+    for (const symbol of symbols) {
+      const s = symbol.toUpperCase();
+      if (s.includes("|")) {
+        // Already a fully qualified instrument key
+        mappings[symbol] = s;
+      } else if (indexMapping[s]) {
+        // Known index symbol
+        mappings[symbol] = indexMapping[s];
+      } else {
+        // Default to NSE_EQ for common stocks
+        mappings[symbol] = `NSE_EQ|${s}`;
+      }
+    }
+
+    return mappings;
+  }
+
+  getMarketDataAuth(redirectUri?: string): string {
+    // This method seems redundant based on the plan review (just needs URL for WSS)
+    // But we will return the Websocket URL here.
+    return "wss://api.upstox.com/v2/feed/market-data-feed";
+  }
+
   async convertPosition(params: any): Promise<boolean> {
     const portfolioApi = new UpstoxClient.PortfolioApi(this.client);
     const apiVersion = "2.0";
 
     const response = await limiter.schedule(() =>
-      portfolioApi.convertPosition(apiVersion, params)
+      portfolioApi.convertPosition(apiVersion, params),
     );
     return (response as any).data;
   }
@@ -475,11 +599,3 @@ class UpstoxService {
 
 const upstoxService = UpstoxService.getInstance();
 export default upstoxService;
-
-
-
-
-
-
-
-

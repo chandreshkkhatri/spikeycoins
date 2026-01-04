@@ -36,7 +36,7 @@ export interface CloudSettings {
 }
 
 class SettingsSyncService {
-  private saveTimeout: NodeJS.Timeout | null = null;
+  private saveTimeout: number | null = null;
   private pendingChanges: Partial<CloudSettings> = {};
   private isSyncing = false;
 

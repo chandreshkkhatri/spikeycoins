@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
-import { ChevronDown, ChevronUp, HelpCircle, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronUp, HelpCircle, RefreshCw, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
@@ -1051,10 +1051,11 @@ const TradingWindow = memo(function TradingWindow({
       chartPriceLines.push({
         price,
         color: orderForm.side === "BUY" ? "#22c55e" : "#ef4444", // Green for buy, red for sell
-        lineWidth: 2,
+        lineWidth: 1,
         lineStyle: 0, // Solid
         title: `${orderForm.side} @ ${formatPrice(price, "$")}`,
         axis: "left" as const,
+        axisLabelVisible: false,
       });
     }
   }
@@ -1065,7 +1066,7 @@ const TradingWindow = memo(function TradingWindow({
     if (slPrice > 0) {
       chartPriceLines.push({
         price: slPrice,
-        color: "#f97316", // Orange
+        color: "#ec4899", // Pink/Magenta for better distinction
         lineWidth: 1,
         lineStyle: 2, // Dashed
         title: `SL ${formatPrice(slPrice, "$")}`,
@@ -1089,6 +1090,13 @@ const TradingWindow = memo(function TradingWindow({
     }
   }
 
+  const chartLegend = [
+    { label: "Limit Buy", color: "#22c55e" },
+    { label: "Limit Sell", color: "#ef4444" },
+    { label: "Stop Loss", color: "#ec4899" },
+    { label: "Take Profit", color: "#3b82f6" },
+  ];
+
   return (
     <div className="trading-window">
       <MultiTimeframeChart
@@ -1099,6 +1107,7 @@ const TradingWindow = memo(function TradingWindow({
         }
         marketType={marketType}
         priceLines={chartPriceLines}
+        legend={chartLegend}
       />
       <div className="trading-header flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between">
         {/* Row 1: Symbol and Price */}
@@ -1250,22 +1259,7 @@ const TradingWindow = memo(function TradingWindow({
 
             {/* Two Column Grid */}
             <div className="form-grid">
-              {/* Order Type */}
-              <div className="form-group">
-                <label>Type</label>
-                <select
-                  value={orderForm.type}
-                  onChange={(e) =>
-                    handleInputChange("type", e.target.value as any)
-                  }
-                  className="form-select"
-                >
-                  <option value="MARKET">Market</option>
-                  <option value="LIMIT">Limit</option>
-                  <option value="STOP_MARKET">Stop Market</option>
-                  <option value="TAKE_PROFIT_MARKET">Take Profit Mkt</option>
-                </select>
-              </div>
+
 
               {/* Quantity */}
               <div className="form-group">
@@ -1283,7 +1277,7 @@ const TradingWindow = memo(function TradingWindow({
               </div>
 
               {/* Price (for limit orders) */}
-              {orderForm.type === "LIMIT" ? (
+              {orderForm.type === "LIMIT" && (
                 <div className="form-group">
                   <label>Price</label>
                   <input
@@ -1294,41 +1288,6 @@ const TradingWindow = memo(function TradingWindow({
                     placeholder={currentPrice.toFixed(2)}
                     step={tickSize}
                   />
-                </div>
-              ) : (
-                <div className="form-group flex flex-row items-center gap-2">
-                  <label className="mb-0 text-xs font-semibold whitespace-nowrap">
-                    Reduce Only
-                  </label>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="max-w-[200px] text-xs">
-                        When enabled, this order will only reduce your existing
-                        position, not increase it. Useful for closing positions
-                        without accidentally opening a new one.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                  <div className="flex items-center gap-1.5 ml-2">
-                    <input
-                      type="checkbox"
-                      id="reduceOnly"
-                      checked={orderForm.reduceOnly}
-                      onChange={(e) =>
-                        handleInputChange("reduceOnly", e.target.checked)
-                      }
-                      className="form-checkbox w-3.5 h-3.5"
-                    />
-                    <label
-                      htmlFor="reduceOnly"
-                      className="mb-0 text-xs cursor-pointer"
-                    >
-                      Yes
-                    </label>
-                  </div>
                 </div>
               )}
 
@@ -1460,7 +1419,18 @@ const TradingWindow = memo(function TradingWindow({
                       </span>
                     </div>
                     <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>TP: {orderForm.takeProfit || "—"}</span>
+                      <div className="flex items-center gap-1">
+                        <span>TP: {orderForm.takeProfit || "—"}</span>
+                        {orderForm.takeProfit && (
+                          <X
+                            className="h-3 w-3 cursor-pointer hover:text-foreground"
+                            onClick={() => {
+                              handleInputChange("takeProfit", "");
+                              setTpPercentage(0);
+                            }}
+                          />
+                        )}
+                      </div>
                       {calculateProfitAmount.amount > 0 && (
                         <span className={calculateProfitAmount.isValid ? "text-green-500" : "text-red-500"}>
                           {calculateProfitAmount.isValid
@@ -1501,43 +1471,58 @@ const TradingWindow = memo(function TradingWindow({
                 )}
               </div>
 
-              {/* Reduce Only when Limit is selected */}
-              {orderForm.type === "LIMIT" && (
-                <div className="form-group flex flex-row items-center gap-2">
-                  <label className="mb-0 text-xs font-semibold whitespace-nowrap">
-                    Reduce Only
+              {/* Order Type */}
+              <div className="form-group">
+                <label>Type</label>
+                <select
+                  value={orderForm.type}
+                  onChange={(e) =>
+                    handleInputChange("type", e.target.value as any)
+                  }
+                  className="form-select"
+                >
+                  <option value="MARKET">Market</option>
+                  <option value="LIMIT">Limit</option>
+                  <option value="STOP_MARKET">Stop Market</option>
+                  <option value="TAKE_PROFIT_MARKET">Take Profit Mkt</option>
+                </select>
+              </div>
+
+              {/* Reduce Only */}
+              <div className="form-group flex flex-row items-center gap-2">
+                <label className="mb-0 text-xs font-semibold whitespace-nowrap">
+                  Reduce Only
+                </label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-[200px] text-xs">
+                      When enabled, this order will only reduce your existing
+                      position, not increase it. Useful for closing positions
+                      without accidentally opening a new one.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+                <div className="flex items-center gap-1.5 ml-2">
+                  <input
+                    type="checkbox"
+                    id="reduceOnly"
+                    checked={orderForm.reduceOnly}
+                    onChange={(e) =>
+                      handleInputChange("reduceOnly", e.target.checked)
+                    }
+                    className="form-checkbox w-3.5 h-3.5"
+                  />
+                  <label
+                    htmlFor="reduceOnly"
+                    className="mb-0 text-xs cursor-pointer"
+                  >
+                    Yes
                   </label>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <HelpCircle className="w-3 h-3 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="max-w-[200px] text-xs">
-                        When enabled, this order will only reduce your existing
-                        position, not increase it. Useful for closing positions
-                        without accidentally opening a new one.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                  <div className="flex items-center gap-1.5 ml-2">
-                    <input
-                      type="checkbox"
-                      id="reduceOnlyLimit"
-                      checked={orderForm.reduceOnly}
-                      onChange={(e) =>
-                        handleInputChange("reduceOnly", e.target.checked)
-                      }
-                      className="form-checkbox w-3.5 h-3.5"
-                    />
-                    <label
-                      htmlFor="reduceOnlyLimit"
-                      className="mb-0 text-xs cursor-pointer"
-                    >
-                      Yes
-                    </label>
-                  </div>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Slider and Summary Grid */}

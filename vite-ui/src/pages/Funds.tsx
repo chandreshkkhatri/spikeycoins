@@ -6,8 +6,8 @@ import { IAccount } from "@/models/account";
 
 export default function FundsPage() {
   // Use the shared account context instead of making separate API calls
-  const { accounts: contextAccounts, loadingAccounts } = useAccount();
-  
+  const { accounts: contextAccounts, loadingAccounts, selectedAccount } = useAccount();
+
   // Cast to IAccount[] for compatibility with FundsCard
   const accounts = contextAccounts as unknown as IAccount[];
 
@@ -35,7 +35,7 @@ export default function FundsPage() {
         </p>
       </div>
 
-      <FundsCard accounts={accounts} />
+      <FundsCard accounts={accounts} selectedAccountId={selectedAccount?._id} />
     </PageLayout>
   );
 }

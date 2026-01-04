@@ -7,6 +7,7 @@ import Account from "../models/account";
 import User from "../models/user";
 import UserSettings from "../models/user-settings";
 import RefreshToken, { REFRESH_TOKEN_GRACE_PERIOD_MS } from "../models/refresh-token";
+import Invite from "../models/invite";
 import {
   generateToken,
   generateRefreshToken,
@@ -32,11 +33,17 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 // POST /api/auth/register - Register new user with email/password
 router.post("/register", async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, inviteCode } = req.body;
 
     if (!email || !password || !name) {
       return res.status(400).json({
         error: "Email, password, and name are required",
+      });
+    }
+
+    if (!inviteCode) {
+      return res.status(400).json({
+        error: "Invite code is required. Registration is invite-only.",
       });
     }
 
@@ -47,6 +54,14 @@ router.post("/register", async (req: Request, res: Response) => {
     }
 
     await connectDB();
+
+    // Validate invite code
+    const { invite, valid, error: inviteError } = await (Invite as any).findAndValidate(inviteCode);
+    if (!valid || !invite) {
+      return res.status(400).json({
+        error: inviteError || "Invalid invite code",
+      });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -63,6 +78,9 @@ router.post("/register", async (req: Request, res: Response) => {
     });
     user.setPassword(password);
     await user.save();
+
+    // Mark invite as used
+    await invite.useForUser(user._id);
 
     // Create default settings
     await UserSettings.create({
@@ -366,7 +384,20 @@ router.get("/google/callback", async (req: Request, res: Response) => {
 
     await connectDB();
 
-    // Find or create user
+    // Check if user already exists (by googleId or email)
+    const existingUser = await User.findOne({
+      $or: [
+        { googleId: googleUser.id },
+        { email: googleUser.email.toLowerCase() }
+      ]
+    });
+
+    // If user doesn't exist, they need to register with an invite code first
+    if (!existingUser) {
+      return res.redirect(`${FRONTEND_URL}/login?error=invite_required`);
+    }
+
+    // Find or update existing user with Google info
     const user = await (User as any).findOrCreateFromGoogle({
       id: googleUser.id,
       email: googleUser.email,
@@ -827,19 +858,19 @@ router.get("/upstox/callback", async (req: Request, res: Response) => {
     const { code } = req.query;
 
     if (!code) {
-      return res.redirect(`/accounts?error=no_authorization_code`);
+      return res.redirect(`${FRONTEND_URL}/accounts?error=no_authorization_code`);
     }
 
     const accountId = req.cookies.upstox_account_id;
     if (!accountId) {
-      return res.redirect(`/accounts?error=session_expired`);
+      return res.redirect(`${FRONTEND_URL}/accounts?error=session_expired`);
     }
 
     await connectDB();
     const account = await Account.findById(accountId);
 
     if (!account) {
-      return res.redirect(`/accounts?error=account_not_found`);
+      return res.redirect(`${FRONTEND_URL}/accounts?error=account_not_found`);
     }
 
     const isSandbox = account.metadata?.sandbox || false;
@@ -859,11 +890,60 @@ router.get("/upstox/callback", async (req: Request, res: Response) => {
     await account.save();
 
     res.clearCookie("upstox_account_id");
-    return res.redirect(`/accounts?success=upstox_connected`);
+    return res.redirect(`${FRONTEND_URL}/accounts?success=upstox_connected`);
   } catch (error) {
     console.error("Error in Upstox callback:", error);
     res.clearCookie("upstox_account_id");
-    return res.redirect(`/accounts?error=upstox_session_failed`);
+    return res.redirect(`${FRONTEND_URL}/accounts?error=upstox_session_failed`);
+  }
+});
+
+// POST /api/auth/upstox/sandbox-token - Store sandbox access token
+router.post("/upstox/sandbox-token", async (req: Request, res: Response) => {
+  try {
+    const { accountId, accessToken } = req.body;
+
+    if (!accountId) {
+      return res.status(400).json({ error: "accountId is required" });
+    }
+
+    if (!accessToken) {
+      return res.status(400).json({ error: "accessToken is required" });
+    }
+
+    await connectDB();
+    const account = await Account.findById(accountId);
+
+    if (!account) {
+      return res.status(404).json({ error: "Account not found" });
+    }
+
+    if (account.accountType !== "upstox") {
+      return res.status(400).json({ error: "Invalid account type" });
+    }
+
+    if (!account.metadata?.sandbox) {
+      return res.status(400).json({ error: "Account is not a sandbox account" });
+    }
+
+    // Store the sandbox access token
+    account.accessToken = accessToken;
+    account.metadata = {
+      ...account.metadata,
+      loginTime: new Date().toISOString(),
+    };
+    await account.save();
+
+    return res.json({
+      success: true,
+      message: "Sandbox token saved successfully",
+    });
+  } catch (error) {
+    console.error("Error saving sandbox token:", error);
+    return res.status(500).json({
+      error: "Failed to save sandbox token",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
   }
 });
 

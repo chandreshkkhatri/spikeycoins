@@ -37,7 +37,7 @@ interface AuthContextType {
 
   // Auth methods
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, name: string, inviteCode: string) => Promise<void>;
   loginWithGoogle: () => void;
   logout: () => Promise<void>;
 
@@ -229,7 +229,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Register new account
   const register = useCallback(
-    async (email: string, password: string, name: string) => {
+    async (email: string, password: string, name: string, inviteCode: string) => {
       setError(null);
       setIsLoading(true);
 
@@ -238,6 +238,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           email,
           password,
           name,
+          inviteCode,
         });
         const { accessToken, refreshToken, user: userData } = response.data;
         saveAuth(accessToken, refreshToken, userData);

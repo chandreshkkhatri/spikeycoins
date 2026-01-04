@@ -78,15 +78,17 @@ export class UpstoxWebSocket implements WebSocketManager {
   private FeedResponseType: protobuf.Type | null = null;
 
   // Normalize a possibly vendor-specific or legacy instrument key prefix to Upstox v3 expectations
+  // NOTE: Only uppercase the prefix, preserve the symbol casing (e.g., "Nifty 50" not "NIFTY 50")
   private normalizeInstrumentKey(key: string): string {
     try {
       const trimmed = key.trim();
       if (!trimmed.includes("|")) return trimmed.toUpperCase();
       const [rawPrefix, rest] = trimmed.split("|");
       const prefix = rawPrefix.toUpperCase();
-      const token = (rest || "").toUpperCase();
+      // Preserve original casing of symbol part - Upstox index symbols need exact casing like "Nifty 50"
+      const token = (rest || "").trim();
 
-      // Known normalizations
+      // Known normalizations for prefix only
       const directMap: Record<string, string> = {
         NSE_CM: "NSE_EQ",
         BSE_CM: "BSE_EQ",
@@ -96,7 +98,7 @@ export class UpstoxWebSocket implements WebSocketManager {
       const normalizedPrefix = directMap[prefix] || prefix;
       return `${normalizedPrefix}|${token}`;
     } catch {
-      return key.toUpperCase();
+      return key;
     }
   }
 
@@ -138,8 +140,34 @@ export class UpstoxWebSocket implements WebSocketManager {
       );
       const authJson = await authResp.json().catch(() => ({}));
       if (!authResp.ok || !authJson?.success || !authJson?.url) {
-        const errMsg =
-          authJson?.error || `Authorization failed (${authResp.status})`;
+        // Handle specific error codes with user-friendly messages
+        const errorCode = authJson?.code;
+
+        if (authJson?.sandbox || errorCode === "SANDBOX_NOT_SUPPORTED") {
+          console.log("📢 Upstox sandbox mode: WebSocket market data feed not available");
+          this.isConnecting = false;
+          return; // Silently skip WebSocket for sandbox
+        }
+
+        if (errorCode === "MARKET_CLOSED") {
+          console.log("📢 Upstox: Live market data not available outside trading hours");
+          console.log("ℹ️ Historical chart data will still be displayed");
+          this.isConnecting = false;
+          return; // Gracefully handle market closed - don't retry
+        }
+
+        if (errorCode === "TOKEN_EXPIRED" || errorCode === "AUTH_REQUIRED") {
+          console.warn("⚠️ Upstox session expired. Please re-authenticate from the Accounts page.");
+          this.isConnecting = false;
+          return; // Don't retry - user needs to re-auth
+        }
+
+        if (errorCode === "CONNECTION_ERROR") {
+          console.warn("⚠️ Unable to reach Upstox servers. Will retry shortly.");
+          throw new Error(authJson?.message || "Connection error");
+        }
+
+        const errMsg = authJson?.message || authJson?.error || `Authorization failed (${authResp.status})`;
         throw new Error(errMsg);
       }
 
@@ -257,10 +285,33 @@ export class UpstoxWebSocket implements WebSocketManager {
       );
     } catch (e) {
       console.warn("Failed to resolve instruments, using fallbacks:", e);
+      // Index symbol mapping for fallback (same as server-side)
+      const indexMapping: Record<string, string> = {
+        "NIFTY": "NSE_INDEX|Nifty 50",
+        "NIFTY 50": "NSE_INDEX|Nifty 50",
+        "NIFTY50": "NSE_INDEX|Nifty 50",
+        "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+        "BANK NIFTY": "NSE_INDEX|Nifty Bank",
+        "NIFTY BANK": "NSE_INDEX|Nifty Bank",
+        "NIFTYBANK": "NSE_INDEX|Nifty Bank",
+        "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+        "FIN NIFTY": "NSE_INDEX|Nifty Fin Service",
+        "NIFTY FIN SERVICE": "NSE_INDEX|Nifty Fin Service",
+        "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
+        "MIDCP NIFTY": "NSE_INDEX|NIFTY MID SELECT",
+        "NIFTY MID SELECT": "NSE_INDEX|NIFTY MID SELECT",
+        "SENSEX": "BSE_INDEX|SENSEX",
+      };
       for (const s of symbols) {
-        const token = this.normalizeInstrumentKey(
-          s.includes("|") ? s : `NSE_EQ|${s}`
-        );
+        const sUpper = s.toUpperCase();
+        let token: string;
+        if (s.includes("|")) {
+          token = this.normalizeInstrumentKey(s);
+        } else if (indexMapping[sUpper]) {
+          token = indexMapping[sUpper];
+        } else {
+          token = this.normalizeInstrumentKey(`NSE_EQ|${s}`);
+        }
         this.subscribedSymbols.set(s, token);
         this.symbolToInstrumentMap.set(s, token);
         this.instrumentToSymbolMap.set(token, s);
@@ -300,11 +351,13 @@ export class UpstoxWebSocket implements WebSocketManager {
         if (json?.success && json?.data) {
           const entries = Object.entries(json.data) as [string, any][];
           for (const [ik, feed] of entries) {
-            const key = ik.toUpperCase();
-            const symbol = this.instrumentToSymbolMap.get(key) || key;
+            // Try original key first (for proper casing like "Nifty 50"), then uppercase
+            const symbol = this.instrumentToSymbolMap.get(ik) ||
+                           this.instrumentToSymbolMap.get(ik.toUpperCase()) ||
+                           ik;
             const upd: PriceUpdate = this.priceCache.get(symbol) || {
               symbol,
-              instrumentToken: key,
+              instrumentToken: ik,
               lastPrice: 0,
               priceChange: 0,
               priceChangePercent: 0,
@@ -365,8 +418,11 @@ export class UpstoxWebSocket implements WebSocketManager {
       return;
     }
     for (const [instrumentToken, feed] of Object.entries(data.data)) {
-      const key = instrumentToken.toUpperCase();
-      const symbol = this.instrumentToSymbolMap.get(key) || key;
+      // Try original key first (for proper casing like "Nifty 50"), then uppercase
+      const symbol = this.instrumentToSymbolMap.get(instrumentToken) ||
+                     this.instrumentToSymbolMap.get(instrumentToken.toUpperCase()) ||
+                     instrumentToken;
+      const key = instrumentToken;
       const upd: PriceUpdate = this.priceCache.get(symbol) || {
         symbol,
         instrumentToken: key,
@@ -476,18 +532,20 @@ export class UpstoxWebSocket implements WebSocketManager {
 
       console.log(`📈 Processing ${keys.length} instrument feed(s):`, keys);
       for (const instrumentKey of Object.keys(feeds)) {
-        const keyUpper = String(instrumentKey).toUpperCase();
         const feed = feeds[instrumentKey];
-        const symbol = this.instrumentToSymbolMap.get(keyUpper) || keyUpper;
+        // Try original key first (for proper casing like "Nifty 50"), then uppercase
+        const symbol = this.instrumentToSymbolMap.get(instrumentKey) ||
+                       this.instrumentToSymbolMap.get(String(instrumentKey).toUpperCase()) ||
+                       instrumentKey;
         console.log(
-          `Processing feed for instrument: ${instrumentKey} -> ${keyUpper} -> symbol: ${symbol}`
+          `Processing feed for instrument: ${instrumentKey} -> symbol: ${symbol}`
         );
         console.log(`Feed data:`, feed);
         console.log(`Feed structure keys:`, Object.keys(feed || {}));
 
         const upd: PriceUpdate = this.priceCache.get(symbol) || {
           symbol,
-          instrumentToken: keyUpper,
+          instrumentToken: instrumentKey,
           lastPrice: 0,
           priceChange: 0,
           priceChangePercent: 0,
@@ -595,7 +653,7 @@ export class UpstoxWebSocket implements WebSocketManager {
         this.priceCache.set(symbol, upd);
         console.log(`Final price update for ${symbol}:`, {
           symbol,
-          instrument: keyUpper,
+          instrument: symbol,
           ltp: upd.lastPrice,
           change: upd.priceChange,
           changePercent: upd.priceChangePercent,

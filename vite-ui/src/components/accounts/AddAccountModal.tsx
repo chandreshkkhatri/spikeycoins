@@ -122,14 +122,6 @@ export default function AddAccountModal({
 
   const brokerOptions = [
     {
-      id: "kite",
-      name: "Zerodha Kite",
-      description: "India's largest stock broker",
-      icon: "🟢",
-      available: true,
-      features: ["Stocks", "Futures", "Options", "Commodities"],
-    },
-    {
       id: "upstox",
       name: "Upstox",
       description: "Technology-first discount broker",
@@ -145,6 +137,7 @@ export default function AddAccountModal({
       available: true,
       features: ["Spot Trading", "USD(S)-M Futures", "Leverage", "API Trading"],
     },
+    // Zerodha Kite temporarily removed - will be added back once proper integration is complete
   ];
 
   const getModalTitle = () => {
@@ -410,8 +403,9 @@ export default function AddAccountModal({
                 <p>
                   3. Set redirect URI to:{" "}
                   <code>
-                    {process.env.NEXT_PUBLIC_BASE_URL ||
-                      "http://localhost:3000"}
+                    {typeof window !== "undefined"
+                      ? window.location.origin
+                      : "http://localhost:3000"}
                     /api/auth/upstox/callback
                   </code>
                 </p>
