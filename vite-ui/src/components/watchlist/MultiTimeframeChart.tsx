@@ -14,7 +14,6 @@ import {
   ColorType,
   createChart,
   IChartApi,
-  IRange,
   ISeriesApi,
   LineWidth,
   UTCTimestamp,
@@ -23,10 +22,11 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  Maximize2,
+  Minimize2,
   Plus,
   RefreshCw,
   RotateCcw,
-  ScanLine,
   X,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -40,7 +40,6 @@ interface PriceLine {
   lineWidth?: number;
   lineStyle?: number; // 0 = Solid, 1 = Dotted, 2 = Dashed, 3 = LargeDashed
   title?: string;
-  axis?: "left" | "right";
   axisLabelVisible?: boolean;
 }
 
@@ -88,20 +87,6 @@ const saveSettings = (settings: ChartSettings) => {
   } catch {
     // Ignore storage errors
   }
-};
-
-// Utility function to compare price ranges with epsilon tolerance for floating point precision
-const rangesEqual = (
-  range1: IRange<number> | null,
-  range2: IRange<number> | null,
-  epsilon: number = 0.0001
-): boolean => {
-  if (range1 === null && range2 === null) return true;
-  if (range1 === null || range2 === null) return false;
-  return (
-    Math.abs(range1.from - range2.from) < epsilon &&
-    Math.abs(range1.to - range2.to) < epsilon
-  );
 };
 
 const AVAILABLE_TIMEFRAMES = [
@@ -165,23 +150,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       [interval: string]: boolean;
     }>(storedSettings.current?.collapsedCharts || {});
     const runIdRef = useRef(0);
-    const syncStateRef = useRef<{
-      [chartIndex: number]: {
-        lastLeftRange: IRange<number> | null;
-        lastRightRange: IRange<number> | null;
-        isSyncing: boolean;
-      };
-    }>({});
-
-    // Persist settings to localStorage whenever they change
-    const isLogScaleRef = useRef(isLogScale);
-    const autoScaleRef = useRef(autoScale);
-
-    // Update refs when state changes
-    useEffect(() => {
-      isLogScaleRef.current = isLogScale;
-      autoScaleRef.current = autoScale;
-    }, [isLogScale, autoScale]);
 
     // Persist settings to localStorage whenever they change
     useEffect(() => {
@@ -200,7 +168,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       chartRefs.current.forEach((chartRef) => {
         if (!chartRef?.series) return;
 
-        // Remove existing price lines (Main/Left Axis)
+        // Remove existing price lines
         if (chartRef.priceLineRefs) {
           chartRef.priceLineRefs.forEach((line) => {
             try {
@@ -212,23 +180,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           chartRef.priceLineRefs = [];
         }
 
-        // Remove existing price lines (Secondary/Right Axis)
-        if (chartRef.secondaryPriceLineRefs) {
-          chartRef.secondaryPriceLineRefs.forEach((line) => {
-            try {
-              chartRef.secondarySeries?.removePriceLine(line);
-            } catch {
-              // Line might already be removed
-            }
-          });
-          chartRef.secondaryPriceLineRefs = [];
-        }
-
-        // Add new price lines
+        // Add new price lines (all on the main/right axis)
         if (priceLines && priceLines.length > 0) {
-          // Left Axis Lines
           chartRef.priceLineRefs = priceLines
-            .filter((pl) => pl.price > 0 && pl.axis !== "right")
+            .filter((pl) => pl.price > 0)
             .map((pl) => {
               return chartRef.series?.createPriceLine({
                 price: pl.price,
@@ -239,22 +194,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 title: pl.title || "",
               });
             });
-
-          // Right Axis Lines
-          if (chartRef.secondarySeries) {
-            chartRef.secondaryPriceLineRefs = priceLines
-              .filter((pl) => pl.price > 0 && pl.axis === "right")
-              .map((pl) => {
-                return chartRef.secondarySeries?.createPriceLine({
-                  price: pl.price,
-                  color: pl.color,
-                  lineWidth: (pl.lineWidth || 1) as LineWidth,
-                  lineStyle: pl.lineStyle ?? 2, // Default to dashed
-                  axisLabelVisible: pl.axisLabelVisible ?? true,
-                  title: pl.title || "",
-                });
-              });
-          }
         }
       });
     }, [priceLines]);
@@ -291,7 +230,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               if (runIdRef.current !== thisRun) return;
               if (data.length > 0 && typeof chartRef.series.setData === "function") {
                 chartRef.series.setData(data);
-                chartRef.secondarySeries?.setData(data);
                 chartRef.chart?.timeScale().fitContent();
               }
             } catch (err) {
@@ -338,8 +276,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               series: null,
               secondarySeries: null,
             };
-            // Clean up sync state for this chart
-            delete syncStateRef.current[chartIndex];
           }
         }
 
@@ -416,18 +352,27 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         const isMobile = window.innerWidth <= 768;
 
         // Calculate chart height based on auto-scale setting
-        let chartHeight = isMobile ? 225 : 300;
+        let chartHeight;
+        if (autoScale) {
+          // Use container height minus some padding for header
+          chartHeight = Math.max(
+            (container.parentElement?.clientHeight || 400) - 60,
+            200
+          );
+        } else {
+          chartHeight = isMobile ? 225 : 300;
+        }
 
         const containerWidth = Math.max(container.clientWidth || 300, 300);
 
         console.log(
-          `Creating chart with dimensions: ${containerWidth}x${chartHeight}`
+          `Creating chart with dimensions: ${containerWidth}x${chartHeight} (autoScale: ${autoScale})`
         );
 
         const chart = createChart(container, {
           width: containerWidth,
           height: chartHeight,
-          autoSize: autoScaleRef.current, // Enable auto-sizing when auto-scale is on
+          autoSize: autoScale, // Enable auto-sizing when auto-scale is on
           layout: {
             background: {
               type: ColorType.Solid,
@@ -467,14 +412,14 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           leftPriceScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
             scaleMargins: { top: 0.08, bottom: 0.08 },
-            mode: isLogScaleRef.current ? 1 : 0, // 1 = logarithmic, 0 = normal
+            mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal
             borderVisible: false,
-            visible: true,
+            visible: false, // Hidden - using only right axis
           },
           rightPriceScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
             scaleMargins: { top: 0.08, bottom: 0.08 },
-            mode: isLogScaleRef.current ? 1 : 0,
+            mode: isLogScale ? 1 : 0,
             borderVisible: false,
             visible: true,
           },
@@ -534,35 +479,16 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           borderUpColor: "#22c55e",
           wickDownColor: "#ef4444",
           wickUpColor: "#22c55e",
-          priceScaleId: "left",
+          priceScaleId: "right", // Using right axis for all price display
           priceLineVisible: true,
           lastValueVisible: true,
-          priceLineStyle: 2 as any, // Dashed
-          priceLineWidth: 1,
-          priceLineSource: 0 as any, // Last
         };
 
-        const series = chart.addSeries(CandlestickSeries, candlestickOptions as any);
+        const series = chart.addSeries(CandlestickSeries, candlestickOptions);
 
-        // Secondary series for Right Axis (Hidden but used for Price Lines)
-        // We use CandlestickSeries with transparent colors so it scales identically to the main one
-        const secondaryOptions = {
-          upColor: "rgba(0,0,0,0)",
-          downColor: "rgba(0,0,0,0)",
-          borderDownColor: "rgba(0,0,0,0)",
-          borderUpColor: "rgba(0,0,0,0)",
-          wickDownColor: "rgba(0,0,0,0)",
-          wickUpColor: "rgba(0,0,0,0)",
-          priceScaleId: "right",
-        };
-        const secondarySeries = chart.addSeries(
-          CandlestickSeries,
-          secondaryOptions
-        );
-
-        return { chart, series, secondarySeries, wheelHandler: handleWheel };
+        return { chart, series, secondarySeries: null, wheelHandler: handleWheel };
       },
-      []
+      [autoScale, isLogScale]
     );
 
     const fetchChartData = useCallback(
@@ -688,8 +614,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
           });
           chartRefs.current = [];
-          // Clean up all sync state when clearing charts
-          syncStateRef.current = {};
 
           // Wait for container refs to be available
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -713,13 +637,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 container,
               };
 
-              // Initialize sync state for this chart's axes
-              syncStateRef.current[index] = {
-                lastLeftRange: null,
-                lastRightRange: null,
-                isSyncing: false,
-              };
-
               // Use individual chart timeframe if set, otherwise use default
               const actualTimeframe =
                 chartTimeframes[index] || timeframe.interval;
@@ -734,7 +651,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 typeof series.setData === "function"
               ) {
                 series.setData(data);
-                secondarySeries.setData(data);
                 chart.timeScale().fitContent();
               }
 
@@ -784,27 +700,20 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
           }
         });
-        // Clean up sync state on unmount
-        syncStateRef.current = {};
       };
     }, [
       displaySymbol,
       selectedTimeframes,
+      chartTimeframes,
       createSingleChart,
       fetchChartData,
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     ]);
 
     // Effect to handle individual chart expand - recreate chart when a collapsed chart is expanded
     useEffect(() => {
-      const expandRunId = runIdRef.current;
-
       const initializeExpandedChart = async (index: number, timeframe: typeof selectedTimeframes[0]) => {
         // Wait a bit for the container to be rendered
         await new Promise((resolve) => setTimeout(resolve, 100));
-
-        // Check if this run is still valid
-        if (runIdRef.current !== expandRunId) return;
 
         const container = containerRefs.current[index];
         if (!container) return;
@@ -817,7 +726,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             existingChart.chart.resize(container.clientWidth, container.clientHeight);
             existingChart.chart.timeScale().fitContent();
           } catch {
-            // Chart might be invalid or disposed, ignore
+            // Chart might be invalid, recreate it
           }
           return;
         }
@@ -834,31 +743,12 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             container,
           };
 
-          // Initialize sync state for this chart's axes
-          syncStateRef.current[index] = {
-            lastLeftRange: null,
-            lastRightRange: null,
-            isSyncing: false,
-          };
-
           const actualTimeframe = chartTimeframes[index] || timeframe.interval;
           const data = await fetchChartData(actualTimeframe);
 
-          // Check again if run is still valid after async operation
-          if (runIdRef.current !== expandRunId) return;
-
-          // Verify chart ref is still the same chart we created
-          const currentChartRef = chartRefs.current[index];
-          if (currentChartRef?.chart !== chart) return;
-
           if (data.length > 0 && series && typeof series.setData === "function") {
-            try {
-              series.setData(data);
-              secondarySeries?.setData(data);
-              chart.timeScale().fitContent();
-            } catch {
-              // Chart might have been disposed, ignore
-            }
+            series.setData(data);
+            chart.timeScale().fitContent();
           }
         } catch (error) {
           console.error(`Error initializing expanded chart ${timeframe.interval}:`, error);
@@ -883,9 +773,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       if (Object.keys(chartTimeframes).length === 0) return;
 
       const reloadChartData = async () => {
-        // Don't increment runId here - we want to keep the current run active
-        // Incrementing it would cancel any in-flight initializations
-        const thisRun = runIdRef.current;
+        const thisRun = runIdRef.current + 1;
+        runIdRef.current = thisRun;
         setError(null); // Clear any previous errors
 
         for (const [indexStr, timeframe] of Object.entries(chartTimeframes)) {
@@ -901,7 +790,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 typeof chartRef.series.setData === "function"
               ) {
                 chartRef.series.setData(data);
-                chartRef.secondarySeries?.setData(data);
                 const timeScale = chartRef.chart?.timeScale();
                 timeScale?.fitContent();
               }
@@ -920,7 +808,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     }, [chartTimeframes, fetchChartData]);
 
     // Effect to handle auto-scale and log-scale changes
-    // Effect to handle auto-scale and log-scale changes
     useEffect(() => {
       const updateChartSettings = async () => {
         if (chartRefs.current.length === 0) return;
@@ -932,24 +819,33 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               if (!container) return;
 
               // Update scale mode
+              // Update scale mode
               const leftScale = chart.priceScale("left");
               const rightScale = chart.priceScale("right");
               if (leftScale) {
                 leftScale.applyOptions({
                   mode: isLogScale ? 1 : 0,
-                  autoScale: autoScale,
+                  autoScale: true, // Always autoScale
                 });
               }
               if (rightScale) {
                 rightScale.applyOptions({
                   mode: isLogScale ? 1 : 0,
-                  autoScale: autoScale,
+                  autoScale: true,
                 });
               }
 
               // Update chart size for auto-scale
               const isMobile = window.innerWidth <= 768;
-              const chartHeight = isMobile ? 225 : 300;
+              let chartHeight;
+              if (autoScale) {
+                chartHeight = Math.max(
+                  (container.parentElement?.clientHeight || 400) - 60,
+                  200
+                );
+              } else {
+                chartHeight = isMobile ? 225 : 300;
+              }
 
               chart.resize(
                 Math.max(container.clientWidth || 300, 300),
@@ -960,83 +856,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
           }
         });
-
-        // Reset sync state when autoScale changes (autoScale handles synchronization implicitly)
-        Object.keys(syncStateRef.current).forEach((key) => {
-          const index = parseInt(key);
-          syncStateRef.current[index] = {
-            lastLeftRange: null,
-            lastRightRange: null,
-            isSyncing: false,
-          };
-        });
       };
 
       updateChartSettings();
     }, [autoScale, isLogScale]);
-
-    // Effect to synchronize left and right price axes
-    // Polls for axis range changes and propagates them to keep axes coupled
-    useEffect(() => {
-      // Don't sync when autoScale is enabled (it handles synchronization implicitly)
-      if (autoScale) {
-        return;
-      }
-
-      let animationFrameId: number;
-
-      const checkAndSyncAxes = () => {
-        chartRefs.current.forEach((chartRef, index) => {
-          if (!chartRef?.chart) return;
-
-          const syncState = syncStateRef.current[index];
-          if (!syncState || syncState.isSyncing) return;
-
-          try {
-            const leftScale = chartRef.chart.priceScale("left");
-            const rightScale = chartRef.chart.priceScale("right");
-
-            if (!leftScale || !rightScale) return;
-
-            const currentLeftRange = leftScale.getVisibleRange();
-            const currentRightRange = rightScale.getVisibleRange();
-
-            // Detect left axis change and synchronize to right
-            if (
-              currentLeftRange &&
-              !rangesEqual(currentLeftRange, syncState.lastLeftRange)
-            ) {
-              syncState.isSyncing = true;
-              syncState.lastLeftRange = currentLeftRange;
-              syncState.lastRightRange = currentLeftRange;
-              rightScale.setVisibleRange(currentLeftRange);
-              syncState.isSyncing = false;
-            }
-            // Detect right axis change and synchronize to left
-            else if (
-              currentRightRange &&
-              !rangesEqual(currentRightRange, syncState.lastRightRange)
-            ) {
-              syncState.isSyncing = true;
-              syncState.lastRightRange = currentRightRange;
-              syncState.lastLeftRange = currentRightRange;
-              leftScale.setVisibleRange(currentRightRange);
-              syncState.isSyncing = false;
-            }
-          } catch (error) {
-            // Silently handle any errors during sync (chart might be disposed)
-          }
-        });
-
-        animationFrameId = requestAnimationFrame(checkAndSyncAxes);
-      };
-
-      animationFrameId = requestAnimationFrame(checkAndSyncAxes);
-
-      return () => {
-        cancelAnimationFrame(animationFrameId);
-      };
-    }, [autoScale]);
 
     return (
       <div className="flex w-full flex-col gap-3 p-3">
@@ -1076,9 +899,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                     size="icon"
                     className="h-6 w-6"
                     onClick={() => setAutoScale(!autoScale)}
-                    title="Toggle Price Auto-Scale"
+                    title="Auto-scale height"
                   >
-                    <ScanLine size={12} />
+                    {autoScale ? (
+                      <Minimize2 size={12} />
+                    ) : (
+                      <Maximize2 size={12} />
+                    )}
                   </Button>
                   <Button
                     variant={isLogScale ? "secondary" : "ghost"}
@@ -1176,7 +1003,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               return (
                 <div
                   key={timeframe.interval}
-                  className={`flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm transition-all hover:border-border hover:shadow-md h-auto`}
+                  className={`flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm transition-all hover:border-border hover:shadow-md ${autoScale && !isChartCollapsed ? "h-[350px]" : "h-auto"
+                    }`}
                 >
                   <div
                     className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-3 py-1.5 cursor-pointer"

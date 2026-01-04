@@ -1069,8 +1069,6 @@ const TradingWindow = memo(function TradingWindow({
         color: "#ec4899", // Pink/Magenta for better distinction
         lineWidth: 1,
         lineStyle: 2, // Dashed
-        title: `SL ${formatPrice(slPrice, "$")}`,
-        axis: "right" as const,
       });
     }
   }
@@ -1084,8 +1082,6 @@ const TradingWindow = memo(function TradingWindow({
         color: "#3b82f6", // Blue
         lineWidth: 1,
         lineStyle: 2, // Dashed
-        title: `TP ${formatPrice(tpPrice, "$")}`,
-        axis: "right" as const,
       });
     }
   }
