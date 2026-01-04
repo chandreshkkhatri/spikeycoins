@@ -790,9 +790,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     }, [
       displaySymbol,
       selectedTimeframes,
-      chartTimeframes,
       createSingleChart,
       fetchChartData,
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     ]);
 
     // Effect to handle individual chart expand - recreate chart when a collapsed chart is expanded
@@ -883,8 +883,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       if (Object.keys(chartTimeframes).length === 0) return;
 
       const reloadChartData = async () => {
-        const thisRun = runIdRef.current + 1;
-        runIdRef.current = thisRun;
+        // Don't increment runId here - we want to keep the current run active
+        // Incrementing it would cancel any in-flight initializations
+        const thisRun = runIdRef.current;
         setError(null); // Clear any previous errors
 
         for (const [indexStr, timeframe] of Object.entries(chartTimeframes)) {
