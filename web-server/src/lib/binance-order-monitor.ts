@@ -444,13 +444,16 @@ class BinanceOrderMonitor {
         // Algo orders endpoint might fail, continue with regular orders
       }
 
-      // Determine which type to cancel (opposite of what was filled)
-      const typeToCancel =
-        filledType === "SL" ? "TAKE_PROFIT_MARKET" : "STOP_MARKET";
+      // Determine which types to cancel (opposite of what was filled)
+      // When SL is filled, cancel all TP types; when TP is filled, cancel all SL types
+      const typesToCancel =
+        filledType === "SL"
+          ? ["TAKE_PROFIT", "TAKE_PROFIT_MARKET"]
+          : ["STOP", "STOP_MARKET", "TRAILING_STOP_MARKET"];
 
       // Cancel matching regular orders
       for (const order of openOrders) {
-        if (order.type === typeToCancel) {
+        if (typesToCancel.includes(order.type)) {
           try {
             const cancelParams = signRequest({
               symbol,
@@ -458,7 +461,7 @@ class BinanceOrderMonitor {
             });
             await client.delete(`/fapi/v1/order?${cancelParams}`);
             console.log(
-              `[OrderMonitor] Cancelled ${typeToCancel} order ${order.orderId} for ${symbol}`,
+              `[OrderMonitor] Cancelled ${order.type} order ${order.orderId} for ${symbol}`,
             );
           } catch (e: any) {
             console.error(
@@ -471,12 +474,14 @@ class BinanceOrderMonitor {
 
       // Cancel matching Algo orders
       for (const order of algoOrders) {
-        if (order.type === typeToCancel) {
+        // Note: Algo orders use 'orderType' instead of 'type'
+        const orderType = order.orderType || order.type;
+        if (typesToCancel.includes(orderType)) {
           try {
             const cancelParams = signRequest({ symbol, algoId: order.algoId });
             await client.delete(`/fapi/v1/algoOrder?${cancelParams}`);
             console.log(
-              `[OrderMonitor] Cancelled ${typeToCancel} algo order ${order.algoId} for ${symbol}`,
+              `[OrderMonitor] Cancelled ${orderType} algo order ${order.algoId} for ${symbol}`,
             );
           } catch (e: any) {
             console.error(
@@ -524,6 +529,31 @@ class BinanceOrderMonitor {
         return `${queryString}&signature=${signature}`;
       };
 
+      console.log(
+        `[OrderMonitor] cleanupOrdersForSymbol: Starting cleanup for ${symbol}`,
+      );
+
+      // Re-verify position is actually 0 before proceeding to cleanup
+      const posParams = signRequest();
+      const posResponse = await client.get(
+        `/fapi/v2/positionRisk?${posParams}`,
+      );
+      const position = (posResponse.data || []).find(
+        (p: any) => p.symbol === symbol,
+      );
+      const currentAmt = position ? parseFloat(position.positionAmt) : 0;
+
+      console.log(
+        `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} position amount = ${currentAmt}`,
+      );
+
+      if (currentAmt !== 0) {
+        console.log(
+          `[OrderMonitor] Cleanup aborted for ${symbol}: Position is not 0 (${currentAmt})`,
+        );
+        return;
+      }
+
       // Get all open orders
       const ordersParams = signRequest({ symbol });
       const ordersResponse = await client.get(
@@ -531,12 +561,23 @@ class BinanceOrderMonitor {
       );
       const openOrders = ordersResponse.data || [];
 
-      // Cancel SL/TP orders
+      console.log(
+        `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} has ${openOrders.length} regular open orders`,
+      );
+
+      // Cancel SL/TP orders (all conditional order types)
+      const conditionalTypes = [
+        "STOP",
+        "STOP_MARKET",
+        "TAKE_PROFIT",
+        "TAKE_PROFIT_MARKET",
+        "TRAILING_STOP_MARKET",
+      ];
       for (const order of openOrders) {
-        if (
-          order.type === "STOP_MARKET" ||
-          order.type === "TAKE_PROFIT_MARKET"
-        ) {
+        console.log(
+          `[OrderMonitor] cleanupOrdersForSymbol: Checking regular order type=${order.type}, id=${order.orderId}`,
+        );
+        if (conditionalTypes.includes(order.type)) {
           try {
             const cancelParams = signRequest({
               symbol: order.symbol,
@@ -561,13 +602,22 @@ class BinanceOrderMonitor {
         const algoResponse = await client.get(
           `/fapi/v1/openAlgoOrders?${algoParams}`,
         );
-        const algoOrders = algoResponse.data?.orders || [];
+        // Binance Algo API returns Array directly
+        const algoOrders = Array.isArray(algoResponse.data)
+          ? algoResponse.data
+          : [];
+
+        console.log(
+          `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} has ${algoOrders.length} algo orders`,
+        );
 
         for (const order of algoOrders) {
-          if (
-            order.type === "STOP_MARKET" ||
-            order.type === "TAKE_PROFIT_MARKET"
-          ) {
+          // Note: Algo orders use 'orderType' instead of 'type'
+          const orderType = order.orderType || order.type;
+          console.log(
+            `[OrderMonitor] cleanupOrdersForSymbol: Checking algo order orderType=${orderType}, algoId=${order.algoId}`,
+          );
+          if (conditionalTypes.includes(orderType)) {
             try {
               const cancelParams = signRequest({
                 symbol: order.symbol,
@@ -575,7 +625,7 @@ class BinanceOrderMonitor {
               });
               await client.delete(`/fapi/v1/algoOrder?${cancelParams}`);
               console.log(
-                `[OrderMonitor] Cleanup: Cancelled algo ${order.type} for ${order.symbol}`,
+                `[OrderMonitor] Cleanup: Cancelled algo ${orderType} for ${order.symbol}`,
               );
             } catch (e: any) {
               console.error(
@@ -585,9 +635,16 @@ class BinanceOrderMonitor {
             }
           }
         }
-      } catch (e) {
-        // Algo orders might not be available
+      } catch (e: any) {
+        console.error(
+          `[OrderMonitor] cleanupOrdersForSymbol: Error fetching algo orders for ${symbol}:`,
+          e.message,
+        );
       }
+
+      console.log(
+        `[OrderMonitor] cleanupOrdersForSymbol: Finished cleanup for ${symbol}`,
+      );
     } catch (error) {
       console.error(
         `[OrderMonitor] Error cleaning up orders for ${symbol}:`,
@@ -726,6 +783,9 @@ class BinanceOrderMonitor {
    * Poll for orphaned SL/TP orders (no corresponding position)
    */
   private async pollOrphanedOrders(): Promise<void> {
+    console.log(
+      `[OrderMonitor] Polling heartbeat - checking at ${new Date().toISOString()}`,
+    );
     for (const [accountId, conn] of this.connections) {
       try {
         const axios = (await import("axios")).default;
@@ -769,22 +829,59 @@ class BinanceOrderMonitor {
           }
         }
 
-        // Get all open orders
+        // Get all open orders (regular orders)
         const ordersParams = signRequest();
         const ordersResponse = await client.get(
           `/fapi/v1/openOrders?${ordersParams}`,
         );
         const openOrders = ordersResponse.data || [];
 
+        // Also get Algo orders (conditional orders like STOP_MARKET, TAKE_PROFIT_MARKET)
+        let algoOrders: any[] = [];
+        try {
+          const algoParams = signRequest();
+          const algoResponse = await client.get(
+            `/fapi/v1/openAlgoOrders?${algoParams}`,
+          );
+          // Binance Algo API returns Array directly
+          algoOrders = Array.isArray(algoResponse.data)
+            ? algoResponse.data
+            : [];
+        } catch (e) {
+          // Algo orders endpoint might fail, continue with regular orders
+          console.warn(
+            `[OrderMonitor] Could not fetch algo orders for account ${accountId}`,
+          );
+        }
+
         // Find symbols that have open orders but no position
         const allSymbolsWithOrders = new Set<string>();
         for (const order of openOrders) {
           allSymbolsWithOrders.add(order.symbol);
         }
+        // Include symbols from Algo orders as well
+        for (const order of algoOrders) {
+          allSymbolsWithOrders.add(order.symbol);
+        }
 
-        // We can optimize this by only checking symbols that we found in openOrders but NOT in symbolsWithPosition
+        if (allSymbolsWithOrders.size > 0 || symbolsWithPosition.size > 0) {
+          console.log(
+            `[OrderMonitor] Polling account ${accountId}: ${
+              symbolsWithPosition.size
+            } positions [${Array.from(symbolsWithPosition).join(
+              ", ",
+            )}], ${allSymbolsWithOrders.size} symbols with orders [${Array.from(
+              allSymbolsWithOrders,
+            ).join(", ")}]`,
+          );
+        }
+
+        // Clean up symbols that have orders but no position
         for (const symbol of allSymbolsWithOrders) {
           if (!symbolsWithPosition.has(symbol)) {
+            console.log(
+              `[OrderMonitor] Found orphaned orders for ${symbol}, cleaning up...`,
+            );
             await this.cleanupOrdersForSymbol(conn, symbol);
           }
         }
