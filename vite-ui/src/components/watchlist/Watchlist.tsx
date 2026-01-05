@@ -266,22 +266,19 @@ const Watchlist = memo(function Watchlist({
         const userWlUrl =
           !isSystemRequest && currentWatchlistId
             ? getApiUrl(
-                `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`
-              )
+              `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`
+            )
             : getApiUrl(
-                `/api/watchlist/symbols?accountId=${
-                  selectedAccount._id
-                }&marketType=${marketType}${
-                  isSystemRequest ? "&noCreate=true" : ""
-                }`
-              );
+              `/api/watchlist/symbols?accountId=${selectedAccount._id
+              }&marketType=${marketType}${isSystemRequest ? "&noCreate=true" : ""
+              }`
+            );
 
         const userRes = await fetch(userWlUrl, { headers: getAuthHeaders() });
         if (!userRes.ok) {
           const errorBody = await userRes.text();
           throw new Error(
-            `Watchlist API ${userRes.status}: ${
-              errorBody || userRes.statusText || "Unknown error"
+            `Watchlist API ${userRes.status}: ${errorBody || userRes.statusText || "Unknown error"
             }`
           );
         }
@@ -384,7 +381,7 @@ const Watchlist = memo(function Watchlist({
                   );
                 }
               } catch (priceErr) {
-                console.warn("Failed to fetch cached prices:", priceErr);
+                // Ignore pricing cache failures
               }
             }
 
@@ -631,8 +628,8 @@ const Watchlist = memo(function Watchlist({
           watchlistItemsData.length > 0
             ? watchlistItemsData
             : watchlistItems.map((wi) => ({
-                symbol: wi.symbol,
-              }));
+              symbol: wi.symbol,
+            }));
 
         // Add new item with full details
         const newItems = [
@@ -759,7 +756,6 @@ const Watchlist = memo(function Watchlist({
 
   const handleOrderPlaced = useCallback(() => {
     // Handle order placed event - could refresh data, show notification, etc.
-    console.log("Order placed successfully");
   }, []);
 
   const createWatchlist = async () => {
@@ -952,11 +948,10 @@ const Watchlist = memo(function Watchlist({
                 {watchlists.map((wl) => (
                   <div
                     key={wl.id}
-                    className={`group flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${
-                      wl.id === currentWatchlistId
+                    className={`group flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${wl.id === currentWatchlistId
                         ? "bg-accent text-accent-foreground font-medium"
                         : "text-popover-foreground"
-                    }`}
+                      }`}
                     onClick={() => switchWatchlist(wl.id, wl.name)}
                   >
                     <div className="flex items-center gap-2 overflow-hidden">
@@ -1120,15 +1115,13 @@ const Watchlist = memo(function Watchlist({
         {sortedWatchlistItems.map((item) => (
           <div
             key={item.symbol}
-            className={`group relative grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 cursor-pointer border-b border-border px-2 pr-1 py-3 transition-colors hover:bg-accent/50 items-center ${
-              selectedSymbol === item.symbol
+            className={`group relative grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 cursor-pointer border-b border-border px-2 pr-1 py-3 transition-colors hover:bg-accent/50 items-center ${selectedSymbol === item.symbol
                 ? "bg-accent/50 border-l-4 border-l-primary pl-3"
                 : "border-l-4 border-l-transparent"
-            } ${
-              contextMenu.open && contextMenu.symbol === item.symbol
+              } ${contextMenu.open && contextMenu.symbol === item.symbol
                 ? "bg-accent/70"
                 : ""
-            }`}
+              }`}
             onClick={() => {
               setSelectedSymbol(item.symbol);
               setIsMobileWatchlistOpen(false);
@@ -1175,17 +1168,16 @@ const Watchlist = memo(function Watchlist({
                   ? formatPrice(item.lastPrice, "$")
                   : selectedAccount?.accountType === "upstox" ||
                     selectedAccount?.accountType === "kite"
-                  ? formatPrice(item.lastPrice, "₹")
-                  : formatPrice(item.lastPrice)}
+                    ? formatPrice(item.lastPrice, "₹")
+                    : formatPrice(item.lastPrice)}
               </span>
             </div>
             <div className="text-right">
               <span
-                className={`text-xs font-medium ${
-                  item.priceChange >= 0
+                className={`text-xs font-medium ${item.priceChange >= 0
                     ? "text-green-600 dark:text-green-400"
                     : "text-red-600 dark:text-red-400"
-                }`}
+                  }`}
               >
                 {formatPercent(item.priceChangePercent)}
               </span>
@@ -1329,10 +1321,10 @@ const Watchlist = memo(function Watchlist({
             {watchlists.filter(
               (wl) => wl.id !== currentWatchlistId && !wl.isSystem
             ).length === 0 && (
-              <div className="px-3 py-2 text-xs text-muted-foreground">
-                No other watchlists
-              </div>
-            )}
+                <div className="px-3 py-2 text-xs text-muted-foreground">
+                  No other watchlists
+                </div>
+              )}
           </div>
 
           {/* Add to new watchlist */}
@@ -1400,9 +1392,8 @@ const Watchlist = memo(function Watchlist({
             </span>
             <ChevronDown
               size={20}
-              className={`transition-transform duration-200 text-muted-foreground ${
-                isMobileWatchlistOpen ? "rotate-180" : ""
-              }`}
+              className={`transition-transform duration-200 text-muted-foreground ${isMobileWatchlistOpen ? "rotate-180" : ""
+                }`}
             />
           </div>
           {selectedSymbol && (
@@ -1412,8 +1403,8 @@ const Watchlist = memo(function Watchlist({
                   ? formatPrice(currentPrice, "$")
                   : selectedAccount?.accountType === "upstox" ||
                     selectedAccount?.accountType === "kite"
-                  ? formatPrice(currentPrice, "₹")
-                  : formatPrice(currentPrice)}
+                    ? formatPrice(currentPrice, "₹")
+                    : formatPrice(currentPrice)}
               </span>
             </div>
           )}

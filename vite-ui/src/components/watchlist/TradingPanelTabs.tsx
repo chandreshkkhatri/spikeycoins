@@ -175,7 +175,6 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
         }
       }
     });
-    console.log(`[SlTpDebug] ${posSymbol} - Existing SL: ${existingSlQty}, Existing TP: ${existingTpQty}`);
     return { existingSlQty, existingTpQty };
   };
 
@@ -462,7 +461,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
               );
             }
           } catch (ordersErr) {
-            console.warn("Failed to fetch orders for SL/TP calc:", ordersErr);
+            // Ignore order fetch errors for calculations
           }
 
           // Also fetch account equity for percentage calculation (Binance only)
@@ -475,7 +474,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 setAccountEquity(detailsResp.data.account.equity);
               }
             } catch (eqErr) {
-              console.warn("Failed to fetch account equity:", eqErr);
+              // Ignore equity fetch errors
             }
           }
         }

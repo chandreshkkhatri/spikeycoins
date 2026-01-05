@@ -25,7 +25,7 @@ interface OrderBookItem {
 
 const aggregateOrders = (orders: OrderBookItem[], tickSize: number, type: 'ask' | 'bid') => {
   if (!tickSize || tickSize <= 0) return orders;
-  
+
   const grouped = new Map<number, OrderBookItem>();
 
   orders.forEach((order) => {
@@ -34,7 +34,7 @@ const aggregateOrders = (orders: OrderBookItem[], tickSize: number, type: 'ask' 
     const factor = Math.round(1 / tickSize);
     // Use a small epsilon for float stability before flooring
     const priceKey = Math.floor(order.price * factor + 0.0000001) / factor;
-    
+
     // Normalize to avoid 0.30000000004
     // Count decimals in tickSize, but cap at 8 to avoid toFixed() errors
     const decimals = Math.min(8, Math.max(0, Math.round(-Math.log10(tickSize))));
@@ -54,7 +54,7 @@ const aggregateOrders = (orders: OrderBookItem[], tickSize: number, type: 'ask' 
   });
 
   const result = Array.from(grouped.values());
-  
+
   // Sort: Asks ascending, Bids descending
   return result.sort((a, b) => type === 'ask' ? a.price - b.price : b.price - a.price);
 };
@@ -90,7 +90,7 @@ const MarketDepth = memo(function MarketDepth({
   useEffect(() => {
     // Combine all prices from asks and bids
     const allPrices = [...asks, ...bids].map(item => item.price).filter(p => p > 0);
-    
+
     if (allPrices.length < 2) {
       // Fallback: use current price to determine decimals
       if (currentPrice > 0) {
@@ -127,11 +127,11 @@ const MarketDepth = memo(function MarketDepth({
       // Determine number of decimals in the tick size
       const tickStr = minDiff.toFixed(10);
       const tickDecimals = Math.min(8, tickStr.includes('.') ? tickStr.replace(/0+$/, '').split('.')[1]?.length || 0 : 0);
-      
+
       // Generate precision steps starting from minDiff
       const steps: number[] = [];
       const baseTickSize = parseFloat(minDiff.toFixed(Math.min(8, tickDecimals)));
-      
+
       // Add base tick and multiples (1x, 10x, 100x, 1000x, 10000x)
       for (let i = 0; i < 5; i++) {
         const step = baseTickSize * Math.pow(10, i);
@@ -178,13 +178,12 @@ const MarketDepth = memo(function MarketDepth({
           ws?.close();
           return;
         }
-        console.log(`Order book WebSocket connected for ${symbol}`);
         setWsConnected(true);
       };
 
       ws.onmessage = (event) => {
         if (isCleanedUp) return;
-        
+
         try {
           const data = JSON.parse(event.data);
           // Binance depth stream format: { bids: [[price, qty], ...], asks: [[price, qty], ...] }
@@ -243,14 +242,14 @@ const MarketDepth = memo(function MarketDepth({
 
     return () => {
       isCleanedUp = true;
-      
+
       // Clear throttle timeout
       if (throttleTimeoutRef.current) {
         clearTimeout(throttleTimeoutRef.current);
         throttleTimeoutRef.current = null;
       }
       pendingDataRef.current = null;
-      
+
       if (ws) {
         ws.onclose = null; // Prevent onclose trigger during cleanup
         ws.onerror = null;
@@ -269,19 +268,19 @@ const MarketDepth = memo(function MarketDepth({
     asks.length > 0
       ? asks
       : Array.from({ length: 20 }).map((_, i) => ({
-          price: currentPrice + (20 - i) * (currentPrice * 0.0001),
-          quantity: Math.random() * 10,
-          total: Math.random() * 1000,
-        }));
+        price: currentPrice + (20 - i) * (currentPrice * 0.0001),
+        quantity: Math.random() * 10,
+        total: Math.random() * 1000,
+      }));
 
   const rawBids =
     bids.length > 0
       ? bids
       : Array.from({ length: 20 }).map((_, i) => ({
-          price: currentPrice - (i + 1) * (currentPrice * 0.0001),
-          quantity: Math.random() * 10,
-          total: Math.random() * 1000,
-        }));
+        price: currentPrice - (i + 1) * (currentPrice * 0.0001),
+        quantity: Math.random() * 10,
+        total: Math.random() * 1000,
+      }));
 
   const displayAsks = useMemo(() => {
     if (precision && precision > 0) {
@@ -307,7 +306,7 @@ const MarketDepth = memo(function MarketDepth({
   }, [rawBids, precision, rowCount]);
 
   // Calculate decimal places based on current price or selected precision
-  const priceDecimals = precision 
+  const priceDecimals = precision
     ? Math.max(0, Math.round(-Math.log10(precision)))
     : calculatePriceDecimals(currentPrice);
 
@@ -321,7 +320,7 @@ const MarketDepth = memo(function MarketDepth({
       // Approx 20px per row pair (ask+bid) change? 
       // Actually each row is ~24px. Changing rowCount by 1 adds 1 ask AND 1 bid = 48px total height change.
       // Let's make it sensitive enough.
-      const steps = Math.round(deltaY / 30); 
+      const steps = Math.round(deltaY / 30);
       const newRows = Math.min(12, Math.max(7, startRows + steps));
       setRowCount(newRows);
     };
@@ -390,9 +389,9 @@ const MarketDepth = memo(function MarketDepth({
           </div>
         ))}
       </div>
-      
+
       {/* Resize Handle */}
-      <div 
+      <div
         className="resize-handle"
         onMouseDown={handleResizeMouseDown}
       >

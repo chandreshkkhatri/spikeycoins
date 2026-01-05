@@ -14,19 +14,21 @@ import {
   ColorType,
   createChart,
   IChartApi,
-  IRange,
   ISeriesApi,
   LineWidth,
+  LogicalRange,
+  LogicalRangeChangeEventHandler,
   UTCTimestamp,
 } from "lightweight-charts";
 import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  Maximize2,
+  Minimize2,
   Plus,
   RefreshCw,
   RotateCcw,
-  ScanLine,
   X,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -40,7 +42,6 @@ interface PriceLine {
   lineWidth?: number;
   lineStyle?: number; // 0 = Solid, 1 = Dotted, 2 = Dashed, 3 = LargeDashed
   title?: string;
-  axis?: "left" | "right";
   axisLabelVisible?: boolean;
 }
 
@@ -51,6 +52,7 @@ interface MultiTimeframeChartProps {
   marketType?: "spot" | "futures";
   priceLines?: PriceLine[];
   legend?: { label: string; color: string }[];
+  currentPrice?: number; // LTP for live candle updates
 }
 
 const DEFAULT_TIMEFRAMES = [
@@ -90,20 +92,6 @@ const saveSettings = (settings: ChartSettings) => {
   }
 };
 
-// Utility function to compare price ranges with epsilon tolerance for floating point precision
-const rangesEqual = (
-  range1: IRange<number> | null,
-  range2: IRange<number> | null,
-  epsilon: number = 0.0001
-): boolean => {
-  if (range1 === null && range2 === null) return true;
-  if (range1 === null || range2 === null) return false;
-  return (
-    Math.abs(range1.from - range2.from) < epsilon &&
-    Math.abs(range1.to - range2.to) < epsilon
-  );
-};
-
 const AVAILABLE_TIMEFRAMES = [
   { interval: "1m", label: "1 Minute" },
   { interval: "5m", label: "5 Minutes" },
@@ -121,8 +109,53 @@ const AVAILABLE_TIMEFRAMES = [
   { interval: "1M", label: "1 Month" },
 ];
 
+// Historical data loading configuration
+const HISTORY_FETCH_THRESHOLD = 30; // Bars before left edge to trigger fetch
+const HISTORY_FETCH_DEBOUNCE = 200; // Debounce time in ms
+const MAX_CANDLES_IN_MEMORY = 2000; // Maximum candles to keep loaded per chart
+
+// Parse interval string to milliseconds
+const parseIntervalToMs = (interval: string): number => {
+  const match = interval.match(/^(\d+)([mhHdwM])$/);
+  if (!match) return 0;
+  const value = parseInt(match[1], 10);
+  const unit = match[2];
+  switch (unit) {
+    case "m": return value * 60 * 1000;
+    case "h":
+    case "H": return value * 60 * 60 * 1000;
+    case "d": return value * 24 * 60 * 60 * 1000;
+    case "w": return value * 7 * 24 * 60 * 60 * 1000;
+    case "M": return value * 30 * 24 * 60 * 60 * 1000; // Approximate
+    default: return 0;
+  }
+};
+
+// Format remaining time as HH:MM:SS or MM:SS
+const formatCountdown = (ms: number): string => {
+  if (ms <= 0) return "00:00";
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  }
+  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+};
+
+// Calculate time remaining for current candle
+const getTimeRemaining = (interval: string): number => {
+  const intervalMs = parseIntervalToMs(interval);
+  if (intervalMs === 0) return 0;
+  const now = Date.now();
+  const currentPeriodStart = Math.floor(now / intervalMs) * intervalMs;
+  const nextPeriodStart = currentPeriodStart + intervalMs;
+  return nextPeriodStart - now;
+};
+
 const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
-  ({ symbol, accountId, accountType, marketType, priceLines, legend }) => {
+  ({ symbol, accountId, accountType, marketType, priceLines, legend, currentPrice }) => {
     // Use default symbol (BTCUSDT) if none provided
     const displaySymbol = symbol || "BTCUSDT";
     const isDefaultSymbol = !symbol;
@@ -145,9 +178,15 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       container?: HTMLDivElement;
       priceLineRefs?: any[];
       secondaryPriceLineRefs?: any[];
+      // Historical data tracking
+      oldestTimestamp?: number;
+      isLoadingHistory?: boolean;
+      hasMoreHistory?: boolean;
+      visibleRangeHandler?: LogicalRangeChangeEventHandler;
     }[]>([]);
     const [loading, setLoading] = useState(false);
     const [refreshingCharts, setRefreshingCharts] = useState(false);
+    const [loadingHistoryCharts, setLoadingHistoryCharts] = useState<{ [index: number]: boolean }>({});
     const [error, setError] = useState<string | null>(null);
     const [chartTimeframes, setChartTimeframes] = useState<{
       [index: number]: string;
@@ -165,23 +204,129 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       [interval: string]: boolean;
     }>(storedSettings.current?.collapsedCharts || {});
     const runIdRef = useRef(0);
-    const syncStateRef = useRef<{
-      [chartIndex: number]: {
-        lastLeftRange: IRange<number> | null;
-        lastRightRange: IRange<number> | null;
-        isSyncing: boolean;
-      };
-    }>({});
 
-    // Persist settings to localStorage whenever they change
-    const isLogScaleRef = useRef(isLogScale);
-    const autoScaleRef = useRef(autoScale);
+    // Countdown timers for each chart's current candle
+    const [countdowns, setCountdowns] = useState<{ [key: string]: string }>({});
+    // Track the last known candle period to detect new candle
+    const lastPeriodRef = useRef<{ [key: string]: number }>({});
+    // Flag to trigger refresh when candle closes
+    const [candleCloseRefresh, setCandleCloseRefresh] = useState(0);
+    // Track current candle OHLC data for each chart
+    const currentCandleRef = useRef<{ [key: string]: { open: number; high: number; low: number; close: number } }>({});
+    // Track the symbol that charts are currently loaded for (to prevent cross-symbol updates)
+    const loadedSymbolRef = useRef<string | null>(null);
 
-    // Update refs when state changes
+    // Clear candle tracking refs and reset historical data tracking when symbol changes
     useEffect(() => {
-      isLogScaleRef.current = isLogScale;
-      autoScaleRef.current = autoScale;
-    }, [isLogScale, autoScale]);
+      currentCandleRef.current = {};
+      lastPeriodRef.current = {};
+      // Mark charts as not ready for updates until new data is loaded
+      loadedSymbolRef.current = null;
+      // Reset historical data tracking for all charts
+      chartRefs.current.forEach(ref => {
+        if (ref) {
+          ref.oldestTimestamp = undefined;
+          ref.hasMoreHistory = true;
+          ref.isLoadingHistory = false;
+        }
+      });
+      setLoadingHistoryCharts({});
+    }, [displaySymbol]);
+
+    // Update countdown timers every second + detect new candle periods
+    useEffect(() => {
+      const updateCountdowns = () => {
+        const newCountdowns: { [key: string]: string } = {};
+        const currentTime = Date.now();
+        let shouldRefresh = false;
+
+        selectedTimeframes.forEach((tf, index) => {
+          const actualInterval = chartTimeframes[index] || tf.interval;
+          const intervalMs = parseIntervalToMs(actualInterval);
+          const remaining = getTimeRemaining(actualInterval);
+          newCountdowns[`${index}-${actualInterval}`] = formatCountdown(remaining);
+
+          if (intervalMs === 0) return;
+
+          // Calculate current period start time
+          const currentPeriodStart = Math.floor(currentTime / intervalMs) * intervalMs;
+          const periodKey = `${index}-${actualInterval}`;
+          const lastPeriod = lastPeriodRef.current[periodKey];
+
+          // Check if we've entered a new candle period
+          if (lastPeriod !== undefined && lastPeriod !== currentPeriodStart) {
+            shouldRefresh = true;
+            // Reset current candle data for this chart
+            delete currentCandleRef.current[periodKey];
+          }
+          lastPeriodRef.current[periodKey] = currentPeriodStart;
+
+          // Update last candle close price with current LTP
+          // Skip if charts haven't loaded data for the current symbol yet
+          if (currentPrice && currentPrice > 0 && loadedSymbolRef.current === displaySymbol) {
+            const chartRef = chartRefs.current[index];
+            if (chartRef?.series) {
+              try {
+                // Get the current time as UTCTimestamp for the update
+                const candleTime = Math.floor(currentPeriodStart / 1000) as UTCTimestamp;
+
+                // Get or initialize current candle OHLC
+                let candleData = currentCandleRef.current[periodKey];
+                if (!candleData) {
+                  // Try to get the last bar data from the series
+                  const seriesData = chartRef.series.data();
+                  const lastBar = seriesData.length > 0 ? seriesData[seriesData.length - 1] : null;
+
+                  if (lastBar && 'open' in lastBar && 'high' in lastBar && 'low' in lastBar) {
+                    // Use the actual last candle data - double cast to access OHLC properties
+                    const ohlcBar = lastBar as unknown as { open: number; high: number; low: number; close: number };
+                    candleData = {
+                      open: ohlcBar.open,
+                      high: Math.max(ohlcBar.high, currentPrice),
+                      low: Math.min(ohlcBar.low, currentPrice),
+                      close: currentPrice,
+                    };
+                  } else {
+                    // Fallback: Initialize with current price
+                    candleData = {
+                      open: currentPrice,
+                      high: currentPrice,
+                      low: currentPrice,
+                      close: currentPrice,
+                    };
+                  }
+                  currentCandleRef.current[periodKey] = candleData;
+                } else {
+                  // Update existing candle data
+                  candleData.close = currentPrice;
+                  candleData.high = Math.max(candleData.high, currentPrice);
+                  candleData.low = Math.min(candleData.low, currentPrice);
+                }
+
+                // Update the current candle
+                chartRef.series.update({
+                  time: candleTime,
+                  open: candleData.open,
+                  high: candleData.high,
+                  low: candleData.low,
+                  close: candleData.close,
+                });
+              } catch (err) {
+                // Series might not be ready or chart disposed
+              }
+            }
+          }
+        });
+        setCountdowns(newCountdowns);
+        if (shouldRefresh) {
+          setCandleCloseRefresh(prev => prev + 1);
+        }
+      };
+
+      updateCountdowns(); // Initial update
+      const intervalId = setInterval(updateCountdowns, 1000);
+      return () => clearInterval(intervalId);
+    }, [selectedTimeframes, chartTimeframes, currentPrice, displaySymbol]);
 
     // Persist settings to localStorage whenever they change
     useEffect(() => {
@@ -200,7 +345,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       chartRefs.current.forEach((chartRef) => {
         if (!chartRef?.series) return;
 
-        // Remove existing price lines (Main/Left Axis)
+        // Remove existing price lines
         if (chartRef.priceLineRefs) {
           chartRef.priceLineRefs.forEach((line) => {
             try {
@@ -212,23 +357,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           chartRef.priceLineRefs = [];
         }
 
-        // Remove existing price lines (Secondary/Right Axis)
-        if (chartRef.secondaryPriceLineRefs) {
-          chartRef.secondaryPriceLineRefs.forEach((line) => {
-            try {
-              chartRef.secondarySeries?.removePriceLine(line);
-            } catch {
-              // Line might already be removed
-            }
-          });
-          chartRef.secondaryPriceLineRefs = [];
-        }
-
-        // Add new price lines
+        // Add new price lines (all on the main/right axis)
         if (priceLines && priceLines.length > 0) {
-          // Left Axis Lines
           chartRef.priceLineRefs = priceLines
-            .filter((pl) => pl.price > 0 && pl.axis !== "right")
+            .filter((pl) => pl.price > 0)
             .map((pl) => {
               return chartRef.series?.createPriceLine({
                 price: pl.price,
@@ -239,22 +371,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 title: pl.title || "",
               });
             });
-
-          // Right Axis Lines
-          if (chartRef.secondarySeries) {
-            chartRef.secondaryPriceLineRefs = priceLines
-              .filter((pl) => pl.price > 0 && pl.axis === "right")
-              .map((pl) => {
-                return chartRef.secondarySeries?.createPriceLine({
-                  price: pl.price,
-                  color: pl.color,
-                  lineWidth: (pl.lineWidth || 1) as LineWidth,
-                  lineStyle: pl.lineStyle ?? 2, // Default to dashed
-                  axisLabelVisible: pl.axisLabelVisible ?? true,
-                  title: pl.title || "",
-                });
-              });
-          }
         }
       });
     }, [priceLines]);
@@ -291,8 +407,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               if (runIdRef.current !== thisRun) return;
               if (data.length > 0 && typeof chartRef.series.setData === "function") {
                 chartRef.series.setData(data);
-                chartRef.secondarySeries?.setData(data);
                 chartRef.chart?.timeScale().fitContent();
+                // Reset historical data tracking after refresh
+                chartRef.oldestTimestamp = (data[0].time as number) * 1000;
+                chartRef.hasMoreHistory = true;
+                chartRef.isLoadingHistory = false;
               }
             } catch (err) {
               if (runIdRef.current !== thisRun) return;
@@ -338,8 +457,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               series: null,
               secondarySeries: null,
             };
-            // Clean up sync state for this chart
-            delete syncStateRef.current[chartIndex];
           }
         }
 
@@ -416,18 +533,23 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         const isMobile = window.innerWidth <= 768;
 
         // Calculate chart height based on auto-scale setting
-        let chartHeight = isMobile ? 225 : 300;
+        let chartHeight;
+        if (autoScale) {
+          // Use container height minus some padding for header
+          chartHeight = Math.max(
+            (container.parentElement?.clientHeight || 400) - 60,
+            200
+          );
+        } else {
+          chartHeight = isMobile ? 225 : 300;
+        }
 
         const containerWidth = Math.max(container.clientWidth || 300, 300);
-
-        console.log(
-          `Creating chart with dimensions: ${containerWidth}x${chartHeight}`
-        );
 
         const chart = createChart(container, {
           width: containerWidth,
           height: chartHeight,
-          autoSize: autoScaleRef.current, // Enable auto-sizing when auto-scale is on
+          autoSize: autoScale, // Enable auto-sizing when auto-scale is on
           layout: {
             background: {
               type: ColorType.Solid,
@@ -467,14 +589,14 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           leftPriceScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
             scaleMargins: { top: 0.08, bottom: 0.08 },
-            mode: isLogScaleRef.current ? 1 : 0, // 1 = logarithmic, 0 = normal
+            mode: isLogScale ? 1 : 0, // 1 = logarithmic, 0 = normal
             borderVisible: false,
-            visible: true,
+            visible: false, // Hidden - using only right axis
           },
           rightPriceScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
             scaleMargins: { top: 0.08, bottom: 0.08 },
-            mode: isLogScaleRef.current ? 1 : 0,
+            mode: isLogScale ? 1 : 0,
             borderVisible: false,
             visible: true,
           },
@@ -534,35 +656,16 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           borderUpColor: "#22c55e",
           wickDownColor: "#ef4444",
           wickUpColor: "#22c55e",
-          priceScaleId: "left",
+          priceScaleId: "right", // Using right axis for all price display
           priceLineVisible: true,
           lastValueVisible: true,
-          priceLineStyle: 2 as any, // Dashed
-          priceLineWidth: 1,
-          priceLineSource: 0 as any, // Last
         };
 
-        const series = chart.addSeries(CandlestickSeries, candlestickOptions as any);
+        const series = chart.addSeries(CandlestickSeries, candlestickOptions);
 
-        // Secondary series for Right Axis (Hidden but used for Price Lines)
-        // We use CandlestickSeries with transparent colors so it scales identically to the main one
-        const secondaryOptions = {
-          upColor: "rgba(0,0,0,0)",
-          downColor: "rgba(0,0,0,0)",
-          borderDownColor: "rgba(0,0,0,0)",
-          borderUpColor: "rgba(0,0,0,0)",
-          wickDownColor: "rgba(0,0,0,0)",
-          wickUpColor: "rgba(0,0,0,0)",
-          priceScaleId: "right",
-        };
-        const secondarySeries = chart.addSeries(
-          CandlestickSeries,
-          secondaryOptions
-        );
-
-        return { chart, series, secondarySeries, wheelHandler: handleWheel };
+        return { chart, series, secondarySeries: null, wheelHandler: handleWheel };
       },
-      []
+      [autoScale, isLogScale]
     );
 
     const fetchChartData = useCallback(
@@ -646,9 +749,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 close: d.close,
               })
             );
-          } catch (error) {
-            console.error(`Error fetching chart data for ${interval}:`, error);
-            throw error;
           } finally {
             // Clear cache after 2 seconds to allow refetching
             setTimeout(() => {
@@ -662,6 +762,209 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       },
       [displaySymbol, accountId, accountType, marketType]
     );
+
+    // Fetch historical data for a specific date range
+    const fetchHistoricalData = useCallback(
+      async (interval: string, toDate: Date): Promise<CandlestickData[]> => {
+        const vendor =
+          accountType ||
+          (displaySymbol.endsWith("USDT") ||
+            displaySymbol.endsWith("USDC") ||
+            displaySymbol.endsWith("BUSD") ||
+            displaySymbol.endsWith("BTC")
+            ? "binance"
+            : "upstox");
+
+        const params = new URLSearchParams({
+          vendor,
+          symbol: displaySymbol,
+          interval,
+          toDate: toDate.toISOString(),
+        });
+
+        if (accountId) {
+          params.append("accountId", accountId);
+        }
+
+        if (marketType) {
+          params.append("marketType", marketType);
+        }
+
+        const url = getApiUrl(`/api/historical-data?${params.toString()}`);
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch historical data: ${response.status}`);
+        }
+
+        const result = await response.json();
+        const data = result.data || result;
+
+        if (!Array.isArray(data) || data.length === 0) {
+          return [];
+        }
+
+        return data.map(
+          (d: {
+            date: string | number;
+            open: number;
+            high: number;
+            low: number;
+            close: number;
+          }) => ({
+            time: (new Date(d.date).getTime() / 1000) as UTCTimestamp,
+            open: d.open,
+            high: d.high,
+            low: d.low,
+            close: d.close,
+          })
+        );
+      },
+      [displaySymbol, accountId, accountType, marketType]
+    );
+
+    // Load more historical data when scrolling to the left edge
+    const loadMoreHistory = useCallback(
+      async (chartIndex: number, interval: string) => {
+        const chartRef = chartRefs.current[chartIndex];
+        if (!chartRef?.series || !chartRef?.chart) return;
+        if (chartRef.isLoadingHistory || chartRef.hasMoreHistory === false) return;
+
+        // Mark as loading
+        chartRef.isLoadingHistory = true;
+        setLoadingHistoryCharts(prev => ({ ...prev, [chartIndex]: true }));
+
+        try {
+          // Get current data from the series
+          const currentData = chartRef.series.data() as CandlestickData[];
+          if (currentData.length === 0) {
+            chartRef.hasMoreHistory = false;
+            return;
+          }
+
+          const oldestCandle = currentData[0];
+          const oldestTime = (oldestCandle.time as number) * 1000;
+          const toDate = new Date(oldestTime - 1000); // 1 second before oldest
+
+          // Fetch historical data
+          const historicalData = await fetchHistoricalData(interval, toDate);
+
+          if (historicalData.length === 0) {
+            chartRef.hasMoreHistory = false;
+            return;
+          }
+
+          // Save current visible range to restore after update
+          const visibleRange = chartRef.chart.timeScale().getVisibleLogicalRange();
+
+          // Filter out any overlapping candles
+          const existingTimes = new Set(currentData.map(c => c.time));
+          const newCandles = historicalData.filter(c => !existingTimes.has(c.time));
+
+          if (newCandles.length === 0) {
+            chartRef.hasMoreHistory = false;
+            return;
+          }
+
+          // Combine and sort by time
+          let mergedData = [...newCandles, ...currentData].sort(
+            (a, b) => (a.time as number) - (b.time as number)
+          );
+
+          // Memory management: trim if too many candles
+          if (mergedData.length > MAX_CANDLES_IN_MEMORY) {
+            mergedData = mergedData.slice(-MAX_CANDLES_IN_MEMORY);
+          }
+
+          // Update series data
+          chartRef.series.setData(mergedData);
+
+          // Update oldest timestamp
+          chartRef.oldestTimestamp = (mergedData[0].time as number) * 1000;
+
+          // Restore visible range (adjusted for new data count)
+          if (visibleRange) {
+            const adjustment = newCandles.length;
+            chartRef.chart.timeScale().setVisibleLogicalRange({
+              from: visibleRange.from + adjustment,
+              to: visibleRange.to + adjustment,
+            });
+          }
+
+          // Check if this was a partial response (indicates end of history)
+          if (historicalData.length < 50) {
+            chartRef.hasMoreHistory = false;
+          }
+        } catch (error) {
+          console.error(`Failed to load historical data for chart ${chartIndex}:`, error);
+        } finally {
+          chartRef.isLoadingHistory = false;
+          setLoadingHistoryCharts(prev => ({ ...prev, [chartIndex]: false }));
+        }
+      },
+      [fetchHistoricalData]
+    );
+
+    // Set up scroll handler to detect when user scrolls near the left edge
+    const setupHistoricalScrollHandler = useCallback(
+      (chart: IChartApi, series: ISeriesApi<"Candlestick">, chartIndex: number, interval: string) => {
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const handleVisibleLogicalRangeChange = (logicalRange: LogicalRange | null) => {
+          if (!logicalRange || !series) return;
+
+          const chartRef = chartRefs.current[chartIndex];
+          if (!chartRef || chartRef.isLoadingHistory || chartRef.hasMoreHistory === false) {
+            return;
+          }
+
+          // Get bars info to check if near left edge
+          const barsInfo = series.barsInLogicalRange(logicalRange);
+          if (!barsInfo) return;
+
+          // Check if we're within threshold of left edge
+          if (barsInfo.barsBefore !== null && barsInfo.barsBefore < HISTORY_FETCH_THRESHOLD) {
+            // Debounce the fetch
+            if (debounceTimer) clearTimeout(debounceTimer);
+
+            debounceTimer = setTimeout(() => {
+              loadMoreHistory(chartIndex, interval);
+            }, HISTORY_FETCH_DEBOUNCE);
+          }
+        };
+
+        // Subscribe to visible range changes
+        chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange);
+
+        // Return handler for cleanup
+        return handleVisibleLogicalRangeChange;
+      },
+      [loadMoreHistory]
+    );
+
+    // Refresh all charts when a candle closes
+    useEffect(() => {
+      if (candleCloseRefresh === 0) return; // Skip initial render
+
+      selectedTimeframes.forEach((tf, index) => {
+        const actualInterval = chartTimeframes[index] || tf.interval;
+        const chartRef = chartRefs.current[index];
+        if (chartRef?.series) {
+          fetchChartData(actualInterval).then((data) => {
+            if (data.length > 0 && chartRef.series && typeof chartRef.series.setData === "function") {
+              try {
+                chartRef.series.setData(data);
+                chartRef.chart?.timeScale().scrollToRealTime();
+              } catch {
+                // Chart might be disposed
+              }
+            }
+          }).catch(() => {
+            // Ignore fetch errors silently
+          });
+        }
+      });
+    }, [candleCloseRefresh, selectedTimeframes, chartTimeframes, fetchChartData]);
 
     useEffect(() => {
       // Increment run id to invalidate any in-flight async work from the previous render
@@ -688,8 +991,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
           });
           chartRefs.current = [];
-          // Clean up all sync state when clearing charts
-          syncStateRef.current = {};
 
           // Wait for container refs to be available
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -711,13 +1012,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 secondarySeries,
                 wheelHandler,
                 container,
-              };
-
-              // Initialize sync state for this chart's axes
-              syncStateRef.current[index] = {
-                lastLeftRange: null,
-                lastRightRange: null,
-                isSyncing: false,
+                // Initialize historical data tracking
+                oldestTimestamp: undefined,
+                isLoadingHistory: false,
+                hasMoreHistory: true,
+                visibleRangeHandler: undefined,
               };
 
               // Use individual chart timeframe if set, otherwise use default
@@ -734,8 +1033,12 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 typeof series.setData === "function"
               ) {
                 series.setData(data);
-                secondarySeries.setData(data);
                 chart.timeScale().fitContent();
+
+                // Track oldest timestamp and set up scroll handler for historical loading
+                chartRefs.current[index].oldestTimestamp = (data[0].time as number) * 1000;
+                const handler = setupHistoricalScrollHandler(chart, series, index, actualTimeframe);
+                chartRefs.current[index].visibleRangeHandler = handler;
               }
 
               return { chart, series, secondarySeries };
@@ -751,6 +1054,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
           await Promise.all(promises);
           if (runIdRef.current !== thisRun) return;
+          // Mark charts as ready for live updates for this symbol
+          loadedSymbolRef.current = displaySymbol;
           setLoading(false);
         } catch (err) {
           const errorMessage =
@@ -771,12 +1076,16 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         clearTimeout(timeoutId);
         // Invalidate this run to prevent any pending async work from touching disposed charts
         runIdRef.current = thisRun + 1;
-        chartRefs.current.forEach(({ chart, wheelHandler, container }) => {
+        chartRefs.current.forEach(({ chart, wheelHandler, container, visibleRangeHandler }) => {
           if (chart) {
             try {
               // Remove wheel handler before removing chart
               if (wheelHandler && container) {
                 container.removeEventListener('wheel', wheelHandler);
+              }
+              // Unsubscribe from visible range changes
+              if (visibleRangeHandler) {
+                chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);
               }
               chart.remove();
             } catch (e) {
@@ -784,27 +1093,21 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
           }
         });
-        // Clean up sync state on unmount
-        syncStateRef.current = {};
       };
     }, [
       displaySymbol,
       selectedTimeframes,
+      chartTimeframes,
       createSingleChart,
       fetchChartData,
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+      setupHistoricalScrollHandler,
     ]);
 
     // Effect to handle individual chart expand - recreate chart when a collapsed chart is expanded
     useEffect(() => {
-      const expandRunId = runIdRef.current;
-
       const initializeExpandedChart = async (index: number, timeframe: typeof selectedTimeframes[0]) => {
         // Wait a bit for the container to be rendered
         await new Promise((resolve) => setTimeout(resolve, 100));
-
-        // Check if this run is still valid
-        if (runIdRef.current !== expandRunId) return;
 
         const container = containerRefs.current[index];
         if (!container) return;
@@ -817,7 +1120,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             existingChart.chart.resize(container.clientWidth, container.clientHeight);
             existingChart.chart.timeScale().fitContent();
           } catch {
-            // Chart might be invalid or disposed, ignore
+            // Chart might be invalid, recreate it
           }
           return;
         }
@@ -834,34 +1137,15 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             container,
           };
 
-          // Initialize sync state for this chart's axes
-          syncStateRef.current[index] = {
-            lastLeftRange: null,
-            lastRightRange: null,
-            isSyncing: false,
-          };
-
           const actualTimeframe = chartTimeframes[index] || timeframe.interval;
           const data = await fetchChartData(actualTimeframe);
 
-          // Check again if run is still valid after async operation
-          if (runIdRef.current !== expandRunId) return;
-
-          // Verify chart ref is still the same chart we created
-          const currentChartRef = chartRefs.current[index];
-          if (currentChartRef?.chart !== chart) return;
-
           if (data.length > 0 && series && typeof series.setData === "function") {
-            try {
-              series.setData(data);
-              secondarySeries?.setData(data);
-              chart.timeScale().fitContent();
-            } catch {
-              // Chart might have been disposed, ignore
-            }
+            series.setData(data);
+            chart.timeScale().fitContent();
           }
         } catch (error) {
-          console.error(`Error initializing expanded chart ${timeframe.interval}:`, error);
+          // Ignore error initializing expanded chart
         }
       };
 
@@ -883,17 +1167,26 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       if (Object.keys(chartTimeframes).length === 0) return;
 
       const reloadChartData = async () => {
-        // Don't increment runId here - we want to keep the current run active
-        // Incrementing it would cancel any in-flight initializations
-        const thisRun = runIdRef.current;
+        const thisRun = runIdRef.current + 1;
+        runIdRef.current = thisRun;
         setError(null); // Clear any previous errors
 
         for (const [indexStr, timeframe] of Object.entries(chartTimeframes)) {
           const index = parseInt(indexStr);
           const chartRef = chartRefs.current[index];
 
-          if (chartRef && chartRef.series) {
+          if (chartRef && chartRef.series && chartRef.chart) {
             try {
+              // Reset historical data tracking for this chart
+              chartRef.oldestTimestamp = undefined;
+              chartRef.hasMoreHistory = true;
+              chartRef.isLoadingHistory = false;
+
+              // Unsubscribe old handler if exists
+              if (chartRef.visibleRangeHandler) {
+                chartRef.chart.timeScale().unsubscribeVisibleLogicalRangeChange(chartRef.visibleRangeHandler);
+              }
+
               const data = await fetchChartData(timeframe);
               if (runIdRef.current !== thisRun) return;
               if (
@@ -901,9 +1194,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 typeof chartRef.series.setData === "function"
               ) {
                 chartRef.series.setData(data);
-                chartRef.secondarySeries?.setData(data);
                 const timeScale = chartRef.chart?.timeScale();
                 timeScale?.fitContent();
+
+                // Set up new scroll handler with new timeframe
+                chartRef.oldestTimestamp = (data[0].time as number) * 1000;
+                const handler = setupHistoricalScrollHandler(chartRef.chart, chartRef.series, index, timeframe);
+                chartRef.visibleRangeHandler = handler;
               }
             } catch (error) {
               const errorMessage =
@@ -917,9 +1214,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       };
 
       reloadChartData();
-    }, [chartTimeframes, fetchChartData]);
+    }, [chartTimeframes, fetchChartData, setupHistoricalScrollHandler]);
 
-    // Effect to handle auto-scale and log-scale changes
     // Effect to handle auto-scale and log-scale changes
     useEffect(() => {
       const updateChartSettings = async () => {
@@ -932,24 +1228,33 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               if (!container) return;
 
               // Update scale mode
+              // Update scale mode
               const leftScale = chart.priceScale("left");
               const rightScale = chart.priceScale("right");
               if (leftScale) {
                 leftScale.applyOptions({
                   mode: isLogScale ? 1 : 0,
-                  autoScale: autoScale,
+                  autoScale: true, // Always autoScale
                 });
               }
               if (rightScale) {
                 rightScale.applyOptions({
                   mode: isLogScale ? 1 : 0,
-                  autoScale: autoScale,
+                  autoScale: true,
                 });
               }
 
               // Update chart size for auto-scale
               const isMobile = window.innerWidth <= 768;
-              const chartHeight = isMobile ? 225 : 300;
+              let chartHeight;
+              if (autoScale) {
+                chartHeight = Math.max(
+                  (container.parentElement?.clientHeight || 400) - 60,
+                  200
+                );
+              } else {
+                chartHeight = isMobile ? 225 : 300;
+              }
 
               chart.resize(
                 Math.max(container.clientWidth || 300, 300),
@@ -960,83 +1265,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             }
           }
         });
-
-        // Reset sync state when autoScale changes (autoScale handles synchronization implicitly)
-        Object.keys(syncStateRef.current).forEach((key) => {
-          const index = parseInt(key);
-          syncStateRef.current[index] = {
-            lastLeftRange: null,
-            lastRightRange: null,
-            isSyncing: false,
-          };
-        });
       };
 
       updateChartSettings();
     }, [autoScale, isLogScale]);
-
-    // Effect to synchronize left and right price axes
-    // Polls for axis range changes and propagates them to keep axes coupled
-    useEffect(() => {
-      // Don't sync when autoScale is enabled (it handles synchronization implicitly)
-      if (autoScale) {
-        return;
-      }
-
-      let animationFrameId: number;
-
-      const checkAndSyncAxes = () => {
-        chartRefs.current.forEach((chartRef, index) => {
-          if (!chartRef?.chart) return;
-
-          const syncState = syncStateRef.current[index];
-          if (!syncState || syncState.isSyncing) return;
-
-          try {
-            const leftScale = chartRef.chart.priceScale("left");
-            const rightScale = chartRef.chart.priceScale("right");
-
-            if (!leftScale || !rightScale) return;
-
-            const currentLeftRange = leftScale.getVisibleRange();
-            const currentRightRange = rightScale.getVisibleRange();
-
-            // Detect left axis change and synchronize to right
-            if (
-              currentLeftRange &&
-              !rangesEqual(currentLeftRange, syncState.lastLeftRange)
-            ) {
-              syncState.isSyncing = true;
-              syncState.lastLeftRange = currentLeftRange;
-              syncState.lastRightRange = currentLeftRange;
-              rightScale.setVisibleRange(currentLeftRange);
-              syncState.isSyncing = false;
-            }
-            // Detect right axis change and synchronize to left
-            else if (
-              currentRightRange &&
-              !rangesEqual(currentRightRange, syncState.lastRightRange)
-            ) {
-              syncState.isSyncing = true;
-              syncState.lastRightRange = currentRightRange;
-              syncState.lastLeftRange = currentRightRange;
-              leftScale.setVisibleRange(currentRightRange);
-              syncState.isSyncing = false;
-            }
-          } catch (error) {
-            // Silently handle any errors during sync (chart might be disposed)
-          }
-        });
-
-        animationFrameId = requestAnimationFrame(checkAndSyncAxes);
-      };
-
-      animationFrameId = requestAnimationFrame(checkAndSyncAxes);
-
-      return () => {
-        cancelAnimationFrame(animationFrameId);
-      };
-    }, [autoScale]);
 
     return (
       <div className="flex w-full flex-col gap-3 p-3">
@@ -1076,9 +1308,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                     size="icon"
                     className="h-6 w-6"
                     onClick={() => setAutoScale(!autoScale)}
-                    title="Toggle Price Auto-Scale"
+                    title="Auto-scale height"
                   >
-                    <ScanLine size={12} />
+                    {autoScale ? (
+                      <Minimize2 size={12} />
+                    ) : (
+                      <Maximize2 size={12} />
+                    )}
                   </Button>
                   <Button
                     variant={isLogScale ? "secondary" : "ghost"}
@@ -1176,7 +1412,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               return (
                 <div
                   key={timeframe.interval}
-                  className={`flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm transition-all hover:border-border hover:shadow-md h-auto`}
+                  className={`flex flex-col overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm transition-all hover:border-border hover:shadow-md ${autoScale && !isChartCollapsed ? "h-[350px]" : "h-auto"
+                    }`}
                 >
                   <div
                     className="flex items-center justify-between border-b border-border/50 bg-muted/20 px-3 py-1.5 cursor-pointer"
@@ -1223,6 +1460,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                           ))}
                         </SelectContent>
                       </Select>
+                      {/* Countdown timer */}
+                      <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+                        {countdowns[`${timeframe.index}-${chartTimeframes[timeframe.index] || timeframe.interval}`] || "--:--"}
+                      </span>
                     </div>
 
                     {selectedTimeframes.length > 1 && (
@@ -1253,6 +1494,14 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                           Ctrl + scroll to zoom
                         </span>
                       </div>
+
+                      {/* Historical data loading indicator */}
+                      {loadingHistoryCharts[timeframe.index] && (
+                        <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1.5 bg-background/90 px-2 py-1 rounded shadow-sm pointer-events-none">
+                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                          <span className="text-[10px] text-muted-foreground">Loading history...</span>
+                        </div>
+                      )}
 
                       {(loading || refreshingCharts) && (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/60 backdrop-blur-[2px] pointer-events-none">

@@ -29,7 +29,6 @@ export function getNotificationPermission(): NotificationPermission {
  */
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
   if (!("Notification" in window)) {
-    console.warn("Notifications not supported in this browser");
     return "denied";
   }
 
@@ -43,7 +42,6 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
  */
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!("serviceWorker" in navigator)) {
-    console.warn("Service workers not supported");
     return null;
   }
 
@@ -51,8 +49,6 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     const registration = await navigator.serviceWorker.register("/sw.js", {
       scope: "/",
     });
-
-    console.log("Service worker registered:", registration.scope);
 
     // Wait for the service worker to be ready
     await navigator.serviceWorker.ready;
@@ -73,7 +69,6 @@ async function getVapidPublicKey(): Promise<string | null> {
     if (response.data.configured && response.data.publicKey) {
       return response.data.publicKey;
     }
-    console.warn("Push notifications not configured on server");
     return null;
   } catch (error) {
     console.error("Failed to get VAPID public key:", error);
@@ -100,14 +95,12 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
  */
 export async function subscribeToPushNotifications(): Promise<boolean> {
   if (!isPushSupported()) {
-    console.warn("Push notifications not supported");
     return false;
   }
 
   // Request permission if not granted
   const permission = await requestNotificationPermission();
   if (permission !== "granted") {
-    console.warn("Notification permission denied");
     return false;
   }
 
@@ -138,28 +131,27 @@ export async function subscribeToPushNotifications(): Promise<boolean> {
     }
 
     // Send subscription to server
-    const response = await api.post("/notifications/subscribe", {
+    await api.post("/notifications/subscribe", {
       subscription: {
         endpoint: subscription.endpoint,
         keys: {
           p256dh: btoa(
             String.fromCharCode.apply(
               null,
-              Array.from(new Uint8Array(subscription.getKey("p256dh")!))
-            )
+              Array.from(new Uint8Array(subscription.getKey("p256dh")!)),
+            ),
           ),
           auth: btoa(
             String.fromCharCode.apply(
               null,
-              Array.from(new Uint8Array(subscription.getKey("auth")!))
-            )
+              Array.from(new Uint8Array(subscription.getKey("auth")!)),
+            ),
           ),
         },
       },
       userAgent: navigator.userAgent,
     });
 
-    console.log("Push subscription saved:", response.data);
     return true;
   } catch (error) {
     console.error("Failed to subscribe to push notifications:", error);
@@ -187,8 +179,6 @@ export async function unsubscribeFromPushNotifications(): Promise<boolean> {
       await api.delete("/notifications/unsubscribe", {
         data: { endpoint: subscription.endpoint },
       });
-
-      console.log("Unsubscribed from push notifications");
     }
 
     return true;
@@ -222,7 +212,6 @@ export async function isSubscribedToPush(): Promise<boolean> {
 export async function sendTestNotification(): Promise<boolean> {
   try {
     const response = await api.post("/notifications/test");
-    console.log("Test notification sent:", response.data);
     return response.data.success;
   } catch (error) {
     console.error("Failed to send test notification:", error);
@@ -235,10 +224,9 @@ export async function sendTestNotification(): Promise<boolean> {
  */
 export function showLocalNotification(
   title: string,
-  options?: NotificationOptions
+  options?: NotificationOptions,
 ): void {
   if (getNotificationPermission() !== "granted") {
-    console.warn("Notification permission not granted");
     return;
   }
 
