@@ -16,6 +16,8 @@ import {
   IChartApi,
   ISeriesApi,
   LineWidth,
+  LogicalRange,
+  LogicalRangeChangeEventHandler,
   UTCTimestamp,
 } from "lightweight-charts";
 import {
@@ -107,6 +109,11 @@ const AVAILABLE_TIMEFRAMES = [
   { interval: "1M", label: "1 Month" },
 ];
 
+// Historical data loading configuration
+const HISTORY_FETCH_THRESHOLD = 30; // Bars before left edge to trigger fetch
+const HISTORY_FETCH_DEBOUNCE = 200; // Debounce time in ms
+const MAX_CANDLES_IN_MEMORY = 2000; // Maximum candles to keep loaded per chart
+
 // Parse interval string to milliseconds
 const parseIntervalToMs = (interval: string): number => {
   const match = interval.match(/^(\d+)([mhHdwM])$/);
@@ -171,9 +178,15 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       container?: HTMLDivElement;
       priceLineRefs?: any[];
       secondaryPriceLineRefs?: any[];
+      // Historical data tracking
+      oldestTimestamp?: number;
+      isLoadingHistory?: boolean;
+      hasMoreHistory?: boolean;
+      visibleRangeHandler?: LogicalRangeChangeEventHandler;
     }[]>([]);
     const [loading, setLoading] = useState(false);
     const [refreshingCharts, setRefreshingCharts] = useState(false);
+    const [loadingHistoryCharts, setLoadingHistoryCharts] = useState<{ [index: number]: boolean }>({});
     const [error, setError] = useState<string | null>(null);
     const [chartTimeframes, setChartTimeframes] = useState<{
       [index: number]: string;
@@ -200,6 +213,21 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     const [candleCloseRefresh, setCandleCloseRefresh] = useState(0);
     // Track current candle OHLC data for each chart
     const currentCandleRef = useRef<{ [key: string]: { open: number; high: number; low: number; close: number } }>({});
+
+    // Clear candle tracking refs and reset historical data tracking when symbol changes
+    useEffect(() => {
+      currentCandleRef.current = {};
+      lastPeriodRef.current = {};
+      // Reset historical data tracking for all charts
+      chartRefs.current.forEach(ref => {
+        if (ref) {
+          ref.oldestTimestamp = undefined;
+          ref.hasMoreHistory = true;
+          ref.isLoadingHistory = false;
+        }
+      });
+      setLoadingHistoryCharts({});
+    }, [displaySymbol]);
 
     // Update countdown timers every second + detect new candle periods
     useEffect(() => {
@@ -375,6 +403,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               if (data.length > 0 && typeof chartRef.series.setData === "function") {
                 chartRef.series.setData(data);
                 chartRef.chart?.timeScale().fitContent();
+                // Reset historical data tracking after refresh
+                chartRef.oldestTimestamp = (data[0].time as number) * 1000;
+                chartRef.hasMoreHistory = true;
+                chartRef.isLoadingHistory = false;
               }
             } catch (err) {
               if (runIdRef.current !== thisRun) return;
@@ -726,6 +758,185 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       [displaySymbol, accountId, accountType, marketType]
     );
 
+    // Fetch historical data for a specific date range
+    const fetchHistoricalData = useCallback(
+      async (interval: string, toDate: Date): Promise<CandlestickData[]> => {
+        const vendor =
+          accountType ||
+          (displaySymbol.endsWith("USDT") ||
+            displaySymbol.endsWith("USDC") ||
+            displaySymbol.endsWith("BUSD") ||
+            displaySymbol.endsWith("BTC")
+            ? "binance"
+            : "upstox");
+
+        const params = new URLSearchParams({
+          vendor,
+          symbol: displaySymbol,
+          interval,
+          toDate: toDate.toISOString(),
+        });
+
+        if (accountId) {
+          params.append("accountId", accountId);
+        }
+
+        if (marketType) {
+          params.append("marketType", marketType);
+        }
+
+        const url = getApiUrl(`/api/historical-data?${params.toString()}`);
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch historical data: ${response.status}`);
+        }
+
+        const result = await response.json();
+        const data = result.data || result;
+
+        if (!Array.isArray(data) || data.length === 0) {
+          return [];
+        }
+
+        return data.map(
+          (d: {
+            date: string | number;
+            open: number;
+            high: number;
+            low: number;
+            close: number;
+          }) => ({
+            time: (new Date(d.date).getTime() / 1000) as UTCTimestamp,
+            open: d.open,
+            high: d.high,
+            low: d.low,
+            close: d.close,
+          })
+        );
+      },
+      [displaySymbol, accountId, accountType, marketType]
+    );
+
+    // Load more historical data when scrolling to the left edge
+    const loadMoreHistory = useCallback(
+      async (chartIndex: number, interval: string) => {
+        const chartRef = chartRefs.current[chartIndex];
+        if (!chartRef?.series || !chartRef?.chart) return;
+        if (chartRef.isLoadingHistory || chartRef.hasMoreHistory === false) return;
+
+        // Mark as loading
+        chartRef.isLoadingHistory = true;
+        setLoadingHistoryCharts(prev => ({ ...prev, [chartIndex]: true }));
+
+        try {
+          // Get current data from the series
+          const currentData = chartRef.series.data() as CandlestickData[];
+          if (currentData.length === 0) {
+            chartRef.hasMoreHistory = false;
+            return;
+          }
+
+          const oldestCandle = currentData[0];
+          const oldestTime = (oldestCandle.time as number) * 1000;
+          const toDate = new Date(oldestTime - 1000); // 1 second before oldest
+
+          // Fetch historical data
+          const historicalData = await fetchHistoricalData(interval, toDate);
+
+          if (historicalData.length === 0) {
+            chartRef.hasMoreHistory = false;
+            return;
+          }
+
+          // Save current visible range to restore after update
+          const visibleRange = chartRef.chart.timeScale().getVisibleLogicalRange();
+
+          // Filter out any overlapping candles
+          const existingTimes = new Set(currentData.map(c => c.time));
+          const newCandles = historicalData.filter(c => !existingTimes.has(c.time));
+
+          if (newCandles.length === 0) {
+            chartRef.hasMoreHistory = false;
+            return;
+          }
+
+          // Combine and sort by time
+          let mergedData = [...newCandles, ...currentData].sort(
+            (a, b) => (a.time as number) - (b.time as number)
+          );
+
+          // Memory management: trim if too many candles
+          if (mergedData.length > MAX_CANDLES_IN_MEMORY) {
+            mergedData = mergedData.slice(-MAX_CANDLES_IN_MEMORY);
+          }
+
+          // Update series data
+          chartRef.series.setData(mergedData);
+
+          // Update oldest timestamp
+          chartRef.oldestTimestamp = (mergedData[0].time as number) * 1000;
+
+          // Restore visible range (adjusted for new data count)
+          if (visibleRange) {
+            const adjustment = newCandles.length;
+            chartRef.chart.timeScale().setVisibleLogicalRange({
+              from: visibleRange.from + adjustment,
+              to: visibleRange.to + adjustment,
+            });
+          }
+
+          // Check if this was a partial response (indicates end of history)
+          if (historicalData.length < 50) {
+            chartRef.hasMoreHistory = false;
+          }
+        } catch (error) {
+          console.error(`Failed to load historical data for chart ${chartIndex}:`, error);
+        } finally {
+          chartRef.isLoadingHistory = false;
+          setLoadingHistoryCharts(prev => ({ ...prev, [chartIndex]: false }));
+        }
+      },
+      [fetchHistoricalData]
+    );
+
+    // Set up scroll handler to detect when user scrolls near the left edge
+    const setupHistoricalScrollHandler = useCallback(
+      (chart: IChartApi, series: ISeriesApi<"Candlestick">, chartIndex: number, interval: string) => {
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const handleVisibleLogicalRangeChange = (logicalRange: LogicalRange | null) => {
+          if (!logicalRange || !series) return;
+
+          const chartRef = chartRefs.current[chartIndex];
+          if (!chartRef || chartRef.isLoadingHistory || chartRef.hasMoreHistory === false) {
+            return;
+          }
+
+          // Get bars info to check if near left edge
+          const barsInfo = series.barsInLogicalRange(logicalRange);
+          if (!barsInfo) return;
+
+          // Check if we're within threshold of left edge
+          if (barsInfo.barsBefore !== null && barsInfo.barsBefore < HISTORY_FETCH_THRESHOLD) {
+            // Debounce the fetch
+            if (debounceTimer) clearTimeout(debounceTimer);
+
+            debounceTimer = setTimeout(() => {
+              loadMoreHistory(chartIndex, interval);
+            }, HISTORY_FETCH_DEBOUNCE);
+          }
+        };
+
+        // Subscribe to visible range changes
+        chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange);
+
+        // Return handler for cleanup
+        return handleVisibleLogicalRangeChange;
+      },
+      [loadMoreHistory]
+    );
+
     // Refresh all charts when a candle closes
     useEffect(() => {
       if (candleCloseRefresh === 0) return; // Skip initial render
@@ -796,6 +1007,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 secondarySeries,
                 wheelHandler,
                 container,
+                // Initialize historical data tracking
+                oldestTimestamp: undefined,
+                isLoadingHistory: false,
+                hasMoreHistory: true,
+                visibleRangeHandler: undefined,
               };
 
               // Use individual chart timeframe if set, otherwise use default
@@ -813,6 +1029,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               ) {
                 series.setData(data);
                 chart.timeScale().fitContent();
+
+                // Track oldest timestamp and set up scroll handler for historical loading
+                chartRefs.current[index].oldestTimestamp = (data[0].time as number) * 1000;
+                const handler = setupHistoricalScrollHandler(chart, series, index, actualTimeframe);
+                chartRefs.current[index].visibleRangeHandler = handler;
               }
 
               return { chart, series, secondarySeries };
@@ -848,12 +1069,16 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         clearTimeout(timeoutId);
         // Invalidate this run to prevent any pending async work from touching disposed charts
         runIdRef.current = thisRun + 1;
-        chartRefs.current.forEach(({ chart, wheelHandler, container }) => {
+        chartRefs.current.forEach(({ chart, wheelHandler, container, visibleRangeHandler }) => {
           if (chart) {
             try {
               // Remove wheel handler before removing chart
               if (wheelHandler && container) {
                 container.removeEventListener('wheel', wheelHandler);
+              }
+              // Unsubscribe from visible range changes
+              if (visibleRangeHandler) {
+                chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);
               }
               chart.remove();
             } catch (e) {
@@ -868,6 +1093,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       chartTimeframes,
       createSingleChart,
       fetchChartData,
+      setupHistoricalScrollHandler,
     ]);
 
     // Effect to handle individual chart expand - recreate chart when a collapsed chart is expanded
@@ -942,8 +1168,18 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           const index = parseInt(indexStr);
           const chartRef = chartRefs.current[index];
 
-          if (chartRef && chartRef.series) {
+          if (chartRef && chartRef.series && chartRef.chart) {
             try {
+              // Reset historical data tracking for this chart
+              chartRef.oldestTimestamp = undefined;
+              chartRef.hasMoreHistory = true;
+              chartRef.isLoadingHistory = false;
+
+              // Unsubscribe old handler if exists
+              if (chartRef.visibleRangeHandler) {
+                chartRef.chart.timeScale().unsubscribeVisibleLogicalRangeChange(chartRef.visibleRangeHandler);
+              }
+
               const data = await fetchChartData(timeframe);
               if (runIdRef.current !== thisRun) return;
               if (
@@ -953,6 +1189,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 chartRef.series.setData(data);
                 const timeScale = chartRef.chart?.timeScale();
                 timeScale?.fitContent();
+
+                // Set up new scroll handler with new timeframe
+                chartRef.oldestTimestamp = (data[0].time as number) * 1000;
+                const handler = setupHistoricalScrollHandler(chartRef.chart, chartRef.series, index, timeframe);
+                chartRef.visibleRangeHandler = handler;
               }
             } catch (error) {
               const errorMessage =
@@ -966,7 +1207,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       };
 
       reloadChartData();
-    }, [chartTimeframes, fetchChartData]);
+    }, [chartTimeframes, fetchChartData, setupHistoricalScrollHandler]);
 
     // Effect to handle auto-scale and log-scale changes
     useEffect(() => {
@@ -1246,6 +1487,14 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                           Ctrl + scroll to zoom
                         </span>
                       </div>
+
+                      {/* Historical data loading indicator */}
+                      {loadingHistoryCharts[timeframe.index] && (
+                        <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1.5 bg-background/90 px-2 py-1 rounded shadow-sm pointer-events-none">
+                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                          <span className="text-[10px] text-muted-foreground">Loading history...</span>
+                        </div>
+                      )}
 
                       {(loading || refreshingCharts) && (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/60 backdrop-blur-[2px] pointer-events-none">
