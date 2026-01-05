@@ -213,11 +213,15 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     const [candleCloseRefresh, setCandleCloseRefresh] = useState(0);
     // Track current candle OHLC data for each chart
     const currentCandleRef = useRef<{ [key: string]: { open: number; high: number; low: number; close: number } }>({});
+    // Track the symbol that charts are currently loaded for (to prevent cross-symbol updates)
+    const loadedSymbolRef = useRef<string | null>(null);
 
     // Clear candle tracking refs and reset historical data tracking when symbol changes
     useEffect(() => {
       currentCandleRef.current = {};
       lastPeriodRef.current = {};
+      // Mark charts as not ready for updates until new data is loaded
+      loadedSymbolRef.current = null;
       // Reset historical data tracking for all charts
       chartRefs.current.forEach(ref => {
         if (ref) {
@@ -258,7 +262,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           lastPeriodRef.current[periodKey] = currentPeriodStart;
 
           // Update last candle close price with current LTP
-          if (currentPrice && currentPrice > 0) {
+          // Skip if charts haven't loaded data for the current symbol yet
+          if (currentPrice && currentPrice > 0 && loadedSymbolRef.current === displaySymbol) {
             const chartRef = chartRefs.current[index];
             if (chartRef?.series) {
               try {
@@ -321,7 +326,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       updateCountdowns(); // Initial update
       const intervalId = setInterval(updateCountdowns, 1000);
       return () => clearInterval(intervalId);
-    }, [selectedTimeframes, chartTimeframes, currentPrice]);
+    }, [selectedTimeframes, chartTimeframes, currentPrice, displaySymbol]);
 
     // Persist settings to localStorage whenever they change
     useEffect(() => {
@@ -1049,6 +1054,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
           await Promise.all(promises);
           if (runIdRef.current !== thisRun) return;
+          // Mark charts as ready for live updates for this symbol
+          loadedSymbolRef.current = displaySymbol;
           setLoading(false);
         } catch (err) {
           const errorMessage =

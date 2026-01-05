@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
-import { ChevronDown, ChevronUp, HelpCircle, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, HelpCircle, RefreshCw, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
@@ -125,6 +125,22 @@ const TradingWindow = memo(function TradingWindow({
   const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
   const [isInfoPanelCollapsed, setIsInfoPanelCollapsed] = useState(true);
   const [isOrderBookCollapsed, setIsOrderBookCollapsed] = useState(true);
+  const [existingPosition, setExistingPosition] = useState<{
+    size: number;
+    entryPrice: number;
+    pnl: number;
+    leverage: number;
+  } | null>(null);
+  const [openOrders, setOpenOrders] = useState<Array<{
+    id: string;
+    symbol: string;
+    price: number;
+    stopPrice?: number;
+    orderType: string;
+    transactionType: string;
+    quantity: number;
+    status: string;
+  }>>([]);
 
   const [lastDetailsRefresh, setLastDetailsRefresh] = useState<number | null>(
     null
@@ -141,6 +157,8 @@ const TradingWindow = memo(function TradingWindow({
   useEffect(() => {
     hasSyncedLeverage.current = false;
     setHasUserEditedPrice(false);
+    setExistingPosition(null); // Clear stale position data until new data is fetched
+    setOpenOrders([]); // Clear stale order data until new data is fetched
     // When user changes symbol or account, reset price to latest LTP for LIMIT orders
     if (orderForm.type === "LIMIT") {
       const decimals = tickSize.includes(".")
@@ -519,6 +537,18 @@ const TradingWindow = memo(function TradingWindow({
           const equity = data.account.equity || 0;
           const available = data.account.availableBalance || equity;
           setAvailableBalance(available);
+
+          // Check for existing position
+          if (data.position && data.position.size !== 0) {
+            setExistingPosition({
+              size: data.position.size,
+              entryPrice: data.position.entryPrice,
+              pnl: data.position.pnl,
+              leverage: data.position.leverage,
+            });
+          } else {
+            setExistingPosition(null);
+          }
         }
       } else {
         const data = result.data;
@@ -538,16 +568,51 @@ const TradingWindow = memo(function TradingWindow({
     }
   }, [selectedAccount, symbol, userMaxLeverage]);
 
+  // Fetch open orders for the current symbol
+  const fetchOpenOrders = useCallback(async () => {
+    if (!selectedAccount) {
+      setOpenOrders([]);
+      return;
+    }
+
+    try {
+      const response = await api.get("/orders", {
+        params: {
+          vendor: selectedAccount.accountType,
+          accountId: selectedAccount._id,
+        },
+      });
+
+      if (response.data && Array.isArray(response.data)) {
+        // Filter orders for current symbol that are still open
+        const symbolOrders = response.data.filter(
+          (order: any) =>
+            order.symbol === symbol &&
+            (order.status === "NEW" ||
+              order.status === "OPEN" ||
+              order.status === "TRIGGER_PENDING" ||
+              order.status === "PARTIALLY_FILLED")
+        );
+        setOpenOrders(symbolOrders);
+      }
+    } catch (err) {
+      console.error("Failed to fetch open orders:", err);
+      setOpenOrders([]);
+    }
+  }, [selectedAccount, symbol]);
+
   useEffect(() => {
     if (!selectedAccount) return;
 
     fetchAccountAndPositionDetails();
+    fetchOpenOrders();
     const interval = setInterval(() => {
       fetchAccountAndPositionDetails();
+      fetchOpenOrders();
     }, DETAILS_REFRESH_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [fetchAccountAndPositionDetails, selectedAccount, symbol]);
+  }, [fetchAccountAndPositionDetails, fetchOpenOrders, selectedAccount, symbol]);
 
   const handleInputChange = (
     field: keyof OrderForm,
@@ -851,6 +916,11 @@ const TradingWindow = memo(function TradingWindow({
       setSuccess(successMessage);
       onOrderPlaced();
       setOrderRefreshTrigger((prev) => prev + 1); // Trigger refresh of positions/orders tabs
+      // Refresh open orders and position data to update chart lines
+      setTimeout(() => {
+        fetchOpenOrders();
+        fetchAccountAndPositionDetails();
+      }, 1000);
 
       if (response.data.warnings && response.data.warnings.length > 0) {
         // Parse warnings to see if they are SL/TP failures
@@ -1086,11 +1156,42 @@ const TradingWindow = memo(function TradingWindow({
     }
   }
 
+  // Existing position entry price line
+  if (existingPosition && existingPosition.entryPrice > 0) {
+    chartPriceLines.push({
+      price: existingPosition.entryPrice,
+      color: "#f59e0b", // Amber/Orange for position
+      lineWidth: 2,
+      lineStyle: 0, // Solid
+    });
+  }
+
+  // Open orders price lines
+  openOrders.forEach((order) => {
+    // Use stopPrice for stop orders, otherwise use price
+    const orderPrice = order.stopPrice && order.stopPrice > 0 ? order.stopPrice : order.price;
+    if (orderPrice > 0) {
+      const isBuy = order.transactionType === "BUY";
+      const isStopOrder = order.orderType.includes("STOP") || order.orderType.includes("TAKE_PROFIT");
+      chartPriceLines.push({
+        price: orderPrice,
+        color: isBuy ? "#86efac" : "#fca5a5", // Light green for buy, light red for sell
+        lineWidth: 1,
+        lineStyle: isStopOrder ? 1 : 0, // Dotted for stop orders, solid for limit
+      });
+    }
+  });
+
   const chartLegend = [
     { label: "Limit Buy", color: "#22c55e" },
     { label: "Limit Sell", color: "#ef4444" },
     { label: "Stop Loss", color: "#ec4899" },
     { label: "Take Profit", color: "#3b82f6" },
+    ...(existingPosition ? [{ label: "Position Entry", color: "#f59e0b" }] : []),
+    ...(openOrders.length > 0 ? [
+      { label: "Open Buy Order", color: "#86efac" },
+      { label: "Open Sell Order", color: "#fca5a5" },
+    ] : []),
   ];
 
   return (
@@ -1164,6 +1265,24 @@ const TradingWindow = memo(function TradingWindow({
       <div className="trading-content">
         <TooltipProvider>
           <div className="trading-form">
+            {/* Existing Position Warning */}
+            {existingPosition && (
+              <div className="existing-position-warning">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <div className="flex-1">
+                  <span className="font-medium">
+                    Existing {existingPosition.size > 0 ? "LONG" : "SHORT"} position
+                  </span>
+                  <span className="text-xs opacity-90 ml-2">
+                    {Math.abs(existingPosition.size)} @ ${existingPosition.entryPrice.toFixed(2)}
+                    <span className={existingPosition.pnl >= 0 ? "text-green-300 ml-2" : "text-red-300 ml-2"}>
+                      ({existingPosition.pnl >= 0 ? "+" : ""}{existingPosition.pnl.toFixed(2)})
+                    </span>
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* Position Sizing Slider */}
             <div className="form-group mb-4">
               <div className="flex justify-between items-center mb-1">
@@ -2058,6 +2177,33 @@ const TradingWindow = memo(function TradingWindow({
         .dark .trading-form {
           background: #09090b !important;
           border-right: 1px solid #27272a;
+        }
+
+        .existing-position-warning {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 12px;
+          margin-bottom: 12px;
+          background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+          color: white;
+          border-radius: 6px;
+          font-size: 0.875rem;
+          box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+          animation: pulse-warning 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-warning {
+          0%, 100% {
+            box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+          }
+          50% {
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.5);
+          }
+        }
+
+        .dark .existing-position-warning {
+          background: linear-gradient(135deg, #b45309 0%, #92400e 100%);
         }
 
         .trading-info-panel {
