@@ -204,6 +204,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       [interval: string]: boolean;
     }>(storedSettings.current?.collapsedCharts || {});
     const runIdRef = useRef(0);
+    // Track if charts have been initialized (to skip full reinit on symbol changes)
+    const chartsInitializedRef = useRef(false);
 
     // Countdown timers for each chart's current candle
     const [countdowns, setCountdowns] = useState<{ [key: string]: string }>({});
@@ -993,7 +995,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           chartRefs.current = [];
 
           // Wait for container refs to be available
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          await new Promise((resolve) => requestAnimationFrame(resolve));
 
           // Create charts for all selected timeframes
           const promises = selectedTimeframes.map(async (timeframe, index) => {
@@ -1054,7 +1056,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
           await Promise.all(promises);
           if (runIdRef.current !== thisRun) return;
-          // Mark charts as ready for live updates for this symbol
+          // Mark charts as initialized and ready for live updates
+          chartsInitializedRef.current = true;
           loadedSymbolRef.current = displaySymbol;
           setLoading(false);
         } catch (err) {
@@ -1070,7 +1073,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         // Bail out if a new run has started (unmounted or symbol changed)
         if (runIdRef.current !== thisRun) return;
         initializeCharts();
-      }, 500);
+      }, 100);
 
       return () => {
         clearTimeout(timeoutId);
@@ -1094,14 +1097,74 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           }
         });
       };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
-      displaySymbol,
       selectedTimeframes,
-      chartTimeframes,
       createSingleChart,
       fetchChartData,
       setupHistoricalScrollHandler,
     ]);
+
+    // Effect to update chart data in-place when symbol changes (without destroying charts)
+    useEffect(() => {
+      // Skip if charts haven't been initialized yet (handled by main effect)
+      if (!chartsInitializedRef.current || chartRefs.current.length === 0) {
+        return;
+      }
+
+      const thisRun = runIdRef.current + 1;
+      runIdRef.current = thisRun;
+
+      const updateChartsForSymbol = async () => {
+        setLoading(true);
+        setError(null);
+
+        // Clear the promise cache to force fresh fetches for new symbol
+        CHART_PROMISE_CACHE.clear();
+
+        // Update data for each chart WITHOUT destroying the chart
+        await Promise.all(
+          selectedTimeframes.map(async (timeframe, index) => {
+            const chartRef = chartRefs.current[index];
+            if (!chartRef?.series || !chartRef?.chart) return;
+
+            const actualTimeframe = chartTimeframes[index] || timeframe.interval;
+
+            try {
+              const data = await fetchChartData(actualTimeframe);
+              if (runIdRef.current !== thisRun) return;
+
+              if (data.length > 0 && typeof chartRef.series.setData === "function") {
+                chartRef.series.setData(data);
+                chartRef.chart?.timeScale().fitContent();
+
+                // Reset historical data tracking
+                chartRef.oldestTimestamp = (data[0].time as number) * 1000;
+                chartRef.hasMoreHistory = true;
+                chartRef.isLoadingHistory = false;
+
+                // Re-setup scroll handler with correct timeframe
+                if (chartRef.visibleRangeHandler) {
+                  chartRef.chart.timeScale().unsubscribeVisibleLogicalRangeChange(chartRef.visibleRangeHandler);
+                }
+                const handler = setupHistoricalScrollHandler(chartRef.chart, chartRef.series, index, actualTimeframe);
+                chartRef.visibleRangeHandler = handler;
+              }
+            } catch (err) {
+              // Handle per-chart errors silently
+            }
+          })
+        );
+
+        if (runIdRef.current === thisRun) {
+          loadedSymbolRef.current = displaySymbol;
+          setLoading(false);
+        }
+      };
+
+      updateChartsForSymbol();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [displaySymbol]);
 
     // Effect to handle individual chart expand - recreate chart when a collapsed chart is expanded
     useEffect(() => {
@@ -1406,7 +1469,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
         {/* Charts Grid */}
         {!isCollapsed && (
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {selectedTimeframes.map((timeframe) => {
               const isChartCollapsed = collapsedCharts[timeframe.interval] ?? false;
               return (
@@ -1482,7 +1545,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                   </div>
 
                   {!isChartCollapsed && (
-                    <div className="group relative flex-1 min-h-[250px] w-full bg-background animate-in slide-in-from-top-2 fade-in duration-200">
+                    <div className="group relative flex-1 min-h-[250px] w-full bg-background">
                       <div
                         ref={setContainerRef(timeframe.index)}
                         className="absolute inset-0 h-full w-full"
