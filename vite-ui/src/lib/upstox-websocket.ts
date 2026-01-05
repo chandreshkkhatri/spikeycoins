@@ -215,7 +215,7 @@ export class UpstoxWebSocket implements WebSocketManager {
         }
       };
 
-      this.ws.onclose = (ev: CloseEvent) => {
+      this.ws.onclose = (_ev: CloseEvent) => {
         this.isConnecting = false;
         this.clearPingInterval();
         if (!this.intentionalDisconnect) this.scheduleReconnect();
