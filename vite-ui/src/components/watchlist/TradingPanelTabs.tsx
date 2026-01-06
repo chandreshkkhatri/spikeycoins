@@ -861,9 +861,6 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                     <th className="text-left px-2 py-2 font-medium">Symbol</th>
                     <th className="text-right px-2 py-2 font-medium">Size</th>
                     <th className="text-right px-2 py-2 font-medium">Entry</th>
-                    <th className="text-right px-2 py-2 font-medium">B/E</th>
-                    <th className="text-right px-2 py-2 font-medium">Liq</th>
-                    <th className="text-right px-2 py-2 font-medium">Margin</th>
                     <th className="text-right px-2 py-2 font-medium">PNL</th>
                     <th className="text-center px-2 py-2 font-medium w-[140px]">
                       TP / SL
@@ -882,6 +879,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         {closingPosition === "all" ? "..." : "Close All"}
                       </Button>
                     </th>
+                    <th className="text-right px-2 py-2 font-medium">B/E</th>
+                    <th className="text-right px-2 py-2 font-medium">Liq</th>
+                    <th className="text-right px-2 py-2 font-medium">Margin</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -914,19 +914,6 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       <td className="text-right px-2 py-2">{pos.quantity}</td>
                       <td className="text-right px-2 py-2">
                         {formatPrice(pos.averagePrice)}
-                      </td>
-                      <td className="text-right px-2 py-2 text-muted-foreground">
-                        {pos.breakEvenPrice
-                          ? formatPrice(pos.breakEvenPrice)
-                          : "-"}
-                      </td>
-                      <td className="text-right px-2 py-2 text-orange-500">
-                        {pos.liquidationPrice
-                          ? formatPrice(pos.liquidationPrice)
-                          : "-"}
-                      </td>
-                      <td className="text-right px-2 py-2">
-                        {pos.margin ? `$${pos.margin.toFixed(2)}` : "-"}
                       </td>
                       <td
                         className={`text-right px-2 py-2 font-medium ${pos.pnl >= 0 ? "text-green-500" : "text-red-500"
@@ -1161,6 +1148,19 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                             Lmt
                           </Button>
                         </div>
+                      </td>
+                      <td className="text-right px-2 py-2 text-muted-foreground">
+                        {pos.breakEvenPrice
+                          ? formatPrice(pos.breakEvenPrice)
+                          : "-"}
+                      </td>
+                      <td className="text-right px-2 py-2 text-orange-500">
+                        {pos.liquidationPrice
+                          ? formatPrice(pos.liquidationPrice)
+                          : "-"}
+                      </td>
+                      <td className="text-right px-2 py-2">
+                        {pos.margin ? `$${pos.margin.toFixed(2)}` : "-"}
                       </td>
                     </tr>
                   ))}
