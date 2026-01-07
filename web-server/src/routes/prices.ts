@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import binancePriceService from "../lib/binance-price-service";
 
-const router = Router();
+const router: Router = Router();
 
 // GET /api/prices - Get all cached prices
 router.get("/", async (req: Request, res: Response) => {

@@ -5,7 +5,7 @@ import { BinanceService } from "../lib/binance-service";
 import { getInstrumentModel } from "../models/instrument";
 import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 
-const router = Router();
+const router: Router = Router();
 
 // Helper to get userId - uses authenticated user or falls back to query param/body
 // No more default_user fallback - authentication is required

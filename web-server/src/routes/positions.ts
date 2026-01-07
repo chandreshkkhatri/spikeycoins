@@ -4,7 +4,7 @@ import upstoxService from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
 import { getAccountById, IAccount } from "../models/account";
 
-const router = Router();
+const router: Router = Router();
 
 const setNoCacheHeaders = (response: Response) => {
   response.set({

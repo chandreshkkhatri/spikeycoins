@@ -4,7 +4,7 @@ import upstoxService from "../lib/upstox-service";
 import { getAccountById } from "../models/account";
 import axios, { AxiosRequestConfig } from "axios";
 
-const router = Router();
+const router: Router = Router();
 
 // Helper function for retrying requests
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -12,12 +12,12 @@ const fetchWithRetry = async (
   url: string,
   config: AxiosRequestConfig,
   retries = 3,
-  delay = 1000
+  delay = 1000,
 ) => {
   for (let i = 0; i < retries; i++) {
     try {
       return await axios.get(url, config);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       const isLastAttempt = i === retries - 1;
       if (isLastAttempt) throw error;
@@ -29,10 +29,10 @@ const fetchWithRetry = async (
         error.code === "ETIMEDOUT"
       ) {
         console.log(
-          `Request failed with ${error.code}, retrying (${i + 1}/${retries})...`
+          `Request failed with ${error.code}, retrying (${i + 1}/${retries})...`,
         );
         await new Promise((resolve) =>
-          setTimeout(resolve, delay * Math.pow(2, i))
+          setTimeout(resolve, delay * Math.pow(2, i)),
         ); // Exponential backoff
         continue;
       }
@@ -76,7 +76,11 @@ router.get("/", async (req: Request, res: Response) => {
         if (!segment) return null;
         const value = Array.isArray(segment) ? segment[0] : segment;
         const normalized = value.toLowerCase();
-        if (normalized.includes("future") || normalized.includes("usdm") || normalized === "futures") {
+        if (
+          normalized.includes("future") ||
+          normalized.includes("usdm") ||
+          normalized === "futures"
+        ) {
           return "usdm";
         }
         if (normalized.includes("spot")) {
@@ -99,7 +103,7 @@ router.get("/", async (req: Request, res: Response) => {
       }
 
       const requestedSegment = normalizeSegment(
-        marketType as string | string[] | undefined
+        marketType as string | string[] | undefined,
       );
       if (requestedSegment) {
         tradingSegment = requestedSegment;
@@ -158,7 +162,7 @@ router.get("/", async (req: Request, res: Response) => {
           data: historicalData,
           accountType: "binance",
         });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         console.error("Error fetching Binance historical data:", error);
 
@@ -209,7 +213,7 @@ router.get("/", async (req: Request, res: Response) => {
 
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
-        account.apiSecret
+        account.apiSecret,
       );
       kiteConnectService.setAccessToken(account.accessToken);
       historicalData = await kiteConnectService.getHistoricalData(
@@ -218,7 +222,7 @@ router.get("/", async (req: Request, res: Response) => {
         (fromDate as string) ||
           new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
         (toDate as string) || new Date().toISOString(),
-        false
+        false,
       );
     } else if (account.accountType === "upstox") {
       // Resolve instrumentToken from symbol if not provided
@@ -233,20 +237,20 @@ router.get("/", async (req: Request, res: Response) => {
           // Map common index symbols to Upstox format (with proper casing)
           // Include variants with and without spaces to handle different frontend inputs
           const indexMapping: Record<string, string> = {
-            "NIFTY": "NSE_INDEX|Nifty 50",
+            NIFTY: "NSE_INDEX|Nifty 50",
             "NIFTY 50": "NSE_INDEX|Nifty 50",
-            "NIFTY50": "NSE_INDEX|Nifty 50",
-            "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+            NIFTY50: "NSE_INDEX|Nifty 50",
+            BANKNIFTY: "NSE_INDEX|Nifty Bank",
             "BANK NIFTY": "NSE_INDEX|Nifty Bank",
             "NIFTY BANK": "NSE_INDEX|Nifty Bank",
-            "NIFTYBANK": "NSE_INDEX|Nifty Bank",
-            "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+            NIFTYBANK: "NSE_INDEX|Nifty Bank",
+            FINNIFTY: "NSE_INDEX|Nifty Fin Service",
             "FIN NIFTY": "NSE_INDEX|Nifty Fin Service",
             "NIFTY FIN SERVICE": "NSE_INDEX|Nifty Fin Service",
-            "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT",
+            MIDCPNIFTY: "NSE_INDEX|NIFTY MID SELECT",
             "MIDCP NIFTY": "NSE_INDEX|NIFTY MID SELECT",
             "NIFTY MID SELECT": "NSE_INDEX|NIFTY MID SELECT",
-            "SENSEX": "BSE_INDEX|SENSEX",
+            SENSEX: "BSE_INDEX|SENSEX",
           };
 
           // Check if it's a known index
@@ -257,10 +261,22 @@ router.get("/", async (req: Request, res: Response) => {
             const marketTypeStr = (marketType as string)?.toLowerCase() || "";
             let exchange = "NSE_EQ"; // default
 
-            if (marketTypeStr.includes("future") || marketTypeStr === "futures") {
+            if (
+              marketTypeStr.includes("future") ||
+              marketTypeStr === "futures"
+            ) {
               // For futures on indices, use index data instead (futures need full contract ID)
-              if (["NIFTY", "NIFTY50", "BANKNIFTY", "NIFTYBANK", "FINNIFTY"].includes(symbolStr)) {
-                resolvedInstrumentToken = indexMapping[symbolStr] || `NSE_INDEX|${symbolStr}`;
+              if (
+                [
+                  "NIFTY",
+                  "NIFTY50",
+                  "BANKNIFTY",
+                  "NIFTYBANK",
+                  "FINNIFTY",
+                ].includes(symbolStr)
+              ) {
+                resolvedInstrumentToken =
+                  indexMapping[symbolStr] || `NSE_INDEX|${symbolStr}`;
               } else {
                 exchange = "NSE_FO";
                 resolvedInstrumentToken = `${exchange}|${symbolStr}`;
@@ -271,7 +287,10 @@ router.get("/", async (req: Request, res: Response) => {
             } else if (marketTypeStr.includes("option")) {
               exchange = "NSE_FO";
               resolvedInstrumentToken = `${exchange}|${symbolStr}`;
-            } else if (marketTypeStr.includes("commodity") || marketTypeStr === "mcx") {
+            } else if (
+              marketTypeStr.includes("commodity") ||
+              marketTypeStr === "mcx"
+            ) {
               exchange = "MCX_FO";
               resolvedInstrumentToken = `${exchange}|${symbolStr}`;
             } else {
@@ -296,17 +315,32 @@ router.get("/", async (req: Request, res: Response) => {
       const intervalStr = (interval as string).toLowerCase();
       let upstoxInterval: string;
 
-      if (intervalStr === "1m" || intervalStr === "5m" || intervalStr === "1minute") {
+      if (
+        intervalStr === "1m" ||
+        intervalStr === "5m" ||
+        intervalStr === "1minute"
+      ) {
         upstoxInterval = "1minute";
-      } else if (intervalStr === "15m" || intervalStr === "30m" || intervalStr === "30minute") {
+      } else if (
+        intervalStr === "15m" ||
+        intervalStr === "30m" ||
+        intervalStr === "30minute"
+      ) {
         upstoxInterval = "30minute";
-      } else if (intervalStr === "1h" || intervalStr === "4h" || intervalStr === "60m") {
+      } else if (
+        intervalStr === "1h" ||
+        intervalStr === "4h" ||
+        intervalStr === "60m"
+      ) {
         upstoxInterval = "30minute"; // closest available
       } else if (intervalStr === "1d" || intervalStr === "day") {
         upstoxInterval = "day";
       } else if (intervalStr === "1w" || intervalStr === "week") {
         upstoxInterval = "week";
-      } else if (intervalStr === "1M" || intervalStr.toLowerCase() === "month") {
+      } else if (
+        intervalStr === "1M" ||
+        intervalStr.toLowerCase() === "month"
+      ) {
         upstoxInterval = "month";
       } else {
         upstoxInterval = "day"; // default fallback
@@ -316,22 +350,28 @@ router.get("/", async (req: Request, res: Response) => {
       upstoxService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isSandbox
+        isSandbox,
       );
       upstoxService.setAccessToken(account.accessToken);
       const rawCandles = await upstoxService.getHistoricalData(
         resolvedInstrumentToken,
         upstoxInterval,
         (toDate as string) || new Date().toISOString().split("T")[0],
-        fromDate as string
+        fromDate as string,
       );
 
       // Transform Upstox candle format to standard format
       // Upstox format: [timestamp, open, high, low, close, volume, oi]
       historicalData = (rawCandles || [])
-        .filter((candle: any[]) => Array.isArray(candle) && candle.length >= 5 && candle[0])
+        .filter(
+          (candle: any[]) =>
+            Array.isArray(candle) && candle.length >= 5 && candle[0],
+        )
         .map((candle: any[]) => ({
-          date: typeof candle[0] === 'string' ? candle[0] : new Date(candle[0]).toISOString(),
+          date:
+            typeof candle[0] === "string"
+              ? candle[0]
+              : new Date(candle[0]).toISOString(),
           open: parseFloat(candle[1]) || 0,
           high: parseFloat(candle[2]) || 0,
           low: parseFloat(candle[3]) || 0,
@@ -339,7 +379,10 @@ router.get("/", async (req: Request, res: Response) => {
           volume: parseFloat(candle[5]) || 0,
         }))
         .filter((d: any) => !isNaN(new Date(d.date).getTime()))
-        .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        .sort(
+          (a: any, b: any) =>
+            new Date(a.date).getTime() - new Date(b.date).getTime(),
+        );
     } else {
       return res
         .status(400)
@@ -351,7 +394,7 @@ router.get("/", async (req: Request, res: Response) => {
       data: historicalData,
       accountType: account.accountType,
     });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error("Error fetching historical data:", error);
     return res.status(500).json({

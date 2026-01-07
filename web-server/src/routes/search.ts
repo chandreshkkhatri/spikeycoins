@@ -4,7 +4,7 @@ import * as zlib from "zlib";
 import { promisify } from "util";
 
 const gunzip = promisify(zlib.gunzip);
-const router = Router();
+const router: Router = Router();
 
 // Cache for Upstox instruments (exchange -> instruments array)
 interface UpstoxInstrument {
@@ -23,10 +23,13 @@ interface UpstoxInstrument {
   segment: string;
 }
 
-const upstoxInstrumentCache: Map<string, {
-  data: UpstoxInstrument[];
-  timestamp: number;
-}> = new Map();
+const upstoxInstrumentCache: Map<
+  string,
+  {
+    data: UpstoxInstrument[];
+    timestamp: number;
+  }
+> = new Map();
 
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -41,7 +44,9 @@ const UPSTOX_INSTRUMENT_URLS: Record<string, string> = {
   BCD: "https://assets.upstox.com/market-quote/instruments/exchange/BCD.json.gz",
 };
 
-async function fetchUpstoxInstruments(exchange: string): Promise<UpstoxInstrument[]> {
+async function fetchUpstoxInstruments(
+  exchange: string,
+): Promise<UpstoxInstrument[]> {
   const cached = upstoxInstrumentCache.get(exchange);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
@@ -71,7 +76,10 @@ async function fetchUpstoxInstruments(exchange: string): Promise<UpstoxInstrumen
     console.log(`Cached ${instruments.length} instruments for ${exchange}`);
     return instruments;
   } catch (error: any) {
-    console.error(`Error fetching Upstox instruments for ${exchange}:`, error.message);
+    console.error(
+      `Error fetching Upstox instruments for ${exchange}:`,
+      error.message,
+    );
     // Return cached data if available, even if stale
     if (cached) {
       console.log(`Using stale cache for ${exchange}`);
@@ -99,7 +107,7 @@ router.get("/symbols", async (req: Request, res: Response) => {
       // Search Binance symbols
       try {
         const response = await axios.get(
-          "https://api.binance.com/api/v3/exchangeInfo"
+          "https://api.binance.com/api/v3/exchangeInfo",
         );
         const symbols = response.data.symbols || [];
 
@@ -108,7 +116,7 @@ router.get("/symbols", async (req: Request, res: Response) => {
             (s: any) =>
               s.symbol.toLowerCase().includes(searchQuery) ||
               s.baseAsset.toLowerCase().includes(searchQuery) ||
-              s.quoteAsset.toLowerCase().includes(searchQuery)
+              s.quoteAsset.toLowerCase().includes(searchQuery),
           )
           .slice(0, 50)
           .map((s: any) => ({
@@ -159,7 +167,9 @@ router.get("/symbols", async (req: Request, res: Response) => {
 
       // Search through instruments
       const matchingInstruments = allInstruments.filter((inst) => {
-        const symbolMatch = inst.tradingsymbol?.toLowerCase().includes(searchQuery);
+        const symbolMatch = inst.tradingsymbol
+          ?.toLowerCase()
+          .includes(searchQuery);
         const nameMatch = inst.name?.toLowerCase().includes(searchQuery);
         return symbolMatch || nameMatch;
       });
@@ -176,12 +186,16 @@ router.get("/symbols", async (req: Request, res: Response) => {
         if (bSymbol === searchQuery && aSymbol !== searchQuery) return 1;
 
         // Symbol starts with query
-        if (aSymbol.startsWith(searchQuery) && !bSymbol.startsWith(searchQuery)) return -1;
-        if (bSymbol.startsWith(searchQuery) && !aSymbol.startsWith(searchQuery)) return 1;
+        if (aSymbol.startsWith(searchQuery) && !bSymbol.startsWith(searchQuery))
+          return -1;
+        if (bSymbol.startsWith(searchQuery) && !aSymbol.startsWith(searchQuery))
+          return 1;
 
         // Name starts with query
-        if (aName.startsWith(searchQuery) && !bName.startsWith(searchQuery)) return -1;
-        if (bName.startsWith(searchQuery) && !aName.startsWith(searchQuery)) return 1;
+        if (aName.startsWith(searchQuery) && !bName.startsWith(searchQuery))
+          return -1;
+        if (bName.startsWith(searchQuery) && !aName.startsWith(searchQuery))
+          return 1;
 
         // Alphabetical
         return aSymbol.localeCompare(bSymbol);

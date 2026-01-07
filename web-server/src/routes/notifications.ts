@@ -4,19 +4,19 @@ import PushSubscription from "../models/push-subscription";
 import pushNotificationService from "../lib/push-notification-service";
 import connectDB from "../lib/mongodb";
 
-const router = Router();
+const router: Router = Router();
 
 // GET /api/notifications/vapid-public-key - Get VAPID public key for subscription
 router.get("/vapid-public-key", (req: Request, res: Response) => {
   const publicKey = pushNotificationService.getVapidPublicKey();
-  
+
   if (!publicKey) {
     return res.status(503).json({
       error: "Push notifications not configured",
       configured: false,
     });
   }
-  
+
   return res.json({
     publicKey,
     configured: true,
@@ -53,7 +53,7 @@ router.post(
             userId,
             keys: subscription.keys,
             userAgent: userAgent || req.headers["user-agent"],
-          }
+          },
         );
 
         return res.json({
@@ -83,7 +83,7 @@ router.post(
         error: "Failed to subscribe to push notifications",
       });
     }
-  }
+  },
 );
 
 // DELETE /api/notifications/unsubscribe - Unsubscribe from push notifications
@@ -124,7 +124,7 @@ router.delete(
         error: "Failed to unsubscribe from push notifications",
       });
     }
-  }
+  },
 );
 
 // GET /api/notifications/subscriptions - Get user's subscriptions
@@ -138,7 +138,7 @@ router.get(
       await connectDB();
 
       const subscriptions = await PushSubscription.find({ userId }).select(
-        "endpoint userAgent createdAt"
+        "endpoint userAgent createdAt",
       );
 
       return res.json({
@@ -152,7 +152,7 @@ router.get(
         error: "Failed to get subscriptions",
       });
     }
-  }
+  },
 );
 
 // POST /api/notifications/test - Send a test notification (for debugging)
@@ -175,7 +175,7 @@ router.post(
             type: "test",
             timestamp: Date.now(),
           },
-        }
+        },
       );
 
       const sentCount = result.success;
@@ -193,7 +193,7 @@ router.post(
         error: "Failed to send test notification",
       });
     }
-  }
+  },
 );
 
 export default router;

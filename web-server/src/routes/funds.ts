@@ -4,7 +4,7 @@ import upstoxService from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
 import { getAccountById } from "../models/account";
 
-const router = Router();
+const router: Router = Router();
 
 // GET /api/funds - Get funds/margins for an account
 router.get("/", async (req: Request, res: Response) => {

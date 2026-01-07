@@ -5,7 +5,7 @@ import { BinanceService } from "../lib/binance-service";
 import pushNotificationService from "../lib/push-notification-service";
 import { getAccountById } from "../models/account";
 
-const router = Router();
+const router: Router = Router();
 
 // GET /api/orders - Get all orders for an account
 router.get("/", async (req: Request, res: Response) => {
@@ -65,6 +65,7 @@ router.get("/", async (req: Request, res: Response) => {
       console.log(`[Orders] Using trading segment: ${tradingSegment}`);
       const isTestnet = account.metadata?.testnet || false;
 
+      const binanceService = new BinanceService();
       binanceService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,

@@ -19,7 +19,7 @@ import {
   AuthenticatedRequest,
 } from "../lib/auth-middleware";
 
-const router = Router();
+const router: Router = Router();
 
 // Google OAuth configuration
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";

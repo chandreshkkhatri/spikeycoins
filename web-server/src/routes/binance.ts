@@ -3,7 +3,7 @@ import { BinanceService } from "../lib/binance-service";
 import binancePriceService from "../lib/binance-price-service";
 import { getAccountById } from "../models/account";
 
-const router = Router();
+const router: Router = Router();
 const AGGREGATED_HISTORY_SYMBOL_LIMIT = 20;
 
 const normalizeSymbol = (symbol?: string) =>
@@ -244,6 +244,7 @@ router.post("/leverage", async (req: Request, res: Response) => {
 
     const isTestnet = account.metadata?.testnet || false;
 
+    const binanceService = new BinanceService();
     binanceService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
@@ -296,6 +297,7 @@ router.post("/margin-type", async (req: Request, res: Response) => {
 
     const isTestnet = account.metadata?.testnet || false;
 
+    const binanceService = new BinanceService();
     binanceService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,

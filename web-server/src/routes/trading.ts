@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 
-const router = Router();
+const router: Router = Router();
 
 // Unified trading endpoints - aggregates data from multiple sources
 
@@ -56,14 +56,3 @@ router.get("/holdings", async (req: Request, res: Response) => {
 });
 
 export default router;
-
-
-
-
-
-
-
-
-
-
-

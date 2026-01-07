@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import upstoxService from "../lib/upstox-service";
 import { getAccountById } from "../models/account";
 
-const router = Router();
+const router: Router = Router();
 
 // Upstox-specific endpoints
 
@@ -160,7 +160,8 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
       return res.status(401).json({
         error: "Account not authenticated",
         code: "AUTH_REQUIRED",
-        message: "Please re-authenticate your Upstox account to enable live market data."
+        message:
+          "Please re-authenticate your Upstox account to enable live market data.",
       });
     }
 
@@ -187,7 +188,7 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
             Authorization: `Bearer ${account.accessToken}`,
             "Api-Version": "2.0",
           },
-        }
+        },
       );
 
       const authData = await authResponse.json();
@@ -201,7 +202,8 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
             success: false,
             error: "Access token expired or invalid",
             code: "TOKEN_EXPIRED",
-            message: "Your Upstox session has expired. Please re-authenticate from the Accounts page.",
+            message:
+              "Your Upstox session has expired. Please re-authenticate from the Accounts page.",
           });
         }
 
@@ -211,7 +213,8 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
             success: false,
             error: "Market data not available",
             code: "MARKET_CLOSED",
-            message: "Live market data is not available outside trading hours. Historical data will still be shown.",
+            message:
+              "Live market data is not available outside trading hours. Historical data will still be shown.",
           });
         }
 
@@ -245,7 +248,8 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
         success: false,
         error: "Unable to connect to Upstox",
         code: "CONNECTION_ERROR",
-        message: "Could not reach Upstox servers. Please check your internet connection.",
+        message:
+          "Could not reach Upstox servers. Please check your internet connection.",
         details: fetchError.message,
       });
     }
