@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
-import binanceService from "../lib/binance-service";
+import { BinanceService } from "../lib/binance-service";
 import { getAccountById } from "../models/account";
 
 const router = Router();
@@ -29,7 +29,7 @@ router.get("/", async (req: Request, res: Response) => {
       }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
-        account.apiSecret
+        account.apiSecret,
       );
       kiteConnectService.setAccessToken(account.accessToken);
       funds = await kiteConnectService.getMargins();
@@ -41,7 +41,7 @@ router.get("/", async (req: Request, res: Response) => {
       upstoxService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isSandbox
+        isSandbox,
       );
       upstoxService.setAccessToken(account.accessToken);
       funds = await upstoxService.getFunds();
@@ -50,10 +50,12 @@ router.get("/", async (req: Request, res: Response) => {
       const tradingSegment = account.metadata?.tradingSegment || "spot";
       const isTestnet = account.metadata?.testnet || false;
 
+      // Instantiate service for this request
+      const binanceService = new BinanceService();
       binanceService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isTestnet
+        isTestnet,
       );
 
       if (tradingSegment === "usdm") {
@@ -78,7 +80,7 @@ router.get("/", async (req: Request, res: Response) => {
           canWithdraw: spotAccount.canWithdraw,
           canDeposit: spotAccount.canDeposit,
           balances: spotAccount.balances.filter(
-            (b: any) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0
+            (b: any) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0,
           ),
         };
       }

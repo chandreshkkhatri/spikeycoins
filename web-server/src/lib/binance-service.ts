@@ -5,27 +5,27 @@ import axios, { AxiosInstance } from "axios";
  * Binance Service - Unified service for Spot and USD(S)-M Futures trading
  * Documentation: https://developers.binance.com/docs/binance-spot-api-docs/rest-api
  */
-class BinanceService {
+export class BinanceService {
   private apiKey: string = "";
   private apiSecret: string = "";
   private spotClient: AxiosInstance;
   private futuresClient: AxiosInstance;
   private testnet: boolean = false;
 
-  // Cache for exchange info to avoid excessive API calls
-  private futuresExchangeInfoCache: any = null;
-  private futuresExchangeInfoCacheTime: number = 0;
-  private spotExchangeInfoCache: any = null;
-  private spotExchangeInfoCacheTime: number = 0;
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
+  // Cache for exchange info to avoid excessive API calls - STATIC (Shared)
+  private static futuresExchangeInfoCache: any = null;
+  private static futuresExchangeInfoCacheTime: number = 0;
+  private static spotExchangeInfoCache: any = null;
+  private static spotExchangeInfoCacheTime: number = 0;
+  private static readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
-  // Rate limiting to prevent IP bans
-  private requestCount: number = 0;
-  private requestWindowStart: number = Date.now();
-  private readonly REQUEST_WINDOW = 60 * 1000; // 1 minute window
-  private readonly MAX_REQUESTS_PER_WINDOW = 1200; // Conservative limit (Binance allows 1200/min)
+  // Rate limiting to prevent IP bans - STATIC (Shared)
+  private static requestCount: number = 0;
+  private static requestWindowStart: number = Date.now();
+  private static readonly REQUEST_WINDOW = 60 * 1000; // 1 minute window
+  private static readonly MAX_REQUESTS_PER_WINDOW = 1200; // Conservative limit
 
-  // Base URLs according to Binance API docs
+  // Base URLs
   private readonly SPOT_BASE_URL = "https://api.binance.com";
   private readonly SPOT_TESTNET_URL = "https://testnet.binance.vision";
   private readonly FUTURES_BASE_URL = "https://fapi.binance.com";
@@ -49,7 +49,7 @@ class BinanceService {
   initializeWithCredentials(
     apiKey: string,
     apiSecret: string,
-    testnet: boolean = false
+    testnet: boolean = false,
   ) {
     this.apiKey = apiKey;
     this.apiSecret = apiSecret;
@@ -85,22 +85,27 @@ class BinanceService {
     const now = Date.now();
 
     // Reset counter if we're in a new window
-    if (now - this.requestWindowStart >= this.REQUEST_WINDOW) {
-      this.requestCount = 0;
-      this.requestWindowStart = now;
+    if (
+      now - BinanceService.requestWindowStart >=
+      BinanceService.REQUEST_WINDOW
+    ) {
+      BinanceService.requestCount = 0;
+      BinanceService.requestWindowStart = now;
     }
 
     // Check if we've exceeded the limit
-    if (this.requestCount >= this.MAX_REQUESTS_PER_WINDOW) {
-      const waitTime = this.REQUEST_WINDOW - (now - this.requestWindowStart);
+    if (BinanceService.requestCount >= BinanceService.MAX_REQUESTS_PER_WINDOW) {
+      const waitTime =
+        BinanceService.REQUEST_WINDOW -
+        (now - BinanceService.requestWindowStart);
       throw new Error(
         `Rate limit exceeded. Please wait ${Math.ceil(
-          waitTime / 1000
-        )}s before making more requests. Use websocket streams for live price updates.`
+          waitTime / 1000,
+        )}s before making more requests. Use websocket streams for live price updates.`,
       );
     }
 
-    this.requestCount++;
+    BinanceService.requestCount++;
   }
 
   /**
@@ -142,16 +147,16 @@ class BinanceService {
       this.checkRateLimit();
       const signedParams = this.signRequest();
       const response = await this.spotClient.get(
-        `/api/v3/account?${signedParams}`
+        `/api/v3/account?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Spot getAccount error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to fetch Binance Spot account"
+        error.response?.data?.msg || "Failed to fetch Binance Spot account",
       );
     }
   }
@@ -165,7 +170,7 @@ class BinanceService {
       // Filter out zero balances
       return accountData.balances.filter(
         (balance: any) =>
-          parseFloat(balance.free) > 0 || parseFloat(balance.locked) > 0
+          parseFloat(balance.free) > 0 || parseFloat(balance.locked) > 0,
       );
     } catch (error: any) {
       console.error("Binance Spot getBalances error:", error.message);
@@ -181,16 +186,16 @@ class BinanceService {
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
       const response = await this.spotClient.get(
-        `/api/v3/openOrders?${signedParams}`
+        `/api/v3/openOrders?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Spot getOpenOrders error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to fetch Binance Spot open orders"
+        error.response?.data?.msg || "Failed to fetch Binance Spot open orders",
       );
     }
   }
@@ -202,17 +207,17 @@ class BinanceService {
     try {
       const signedParams = this.signRequest({ symbol, limit });
       const response = await this.spotClient.get(
-        `/api/v3/allOrders?${signedParams}`
+        `/api/v3/allOrders?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Spot getAllOrders error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to fetch Binance Spot order history"
+          "Failed to fetch Binance Spot order history",
       );
     }
   }
@@ -232,16 +237,16 @@ class BinanceService {
       this.checkRateLimit();
       const signedParams = this.signRequest(params);
       const response = await this.spotClient.post(
-        `/api/v3/order?${signedParams}`
+        `/api/v3/order?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Spot placeOrder error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to place Binance Spot order"
+        error.response?.data?.msg || "Failed to place Binance Spot order",
       );
     }
   }
@@ -253,16 +258,16 @@ class BinanceService {
     try {
       const signedParams = this.signRequest({ symbol, orderId });
       const response = await this.spotClient.delete(
-        `/api/v3/order?${signedParams}`
+        `/api/v3/order?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Spot cancelOrder error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to cancel Binance Spot order"
+        error.response?.data?.msg || "Failed to cancel Binance Spot order",
       );
     }
   }
@@ -277,16 +282,16 @@ class BinanceService {
       this.checkRateLimit();
       const signedParams = this.signRequest();
       const response = await this.futuresClient.get(
-        `/fapi/v2/account?${signedParams}`
+        `/fapi/v2/account?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getAccount error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to fetch Binance Futures account"
+        error.response?.data?.msg || "Failed to fetch Binance Futures account",
       );
     }
   }
@@ -298,16 +303,16 @@ class BinanceService {
     try {
       const signedParams = this.signRequest();
       const response = await this.futuresClient.get(
-        `/fapi/v2/balance?${signedParams}`
+        `/fapi/v2/balance?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getBalance error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to fetch Binance Futures balance"
+        error.response?.data?.msg || "Failed to fetch Binance Futures balance",
       );
     }
   }
@@ -319,19 +324,20 @@ class BinanceService {
     try {
       const signedParams = this.signRequest();
       const response = await this.futuresClient.get(
-        `/fapi/v2/positionRisk?${signedParams}`
+        `/fapi/v2/positionRisk?${signedParams}`,
       );
       // Filter out positions with no quantity
       return response.data.filter(
-        (position: any) => parseFloat(position.positionAmt) !== 0
+        (position: any) => parseFloat(position.positionAmt) !== 0,
       );
     } catch (error: any) {
       console.error(
         "Binance Futures getPositions error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to fetch Binance Futures positions"
+        error.response?.data?.msg ||
+          "Failed to fetch Binance Futures positions",
       );
     }
   }
@@ -345,17 +351,17 @@ class BinanceService {
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
-        `/fapi/v1/openOrders?${signedParams}`
+        `/fapi/v1/openOrders?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getOpenOrders error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to fetch Binance Futures open orders"
+          "Failed to fetch Binance Futures open orders",
       );
     }
   }
@@ -373,17 +379,17 @@ class BinanceService {
       }
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
-        `/fapi/v1/openAlgoOrders?${signedParams}`
+        `/fapi/v1/openAlgoOrders?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getOpenAlgoOrders error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to fetch Binance Futures open Algo orders"
+          "Failed to fetch Binance Futures open Algo orders",
       );
     }
   }
@@ -399,7 +405,7 @@ class BinanceService {
     symbol?: string,
     limit: number = 100,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
   ) {
     try {
       const params: any = { limit };
@@ -408,17 +414,17 @@ class BinanceService {
       if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
-        `/fapi/v1/allOrders?${signedParams}`
+        `/fapi/v1/allOrders?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getAllOrders error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to fetch Binance Futures order history"
+          "Failed to fetch Binance Futures order history",
       );
     }
   }
@@ -434,7 +440,7 @@ class BinanceService {
     symbol?: string,
     limit: number = 50,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
   ) {
     try {
       const params: any = { limit };
@@ -443,17 +449,17 @@ class BinanceService {
       if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
-        `/fapi/v1/userTrades?${signedParams}`
+        `/fapi/v1/userTrades?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getUserTrades error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to fetch Binance Futures trade history"
+          "Failed to fetch Binance Futures trade history",
       );
     }
   }
@@ -470,7 +476,7 @@ class BinanceService {
     incomeType?: string,
     limit: number = 100,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
   ) {
     try {
       const params: Record<string, unknown> = { limit };
@@ -479,17 +485,17 @@ class BinanceService {
       if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
-        `/fapi/v1/income?${signedParams}`
+        `/fapi/v1/income?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getIncomeHistory error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to fetch Binance Futures income history"
+          "Failed to fetch Binance Futures income history",
       );
     }
   }
@@ -505,12 +511,12 @@ class BinanceService {
     side: "BUY" | "SELL";
     positionSide?: "BOTH" | "LONG" | "SHORT";
     type:
-    | "LIMIT"
-    | "MARKET"
-    | "STOP"
-    | "TAKE_PROFIT"
-    | "STOP_MARKET"
-    | "TAKE_PROFIT_MARKET";
+      | "LIMIT"
+      | "MARKET"
+      | "STOP"
+      | "TAKE_PROFIT"
+      | "STOP_MARKET"
+      | "TAKE_PROFIT_MARKET";
     quantity?: number; // Optional when closePosition=true
     price?: number;
     stopPrice?: number;
@@ -530,16 +536,16 @@ class BinanceService {
       }
       const signedParams = this.signRequest(apiParams as Record<string, any>);
       const response = await this.futuresClient.post(
-        `/fapi/v1/order?${signedParams}`
+        `/fapi/v1/order?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures placeOrder error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to place Binance Futures order"
+        error.response?.data?.msg || "Failed to place Binance Futures order",
       );
     }
   }
@@ -554,11 +560,11 @@ class BinanceService {
     side: "BUY" | "SELL";
     positionSide?: "BOTH" | "LONG" | "SHORT";
     type:
-    | "STOP"
-    | "TAKE_PROFIT"
-    | "STOP_MARKET"
-    | "TAKE_PROFIT_MARKET"
-    | "TRAILING_STOP_MARKET";
+      | "STOP"
+      | "TAKE_PROFIT"
+      | "STOP_MARKET"
+      | "TAKE_PROFIT_MARKET"
+      | "TRAILING_STOP_MARKET";
     quantity?: number;
     price?: number;
     triggerPrice: number; // Required for conditional orders (replaces stopPrice)
@@ -609,17 +615,18 @@ class BinanceService {
 
       const signedParams = this.signRequest(apiParams as Record<string, any>);
       const response = await this.futuresClient.post(
-        `/fapi/v1/algoOrder?${signedParams}`
+        `/fapi/v1/algoOrder?${signedParams}`,
       );
       console.log("Binance Algo Order response:", response.data);
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures placeAlgoOrder error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to place Binance Futures Algo order"
+        error.response?.data?.msg ||
+          "Failed to place Binance Futures Algo order",
       );
     }
   }
@@ -631,16 +638,16 @@ class BinanceService {
     try {
       const signedParams = this.signRequest({ symbol, orderId });
       const response = await this.futuresClient.delete(
-        `/fapi/v1/order?${signedParams}`
+        `/fapi/v1/order?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures cancelOrder error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to cancel Binance Futures order"
+        error.response?.data?.msg || "Failed to cancel Binance Futures order",
       );
     }
   }
@@ -654,17 +661,18 @@ class BinanceService {
       this.checkRateLimit();
       const signedParams = this.signRequest({ symbol, algoId });
       const response = await this.futuresClient.delete(
-        `/fapi/v1/algoOrder?${signedParams}`
+        `/fapi/v1/algoOrder?${signedParams}`,
       );
       console.log("Binance Algo Order cancel response:", response.data);
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures cancelAlgoOrder error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to cancel Binance Futures Algo order"
+        error.response?.data?.msg ||
+          "Failed to cancel Binance Futures Algo order",
       );
     }
   }
@@ -677,17 +685,17 @@ class BinanceService {
       this.checkRateLimit();
       const signedParams = this.signRequest({ symbol });
       const response = await this.futuresClient.delete(
-        `/fapi/v1/allOpenOrders?${signedParams}`
+        `/fapi/v1/allOpenOrders?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures cancelAllOrders error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to cancel all Binance Futures orders"
+          "Failed to cancel all Binance Futures orders",
       );
     }
   }
@@ -708,7 +716,7 @@ class BinanceService {
       const openOrders = await this.getFuturesOpenOrders(symbol);
       return openOrders.filter(
         (order: { type: string }) =>
-          order.type === "STOP_MARKET" || order.type === "TAKE_PROFIT_MARKET"
+          order.type === "STOP_MARKET" || order.type === "TAKE_PROFIT_MARKET",
       );
     } catch (error: any) {
       console.error("Error fetching SL/TP orders:", error.message);
@@ -766,11 +774,11 @@ class BinanceService {
     } catch (error: any) {
       console.error(
         "Binance Futures getMarkPrice error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to fetch Binance Futures mark price"
+          "Failed to fetch Binance Futures mark price",
       );
     }
   }
@@ -783,48 +791,55 @@ class BinanceService {
       this.checkRateLimit();
       const signedParams = this.signRequest({ symbol, leverage });
       const response = await this.futuresClient.post(
-        `/fapi/v1/leverage?${signedParams}`
+        `/fapi/v1/leverage?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures changeLeverage error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
-        error.response?.data?.msg || "Failed to change Binance Futures leverage"
+        error.response?.data?.msg ||
+          "Failed to change Binance Futures leverage",
       );
     }
   }
 
   /**
-   * Change Futures margin type
+   * Change Futures margin type (ISOLATED or CROSSED)
    */
   async changeFuturesMarginType(
     symbol: string,
-    marginType: "ISOLATED" | "CROSSED"
+    marginType: "ISOLATED" | "CROSSED",
   ) {
     try {
+      this.checkRateLimit();
       const signedParams = this.signRequest({ symbol, marginType });
       const response = await this.futuresClient.post(
-        `/fapi/v1/marginType?${signedParams}`
+        `/fapi/v1/marginType?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures changeMarginType error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
+
+      // If error is "No need to change", return success
+      if (error.response?.data?.code === -4046) {
+        return { msg: "No need to change margin type" };
+      }
+
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to change Binance Futures margin type"
+          "Failed to change Binance Futures margin type",
       );
     }
   }
 
   /**
-   * Get Futures leverage brackets
-   * Contains info about allowed leverage and margin requirements
+   * Get Futures leverage brackets (tier info)
    */
   async getFuturesLeverageBrackets(symbol?: string) {
     try {
@@ -832,30 +847,63 @@ class BinanceService {
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
       const response = await this.futuresClient.get(
-        `/fapi/v1/leverageBracket?${signedParams}`
+        `/fapi/v1/leverageBracket?${signedParams}`,
       );
       return response.data;
     } catch (error: any) {
       console.error(
         "Binance Futures getLeverageBrackets error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to fetch Binance Futures leverage brackets"
+          "Failed to fetch Binance Futures leverage brackets",
       );
     }
   }
 
   /**
-   * Get Futures premium index (funding rates)
+   * Get Futures Exchange Info (Symbols, rules, etc.)
+   * Cached to improve performance
+   */
+  async getFuturesExchangeInfo() {
+    // Check cache
+    const now = Date.now();
+    if (
+      BinanceService.futuresExchangeInfoCache &&
+      now - BinanceService.futuresExchangeInfoCacheTime <
+        BinanceService.CACHE_TTL
+    ) {
+      return BinanceService.futuresExchangeInfoCache;
+    }
+
+    try {
+      // Exchange info is public, no need for signature
+      // Using generic futures client to avoid need for credentials if not set
+      const response = await axios.get(
+        `${this.FUTURES_BASE_URL}/fapi/v1/exchangeInfo`,
+      );
+
+      // Update cache
+      BinanceService.futuresExchangeInfoCache = response.data;
+      BinanceService.futuresExchangeInfoCacheTime = now;
+
+      return response.data;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures getExchangeInfo error:",
+        error.response?.data || error.message,
+      );
+      throw new Error("Failed to fetch Binance Futures exchange info");
+    }
+  }
+
+  /**
+   * Get Futures Premium Index (Funding Rates)
    */
   async getFuturesPremiumIndex(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      // Public endpoint, no signature needed usually, but client is configured with headers
-      // Using public client or just removing signature for this one if needed.
-      // premiumIndex is public, doesn't need signature.
       const response = await this.futuresClient.get(`/fapi/v1/premiumIndex`, {
         params,
       });
@@ -863,149 +911,11 @@ class BinanceService {
     } catch (error: any) {
       console.error(
         "Binance Futures getPremiumIndex error:",
-        error.response?.data || error.message
+        error.response?.data || error.message,
       );
       throw new Error(
         error.response?.data?.msg ||
-        "Failed to fetch Binance Futures premium index"
-      );
-    }
-  }
-
-  /**
-   * Get Futures exchange info (all symbols) - CACHED to reduce API weight
-   */
-  async getFuturesExchangeInfo() {
-    try {
-      const now = Date.now();
-
-      // Return cached data if still valid
-      if (
-        this.futuresExchangeInfoCache &&
-        now - this.futuresExchangeInfoCacheTime < this.CACHE_TTL
-      ) {
-        return this.futuresExchangeInfoCache;
-      }
-
-      const response = await this.futuresClient.get("/fapi/v1/exchangeInfo");
-
-      // Cache the response
-      this.futuresExchangeInfoCache = response.data;
-      this.futuresExchangeInfoCacheTime = now;
-
-      return response.data;
-    } catch (error: any) {
-      console.error(
-        "Binance Futures getExchangeInfo error:",
-        error.response?.data || error.message
-      );
-
-      // Return cached data if available even if expired (better than failing)
-      if (this.futuresExchangeInfoCache) {
-        console.warn("Returning stale cached exchange info");
-        return this.futuresExchangeInfoCache;
-      }
-
-      throw new Error(
-        error.response?.data?.msg ||
-        "Failed to fetch Binance Futures exchange info"
-      );
-    }
-  }
-
-  // ==================== PUBLIC/MARKET DATA METHODS ====================
-
-  /**
-   * Get latest price for a symbol (Spot)
-   * WARNING: This makes a REST API call and contributes to rate limits.
-   * Use binancePriceService.getPrice() for cached websocket data instead!
-   * @deprecated Use binancePriceService.getPrice() to avoid rate limits
-   */
-  async getSpotPrice(symbol: string) {
-    try {
-      console.warn(
-        `[RATE LIMIT WARNING] getSpotPrice() called for ${symbol}. Use binancePriceService.getPrice() instead to avoid API bans!`
-      );
-      this.checkRateLimit();
-      const response = await this.spotClient.get(`/api/v3/ticker/price`, {
-        params: { symbol },
-      });
-      return response.data;
-    } catch (error: any) {
-      console.error(
-        "Binance Spot getPrice error:",
-        error.response?.data || error.message
-      );
-      throw new Error(
-        error.response?.data?.msg || "Failed to fetch Binance Spot price"
-      );
-    }
-  }
-
-  /**
-   * Get latest price for a symbol (Futures)
-   * WARNING: This makes a REST API call and contributes to rate limits.
-   * Use binancePriceService.getPrice() for cached websocket data instead!
-   * @deprecated Use binancePriceService.getPrice() to avoid rate limits
-   */
-  async getFuturesPrice(symbol: string) {
-    try {
-      console.warn(
-        `[RATE LIMIT WARNING] getFuturesPrice() called for ${symbol}. Use binancePriceService.getPrice() instead to avoid API bans!`
-      );
-      this.checkRateLimit();
-      const response = await this.futuresClient.get(`/fapi/v1/ticker/price`, {
-        params: { symbol },
-      });
-      return response.data;
-    } catch (error: any) {
-      console.error(
-        "Binance Futures getPrice error:",
-        error.response?.data || error.message
-      );
-      throw new Error(
-        error.response?.data?.msg || "Failed to fetch Binance Futures price"
-      );
-    }
-  }
-
-  /**
-   * Get 24hr ticker statistics (Spot)
-   */
-  async getSpot24hrTicker(symbol: string) {
-    try {
-      const response = await this.spotClient.get(`/api/v3/ticker/24hr`, {
-        params: { symbol },
-      });
-      return response.data;
-    } catch (error: any) {
-      console.error(
-        "Binance Spot get24hrTicker error:",
-        error.response?.data || error.message
-      );
-      throw new Error(
-        error.response?.data?.msg || "Failed to fetch Binance Spot 24hr ticker"
-      );
-    }
-  }
-
-  /**
-   * Get 24hr ticker statistics (Futures)
-   */
-  async getFutures24hrTicker(symbol: string) {
-    try {
-      const response = await this.futuresClient.get(`/fapi/v1/ticker/24hr`, {
-        params: { symbol },
-      });
-      return response.data;
-    } catch (error: any) {
-      console.error(
-        "Binance Futures get24hrTicker error:",
-        error.response?.data || error.message
-      );
-      throw new Error(
-        error.response?.data?.msg ||
-        "Failed to fetch Binance Futures 24hr ticker"
+          "Failed to fetch Binance Futures premium index",
       );
     }
   }
@@ -1015,11 +925,10 @@ class BinanceService {
    */
   async testSpotConnectivity() {
     try {
-      await this.spotClient.get("/api/v3/ping");
-      return { success: true, message: "Binance Spot API is reachable" };
+      const response = await this.spotClient.get("/api/v3/ping");
+      return { status: "ok", latency: "unknown" };
     } catch (error: any) {
-      console.error("Binance Spot connectivity test failed:", error.message);
-      throw new Error("Failed to connect to Binance Spot API");
+      throw new Error(`Spot connectivity failed: ${error.message}`);
     }
   }
 
@@ -1028,75 +937,12 @@ class BinanceService {
    */
   async testFuturesConnectivity() {
     try {
+      const start = Date.now();
       await this.futuresClient.get("/fapi/v1/ping");
-      return { success: true, message: "Binance Futures API is reachable" };
+      const latency = Date.now() - start;
+      return { status: "ok", latency: `${latency}ms` };
     } catch (error: any) {
-      console.error("Binance Futures connectivity test failed:", error.message);
-      throw new Error("Failed to connect to Binance Futures API");
-    }
-  }
-
-  // ==================== USER DATA STREAM (for Order Monitoring) ====================
-
-  /**
-   * Create a listenKey for Futures User Data Stream
-   * Required for WebSocket connection to receive order/position updates
-   * POST /fapi/v1/listenKey
-   */
-  async createFuturesListenKey(): Promise<string> {
-    try {
-      this.checkRateLimit();
-      const response = await this.futuresClient.post("/fapi/v1/listenKey");
-      return response.data.listenKey;
-    } catch (error: any) {
-      console.error(
-        "Binance Futures createListenKey error:",
-        error.response?.data || error.message
-      );
-      throw new Error(
-        error.response?.data?.msg || "Failed to create Binance Futures listenKey"
-      );
-    }
-  }
-
-  /**
-   * Keep alive a Futures listenKey (extend validity by 60 minutes)
-   * Should be called every 30 minutes to prevent timeout
-   * PUT /fapi/v1/listenKey
-   */
-  async keepAliveFuturesListenKey(listenKey: string): Promise<void> {
-    try {
-      this.checkRateLimit();
-      await this.futuresClient.put("/fapi/v1/listenKey", null, {
-        params: { listenKey },
-      });
-    } catch (error: any) {
-      console.error(
-        "Binance Futures keepAliveListenKey error:",
-        error.response?.data || error.message
-      );
-      throw new Error(
-        error.response?.data?.msg || "Failed to keep alive Binance Futures listenKey"
-      );
-    }
-  }
-
-  /**
-   * Delete a Futures listenKey (close the User Data Stream)
-   * DELETE /fapi/v1/listenKey
-   */
-  async deleteFuturesListenKey(listenKey: string): Promise<void> {
-    try {
-      this.checkRateLimit();
-      await this.futuresClient.delete("/fapi/v1/listenKey", {
-        params: { listenKey },
-      });
-    } catch (error: any) {
-      console.error(
-        "Binance Futures deleteListenKey error:",
-        error.response?.data || error.message
-      );
-      // Don't throw - deletion is best effort
+      throw new Error(`Futures connectivity failed: ${error.message}`);
     }
   }
 
@@ -1122,6 +968,7 @@ class BinanceService {
   }
 }
 
-// Export singleton instance
+// Export singleton instance - DEPRECATED: Do not use for authenticated concurrent requests
+// Keeping for backward compatibility until all consumers are updated
 const binanceService = new BinanceService();
 export default binanceService;

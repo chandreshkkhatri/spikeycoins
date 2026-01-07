@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
-import binanceService from "../lib/binance-service";
+import { BinanceService } from "../lib/binance-service";
 import { getAccountById, IAccount } from "../models/account";
 
 const router = Router();
@@ -47,13 +47,14 @@ const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
   const liquidationPrice = toNumber(position.liquidationPrice);
   const initialMargin = toNumber(position.initialMargin); // Margin used by position
   const leverage = toNumber(position.leverage);
-  
+
   // Break Even Price calculation (entry price + trading fees)
   // Using 0.04% taker fee (entry + exit = 0.08% total)
   const TAKER_FEE = 0.0004;
-  const breakEvenPrice = quantity > 0 
-    ? averagePrice * (1 + TAKER_FEE * 2) // Long: entry + 2x fee
-    : averagePrice * (1 - TAKER_FEE * 2); // Short: entry - 2x fee
+  const breakEvenPrice =
+    quantity > 0
+      ? averagePrice * (1 + TAKER_FEE * 2) // Long: entry + 2x fee
+      : averagePrice * (1 - TAKER_FEE * 2); // Short: entry - 2x fee
 
   return {
     ...position,
@@ -154,7 +155,7 @@ const formatDefaultPosition = (position: any, account: IAccount) => {
 const formatPosition = (
   account: IAccount,
   position: any,
-  options?: { tradingSegment?: string }
+  options?: { tradingSegment?: string },
 ) => {
   if (account.accountType === "binance" && options?.tradingSegment === "usdm") {
     return formatBinanceFuturesPosition(position, account);
@@ -192,7 +193,7 @@ router.get("/", async (req: Request, res: Response) => {
       }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
-        account.apiSecret
+        account.apiSecret,
       );
       kiteConnectService.setAccessToken(account.accessToken);
       positions = await kiteConnectService.getPositions();
@@ -204,7 +205,7 @@ router.get("/", async (req: Request, res: Response) => {
       upstoxService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isSandbox
+        isSandbox,
       );
       upstoxService.setAccessToken(account.accessToken);
 
@@ -214,7 +215,7 @@ router.get("/", async (req: Request, res: Response) => {
         // Handle Upstox SDK superagent bug - return empty array for now
         console.warn(
           "Upstox SDK error (known superagent issue):",
-          upstoxError.message
+          upstoxError.message,
         );
         positions = [];
       }
@@ -222,10 +223,11 @@ router.get("/", async (req: Request, res: Response) => {
       tradingSegment = account.metadata?.tradingSegment || "spot";
       const isTestnet = account.metadata?.testnet || false;
 
+      const binanceService = new BinanceService();
       binanceService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isTestnet
+        isTestnet,
       );
 
       if (tradingSegment === "usdm") {
@@ -245,7 +247,7 @@ router.get("/", async (req: Request, res: Response) => {
     // Map positions to unified format
     const unifiedPositions = Array.isArray(positions)
       ? positions.map((position: any) =>
-          formatPosition(account, position, { tradingSegment })
+          formatPosition(account, position, { tradingSegment }),
         )
       : [];
 

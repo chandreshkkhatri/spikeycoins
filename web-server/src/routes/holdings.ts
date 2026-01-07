@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
-import binanceService from "../lib/binance-service";
+import { BinanceService } from "../lib/binance-service";
 import { getAccountById } from "../models/account";
 
 const router = Router();
@@ -29,7 +29,7 @@ router.get("/", async (req: Request, res: Response) => {
       }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
-        account.apiSecret
+        account.apiSecret,
       );
       kiteConnectService.setAccessToken(account.accessToken);
       holdings = await kiteConnectService.getHoldings();
@@ -41,7 +41,7 @@ router.get("/", async (req: Request, res: Response) => {
       upstoxService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isSandbox
+        isSandbox,
       );
       upstoxService.setAccessToken(account.accessToken);
 
@@ -51,17 +51,18 @@ router.get("/", async (req: Request, res: Response) => {
         // Handle Upstox SDK superagent bug - return empty array for now
         console.warn(
           "Upstox SDK error (known superagent issue):",
-          upstoxError.message
+          upstoxError.message,
         );
         holdings = [];
       }
     } else if (account.accountType === "binance") {
       const isTestnet = account.metadata?.testnet || false;
 
+      const binanceService = new BinanceService();
       binanceService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isTestnet
+        isTestnet,
       );
 
       // Always fetch spot balances for holdings regardless of trading segment metadata
@@ -80,7 +81,7 @@ router.get("/", async (req: Request, res: Response) => {
             const free = parseFloat(holding.free || 0);
             const locked = parseFloat(holding.locked || 0);
             const quantity = free + locked;
-            
+
             return {
               id: `${account._id}-${holding.asset}`,
               symbol: holding.asset, // BTC, ETH, USDT, etc.
@@ -102,7 +103,7 @@ router.get("/", async (req: Request, res: Response) => {
               },
             };
           }
-          
+
           // For other vendors, pass through with vendor info
           return {
             ...holding,

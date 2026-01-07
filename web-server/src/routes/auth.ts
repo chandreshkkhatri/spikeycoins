@@ -1,12 +1,14 @@
 import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
-import binanceService from "../lib/binance-service";
+import { BinanceService } from "../lib/binance-service";
 import connectDB from "../lib/mongodb";
 import Account from "../models/account";
 import User from "../models/user";
 import UserSettings from "../models/user-settings";
-import RefreshToken, { REFRESH_TOKEN_GRACE_PERIOD_MS } from "../models/refresh-token";
+import RefreshToken, {
+  REFRESH_TOKEN_GRACE_PERIOD_MS,
+} from "../models/refresh-token";
 import Invite from "../models/invite";
 import {
   generateToken,
@@ -23,7 +25,8 @@ const router = Router();
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 const GOOGLE_REDIRECT_URI =
-  process.env.GOOGLE_REDIRECT_URI || "http://localhost:8000/api/auth/google/callback";
+  process.env.GOOGLE_REDIRECT_URI ||
+  "http://localhost:8000/api/auth/google/callback";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
 // ============================================================================
@@ -56,7 +59,11 @@ router.post("/register", async (req: Request, res: Response) => {
     await connectDB();
 
     // Validate invite code
-    const { invite, valid, error: inviteError } = await (Invite as any).findAndValidate(inviteCode);
+    const {
+      invite,
+      valid,
+      error: inviteError,
+    } = await (Invite as any).findAndValidate(inviteCode);
     if (!valid || !invite) {
       return res.status(400).json({
         error: inviteError || "Invalid invite code",
@@ -202,20 +209,26 @@ router.post("/refresh", async (req: Request, res: Response) => {
     // Check if this token was already replaced (used)
     if (tokenDoc.replacedAt) {
       // Check if we're still within the grace period
-      const gracePeriodEnd = new Date(tokenDoc.replacedAt.getTime() + REFRESH_TOKEN_GRACE_PERIOD_MS);
-      
+      const gracePeriodEnd = new Date(
+        tokenDoc.replacedAt.getTime() + REFRESH_TOKEN_GRACE_PERIOD_MS,
+      );
+
       if (new Date() > gracePeriodEnd) {
         // Grace period expired - this is suspicious, possibly token reuse attack
         // Delete the entire token family for this user for security
-        console.warn(`Refresh token reuse detected for user ${tokenDoc.userId} after grace period`);
+        console.warn(
+          `Refresh token reuse detected for user ${tokenDoc.userId} after grace period`,
+        );
         return res.status(401).json({
           error: "Refresh token already used",
         });
       }
-      
+
       // Within grace period - return the replacement token's credentials
       // Find the new token that replaced this one
-      const newTokenDoc = await RefreshToken.findOne({ token: tokenDoc.replacedByToken });
+      const newTokenDoc = await RefreshToken.findOne({
+        token: tokenDoc.replacedByToken,
+      });
       if (newTokenDoc) {
         // Get user to generate a new access token
         const user = await User.findById(tokenDoc.userId);
@@ -224,7 +237,7 @@ router.post("/refresh", async (req: Request, res: Response) => {
             error: "User not found",
           });
         }
-        
+
         // Return the existing replacement token with a fresh access token
         return res.json({
           success: true,
@@ -232,7 +245,7 @@ router.post("/refresh", async (req: Request, res: Response) => {
           refreshToken: newTokenDoc.token,
         });
       }
-      
+
       // Replacement token not found (shouldn't happen, but handle gracefully)
       return res.status(401).json({
         error: "Refresh token already used",
@@ -256,12 +269,12 @@ router.post("/refresh", async (req: Request, res: Response) => {
     // This allows other requests using the same token within the grace period to still work
     await RefreshToken.updateOne(
       { _id: tokenDoc._id },
-      { 
+      {
         replacedAt: new Date(),
         replacedByToken: newRefreshToken,
-      }
+      },
     );
-    
+
     // Create the new refresh token
     await RefreshToken.create({
       userId: user._id,
@@ -283,28 +296,32 @@ router.post("/refresh", async (req: Request, res: Response) => {
 });
 
 // GET /api/auth/me - Get current user
-router.get("/me", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    await connectDB();
+router.get(
+  "/me",
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      await connectDB();
 
-    const user = await User.findById(req.user!.id);
-    if (!user) {
-      return res.status(404).json({
-        error: "User not found",
+      const user = await User.findById(req.user!.id);
+      if (!user) {
+        return res.status(404).json({
+          error: "User not found",
+        });
+      }
+
+      return res.json({
+        success: true,
+        user: user.toJSON(),
+      });
+    } catch (error) {
+      console.error("Error getting user:", error);
+      return res.status(500).json({
+        error: "Failed to get user",
       });
     }
-
-    return res.json({
-      success: true,
-      user: user.toJSON(),
-    });
-  } catch (error) {
-    console.error("Error getting user:", error);
-    return res.status(500).json({
-      error: "Failed to get user",
-    });
-  }
-});
+  },
+);
 
 // ============================================================================
 // GOOGLE OAUTH
@@ -360,7 +377,10 @@ router.get("/google/callback", async (req: Request, res: Response) => {
     });
 
     if (!tokenResponse.ok) {
-      console.error("Google token exchange failed:", await tokenResponse.text());
+      console.error(
+        "Google token exchange failed:",
+        await tokenResponse.text(),
+      );
       return res.redirect(`${FRONTEND_URL}/login?error=google_token_failed`);
     }
 
@@ -373,7 +393,7 @@ router.get("/google/callback", async (req: Request, res: Response) => {
         headers: {
           Authorization: `Bearer ${tokens.access_token}`,
         },
-      }
+      },
     );
 
     if (!userInfoResponse.ok) {
@@ -388,8 +408,8 @@ router.get("/google/callback", async (req: Request, res: Response) => {
     const existingUser = await User.findOne({
       $or: [
         { googleId: googleUser.id },
-        { email: googleUser.email.toLowerCase() }
-      ]
+        { email: googleUser.email.toLowerCase() },
+      ],
     });
 
     // If user doesn't exist, they need to register with an invite code first
@@ -562,7 +582,7 @@ router.get("/kite/login", async (req: Request, res: Response) => {
 
     kiteConnectService.initializeWithCredentials(
       account.apiKey,
-      account.apiSecret
+      account.apiSecret,
     );
     const loginUrl = kiteConnectService.getLoginURL();
 
@@ -616,7 +636,7 @@ router.post("/kite/login", async (req: Request, res: Response) => {
 
     kiteConnectService.initializeWithCredentials(
       account.apiKey,
-      account.apiSecret
+      account.apiSecret,
     );
     const loginUrl = kiteConnectService.getLoginURL();
 
@@ -673,10 +693,10 @@ router.get("/kite/callback", async (req: Request, res: Response) => {
 
     kiteConnectService.initializeWithCredentials(
       account.apiKey,
-      account.apiSecret
+      account.apiSecret,
     );
     const sessionData = await kiteConnectService.generateSession(
-      request_token as string
+      request_token as string,
     );
 
     account.accessToken = sessionData.access_token;
@@ -771,7 +791,7 @@ router.get("/upstox/login", async (req: Request, res: Response) => {
     upstoxService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
-      isSandbox
+      isSandbox,
     );
     const loginUrl = upstoxService.getLoginURL();
 
@@ -826,7 +846,7 @@ router.post("/upstox/login", async (req: Request, res: Response) => {
     upstoxService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
-      isSandbox
+      isSandbox,
     );
     const loginUrl = upstoxService.getLoginURL();
 
@@ -858,7 +878,9 @@ router.get("/upstox/callback", async (req: Request, res: Response) => {
     const { code } = req.query;
 
     if (!code) {
-      return res.redirect(`${FRONTEND_URL}/accounts?error=no_authorization_code`);
+      return res.redirect(
+        `${FRONTEND_URL}/accounts?error=no_authorization_code`,
+      );
     }
 
     const accountId = req.cookies.upstox_account_id;
@@ -877,7 +899,7 @@ router.get("/upstox/callback", async (req: Request, res: Response) => {
     upstoxService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
-      isSandbox
+      isSandbox,
     );
     const sessionData = await upstoxService.generateSession(code as string);
 
@@ -923,7 +945,9 @@ router.post("/upstox/sandbox-token", async (req: Request, res: Response) => {
     }
 
     if (!account.metadata?.sandbox) {
-      return res.status(400).json({ error: "Account is not a sandbox account" });
+      return res
+        .status(400)
+        .json({ error: "Account is not a sandbox account" });
     }
 
     // Store the sandbox access token
@@ -983,10 +1007,11 @@ router.post("/binance/validate", async (req: Request, res: Response) => {
     const isTestnet = account.metadata?.testnet || false;
 
     // Initialize Binance service with credentials
+    const binanceService = new BinanceService();
     binanceService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
-      isTestnet
+      isTestnet,
     );
 
     // Test connectivity based on trading segment

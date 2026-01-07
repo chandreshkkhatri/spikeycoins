@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
-import binanceService from "../lib/binance-service";
+import { BinanceService } from "../lib/binance-service";
 import pushNotificationService from "../lib/push-notification-service";
 import { getAccountById } from "../models/account";
 
@@ -30,7 +30,7 @@ router.get("/", async (req: Request, res: Response) => {
       }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
-        account.apiSecret
+        account.apiSecret,
       );
       kiteConnectService.setAccessToken(account.accessToken);
       orders = await kiteConnectService.getOrders();
@@ -42,7 +42,7 @@ router.get("/", async (req: Request, res: Response) => {
       upstoxService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isSandbox
+        isSandbox,
       );
       upstoxService.setAccessToken(account.accessToken);
 
@@ -52,14 +52,14 @@ router.get("/", async (req: Request, res: Response) => {
         // Handle Upstox SDK superagent bug - return empty array for now
         console.warn(
           "Upstox SDK error (known superagent issue):",
-          upstoxError.message
+          upstoxError.message,
         );
         orders = [];
       }
     } else if (account.accountType === "binance") {
       console.log(
         `[Orders] Binance account ${account._id} metadata:`,
-        account.metadata
+        account.metadata,
       );
       const tradingSegment = account.metadata?.tradingSegment || "spot";
       console.log(`[Orders] Using trading segment: ${tradingSegment}`);
@@ -68,7 +68,7 @@ router.get("/", async (req: Request, res: Response) => {
       binanceService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isTestnet
+        isTestnet,
       );
 
       if (tradingSegment === "usdm") {
@@ -118,10 +118,10 @@ router.get("/", async (req: Request, res: Response) => {
     // Map orders to unified format
     const unifiedOrders = Array.isArray(orders)
       ? orders.map((order: any) => ({
-        ...order,
-        accountId: account._id,
-        vendor: account.accountType,
-      }))
+          ...order,
+          accountId: account._id,
+          vendor: account.accountType,
+        }))
       : [];
 
     return res.json({
@@ -150,7 +150,7 @@ router.post("/place", async (req: Request, res: Response) => {
 
     console.log(
       "[Orders/Place] Request body:",
-      JSON.stringify(req.body, null, 2)
+      JSON.stringify(req.body, null, 2),
     );
 
     if (!accountId) {
@@ -182,7 +182,7 @@ router.post("/place", async (req: Request, res: Response) => {
       }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
-        account.apiSecret
+        account.apiSecret,
       );
       kiteConnectService.setAccessToken(account.accessToken);
       result = await kiteConnectService.placeOrder(orderParams);
@@ -194,7 +194,7 @@ router.post("/place", async (req: Request, res: Response) => {
       upstoxService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isSandbox
+        isSandbox,
       );
       upstoxService.setAccessToken(account.accessToken);
       result = await upstoxService.placeOrder(orderParams);
@@ -209,13 +209,14 @@ router.post("/place", async (req: Request, res: Response) => {
       const isTestnet = account.metadata?.testnet || false;
 
       console.log(
-        `[Orders/Place] Detected trading segment: ${tradingSegment} (metadata: ${account.metadata?.tradingSegment}, hasFuturesParams: ${hasFuturesParams})`
+        `[Orders/Place] Detected trading segment: ${tradingSegment} (metadata: ${account.metadata?.tradingSegment}, hasFuturesParams: ${hasFuturesParams})`,
       );
 
+      const binanceService = new BinanceService();
       binanceService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isTestnet
+        isTestnet,
       );
 
       if (tradingSegment === "usdm") {
@@ -234,7 +235,7 @@ router.post("/place", async (req: Request, res: Response) => {
         try {
           const exchangeInfo = await binanceService.getFuturesExchangeInfo();
           const symbolInfo = exchangeInfo.symbols?.find(
-            (s: any) => s.symbol === orderParams.symbol
+            (s: any) => s.symbol === orderParams.symbol,
           );
           if (symbolInfo) {
             quantityPrecision = symbolInfo.quantityPrecision || 0;
@@ -243,7 +244,7 @@ router.post("/place", async (req: Request, res: Response) => {
         } catch (infoError) {
           console.warn(
             "Could not fetch exchange info for precision:",
-            infoError
+            infoError,
           );
         }
 
@@ -258,7 +259,7 @@ router.post("/place", async (req: Request, res: Response) => {
           try {
             await binanceService.changeFuturesLeverage(
               orderParams.symbol,
-              leverage
+              leverage,
             );
           } catch (leverageError: any) {
             // Ignore "No need to change leverage" errors
@@ -271,7 +272,7 @@ router.post("/place", async (req: Request, res: Response) => {
         // Round quantity and price to correct precision
         const roundedQuantity = roundToPrecision(
           binanceOrderParams.quantity,
-          quantityPrecision
+          quantityPrecision,
         );
         const roundedPrice = binanceOrderParams.price
           ? roundToPrecision(binanceOrderParams.price, pricePrecision)
@@ -296,17 +297,16 @@ router.post("/place", async (req: Request, res: Response) => {
 
         // Add stopPrice for conditional orders
         if (
-          [
-            "STOP",
-            "STOP_MARKET",
-            "TAKE_PROFIT",
-            "TAKE_PROFIT_MARKET",
-          ].includes(binanceOrderParams.type)
+          ["STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET"].includes(
+            binanceOrderParams.type,
+          )
         ) {
           if (roundedStopPrice) {
             cleanOrderParams.stopPrice = roundedStopPrice;
           } else {
-            console.warn(`Type ${binanceOrderParams.type} requires stopPrice but it is missing.`);
+            console.warn(
+              `Type ${binanceOrderParams.type} requires stopPrice but it is missing.`,
+            );
           }
         }
 
@@ -354,7 +354,7 @@ router.post("/place", async (req: Request, res: Response) => {
           orderParams: Record<string, unknown>,
           orderType: string,
           maxRetries: number = 3,
-          delayMs: number = 500
+          delayMs: number = 500,
         ): Promise<{ success: boolean; error?: string }> => {
           for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
@@ -382,7 +382,7 @@ router.post("/place", async (req: Request, res: Response) => {
                 err instanceof Error ? err.message : "Unknown error";
               console.warn(
                 `${orderType} order attempt ${attempt}/${maxRetries} failed:`,
-                errorMessage
+                errorMessage,
               );
 
               // If it's the last attempt, return the error
@@ -402,7 +402,7 @@ router.post("/place", async (req: Request, res: Response) => {
           stopPrice: number,
           markPrice: number,
           side: "BUY" | "SELL",
-          orderType: "SL" | "TP"
+          orderType: "SL" | "TP",
         ): { valid: boolean; error?: string } => {
           // For a LONG position (BUY), SL should be below mark price, TP should be above
           // For a SHORT position (SELL), SL should be above mark price, TP should be below
@@ -445,13 +445,16 @@ router.post("/place", async (req: Request, res: Response) => {
         if (stopLoss || takeProfit) {
           try {
             markPrice = await binanceService.getFuturesMarkPrice(
-              orderParams.symbol
+              orderParams.symbol,
             );
             console.log(
-              `[Orders/Place] Current mark price for ${orderParams.symbol}: ${markPrice}`
+              `[Orders/Place] Current mark price for ${orderParams.symbol}: ${markPrice}`,
             );
           } catch (priceErr) {
-            console.warn("Could not fetch mark price for validation:", priceErr);
+            console.warn(
+              "Could not fetch mark price for validation:",
+              priceErr,
+            );
           }
         }
 
@@ -467,11 +470,11 @@ router.post("/place", async (req: Request, res: Response) => {
             const slTpSide = orderParams.side === "BUY" ? "SELL" : "BUY";
             const cancelResults = await binanceService.cancelFuturesSlTpOrders(
               orderParams.symbol,
-              slTpSide
+              slTpSide,
             );
             if (cancelResults.length > 0) {
               console.log(
-                `[Orders/Place] Cancelled ${cancelResults.length} existing SL/TP orders for ${orderParams.symbol}`
+                `[Orders/Place] Cancelled ${cancelResults.length} existing SL/TP orders for ${orderParams.symbol}`,
               );
             }
           } catch (cancelErr) {
@@ -491,7 +494,7 @@ router.post("/place", async (req: Request, res: Response) => {
               roundedSL,
               markPrice,
               orderParams.side,
-              "SL"
+              "SL",
             );
             if (!validation.valid) {
               slOrderError = validation.error || "Invalid stop loss price";
@@ -519,7 +522,7 @@ router.post("/place", async (req: Request, res: Response) => {
 
             const slResult = await placeSLTPWithRetry(
               slOrderParams,
-              "Stop Loss"
+              "Stop Loss",
             );
             if (!slResult.success) {
               slOrderError = slResult.error || "Unknown error";
@@ -538,7 +541,7 @@ router.post("/place", async (req: Request, res: Response) => {
               roundedTP,
               markPrice,
               orderParams.side,
-              "TP"
+              "TP",
             );
             if (!validation.valid) {
               tpOrderError = validation.error || "Invalid take profit price";
@@ -566,7 +569,7 @@ router.post("/place", async (req: Request, res: Response) => {
 
             const tpResult = await placeSLTPWithRetry(
               tpOrderParams,
-              "Take Profit"
+              "Take Profit",
             );
             if (!tpResult.success) {
               tpOrderError = tpResult.error || "Unknown error";
@@ -715,7 +718,7 @@ router.put("/modify", async (req: Request, res: Response) => {
     if (account.accountType === "kite") {
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
-        account.apiSecret
+        account.apiSecret,
       );
       kiteConnectService.setAccessToken(account.accessToken);
       result = await kiteConnectService.modifyOrder(orderId, orderParams);
@@ -724,7 +727,7 @@ router.put("/modify", async (req: Request, res: Response) => {
       upstoxService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isSandbox
+        isSandbox,
       );
       upstoxService.setAccessToken(account.accessToken);
       result = await upstoxService.modifyOrder(orderId, orderParams);
@@ -776,7 +779,7 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
       }
       kiteConnectService.initializeWithCredentials(
         account.apiKey,
-        account.apiSecret
+        account.apiSecret,
       );
       kiteConnectService.setAccessToken(account.accessToken);
       result = await kiteConnectService.cancelOrder(orderId as string);
@@ -788,7 +791,7 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
       upstoxService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isSandbox
+        isSandbox,
       );
       upstoxService.setAccessToken(account.accessToken);
       result = await upstoxService.cancelOrder(orderId as string);
@@ -796,10 +799,11 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
       const tradingSegment = account.metadata?.tradingSegment || "spot";
       const isTestnet = account.metadata?.testnet || false;
 
+      const binanceService = new BinanceService();
       binanceService.initializeWithCredentials(
         account.apiKey,
         account.apiSecret,
-        isTestnet
+        isTestnet,
       );
 
       if (!symbol) {
@@ -814,7 +818,7 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
         try {
           result = await binanceService.cancelFuturesOrder(
             symbol as string,
-            parseInt(orderId as string)
+            parseInt(orderId as string),
           );
         } catch (standardCancelError: any) {
           // Check if error is "Unknown order sent" (code -2011)
@@ -822,7 +826,7 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
             console.log("Standard cancel failed, trying Algo Order cancel...");
             result = await binanceService.cancelFuturesAlgoOrder(
               symbol as string,
-              parseInt(orderId as string)
+              parseInt(orderId as string),
             );
           } else {
             throw standardCancelError;
@@ -832,7 +836,7 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
         // Spot
         result = await binanceService.cancelSpotOrder(
           symbol as string,
-          parseInt(orderId as string)
+          parseInt(orderId as string),
         );
       }
     } else {

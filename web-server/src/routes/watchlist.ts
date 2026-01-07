@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import Watchlist from "../models/watchlist";
 import connectDB from "../lib/mongodb";
-import binanceService from "../lib/binance-service";
+import { BinanceService } from "../lib/binance-service";
 import { getInstrumentModel } from "../models/instrument";
 import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 
@@ -49,7 +49,7 @@ router.get(
       console.error("Error fetching watchlists:", error);
       return res.status(500).json({ error: "Failed to fetch watchlists" });
     }
-  }
+  },
 );
 
 // POST /api/watchlist - Create a new watchlist
@@ -92,7 +92,7 @@ router.post(
       console.error("Error creating watchlist:", error);
       return res.status(500).json({ error: "Failed to create watchlist" });
     }
-  }
+  },
 );
 
 // GET /api/watchlist/symbols - Get symbols in a watchlist
@@ -196,7 +196,7 @@ router.get(
       console.error("Error fetching watchlist symbols:", error);
       return res.status(500).json({ error: "Failed to fetch symbols" });
     }
-  }
+  },
 );
 
 // POST /api/watchlist/symbols - Add a symbol to a watchlist
@@ -253,8 +253,8 @@ router.post(
       const symbolObj: any = item?.symbol
         ? item
         : typeof symbol === "string"
-        ? { symbol }
-        : null;
+          ? { symbol }
+          : null;
 
       if (!symbolObj || !symbolObj.symbol) {
         return res.status(400).json({ error: "symbol is required" });
@@ -286,7 +286,7 @@ router.post(
       console.error("Error adding symbol to watchlist:", error);
       return res.status(500).json({ error: "Failed to add symbol" });
     }
-  }
+  },
 );
 
 // DELETE /api/watchlist/symbols - Remove a symbol from watchlist
@@ -401,7 +401,7 @@ router.get("/system/:type", async (req: Request, res: Response) => {
     // If no instruments or very few (likely test data), sync from Binance
     if (count < 10) {
       console.log(
-        "[System Watchlist] Count < 10, initiating sync from Binance..."
+        "[System Watchlist] Count < 10, initiating sync from Binance...",
       );
       try {
         // If we have some but few, clear them first to avoid duplicates/stale data
@@ -414,11 +414,12 @@ router.get("/system/:type", async (req: Request, res: Response) => {
         }
 
         console.log(
-          "[System Watchlist] Fetching exchange info from Binance..."
+          "[System Watchlist] Fetching exchange info from Binance...",
         );
+        const binanceService = new BinanceService();
         const exchangeInfo = await binanceService.getFuturesExchangeInfo();
         console.log(
-          `[System Watchlist] Fetched ${exchangeInfo?.symbols?.length} symbols from Binance`
+          `[System Watchlist] Fetched ${exchangeInfo?.symbols?.length} symbols from Binance`,
         );
 
         if (exchangeInfo && exchangeInfo.symbols) {
@@ -432,7 +433,7 @@ router.get("/system/:type", async (req: Request, res: Response) => {
               instrument_type: "FUTURES",
               segment: "FUTURES",
               tick_size: s.filters.find(
-                (f: any) => f.filterType === "PRICE_FILTER"
+                (f: any) => f.filterType === "PRICE_FILTER",
               )?.tickSize,
               lot_size: s.filters.find((f: any) => f.filterType === "LOT_SIZE")
                 ?.stepSize,
@@ -440,7 +441,7 @@ router.get("/system/:type", async (req: Request, res: Response) => {
             }));
 
           console.log(
-            `[System Watchlist] Inserting ${instruments.length} trading instruments...`
+            `[System Watchlist] Inserting ${instruments.length} trading instruments...`,
           );
           if (instruments.length > 0) {
             await Instrument.insertMany(instruments);
