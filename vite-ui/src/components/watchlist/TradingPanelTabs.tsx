@@ -493,6 +493,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 symbol: o.symbol,
                 quantity: o.quantity || o.origQty,
                 price: o.price,
+                stopPrice: parseFloat(o.stopPrice) || 0,
                 orderType: o.orderType || o.type,
                 side: o.transactionType || o.side,
                 status: o.status,
@@ -1223,7 +1224,9 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                         {order.side}
                       </td>
                       <td className="text-right px-2 py-2">
-                        {formatPrice(order.price)}
+                        {order.stopPrice && order.stopPrice > 0
+                          ? formatPrice(order.stopPrice)
+                          : formatPrice(order.price)}
                       </td>
                       <td className="text-right px-2 py-2">
                         {order.filledQuantity}/{order.quantity}
