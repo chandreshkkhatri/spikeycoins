@@ -340,7 +340,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       });
     }, [selectedTimeframes, chartTimeframes, autoScale, isLogScale, isCollapsed, collapsedCharts]);
 
-    // Update price lines on all charts when they change
     useEffect(() => {
       chartRefs.current.forEach((chartRef) => {
         if (!chartRef?.series) return;
@@ -373,7 +372,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             });
         }
       });
-    }, [priceLines, loading, collapsedCharts]);
+    }, [priceLines, collapsedCharts]);
 
     const resetToDefaults = () => {
       setSelectedTimeframes(DEFAULT_TIMEFRAMES);
@@ -993,7 +992,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           chartRefs.current = [];
 
           // Wait for container refs to be available
-          await new Promise((resolve) => requestAnimationFrame(resolve));
+          await new Promise((resolve) => setTimeout(resolve, 300));
 
           // Create charts for all selected timeframes
           const promises = selectedTimeframes.map(async (timeframe, index) => {
@@ -1070,7 +1069,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         // Bail out if a new run has started (unmounted or symbol changed)
         if (runIdRef.current !== thisRun) return;
         initializeCharts();
-      }, 100);
+      }, 500);
 
       return () => {
         clearTimeout(timeoutId);
