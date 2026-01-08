@@ -3,6 +3,7 @@ import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { getAccountById } from "../models/account";
 import axios, { AxiosRequestConfig } from "axios";
+import HistoricalDataCache from "../models/historical-data-cache";
 
 const router: Router = Router();
 
@@ -21,6 +22,15 @@ const fetchWithRetry = async (
     } catch (error: any) {
       const isLastAttempt = i === retries - 1;
       if (isLastAttempt) throw error;
+
+      // Don't retry on rate limit errors - makes it worse!
+      if (
+        error.response?.status === 418 ||
+        error.response?.status === 429 ||
+        error.response?.data?.code === -1003
+      ) {
+        throw error;
+      }
 
       // Retry on DNS errors (EAI_AGAIN) or Network errors
       if (
@@ -111,9 +121,61 @@ router.get("/", async (req: Request, res: Response) => {
 
       // Map interval format (1h -> 1h, 1d -> 1d, etc.)
       const binanceInterval = interval as string;
+      const symbolUpper = (symbol as string).toUpperCase();
 
-      // Calculate time range (default: last 100 candles)
-      const limit = 100;
+      // Calculate time range
+      const startTime = fromDate ? new Date(fromDate as string).getTime() : 0;
+      const endTime = toDate ? new Date(toDate as string).getTime() : Date.now();
+
+      // Query for existing cached candles in the requested range
+      let cachedCandles: any[] = [];
+      try {
+        cachedCandles = await HistoricalDataCache.find({
+          symbol: symbolUpper,
+          interval: binanceInterval,
+          marketType: tradingSegment,
+          timestamp: { $gte: startTime, $lte: endTime },
+        })
+          .sort({ timestamp: 1 })
+          .lean();
+
+        if (cachedCandles.length > 0) {
+          console.log(
+            `Found ${cachedCandles.length} cached candles for ${symbolUpper} ${binanceInterval}`
+          );
+        }
+      } catch (cacheErr) {
+        console.warn("Cache lookup failed:", cacheErr);
+      }
+
+      // Convert cached candles to response format
+      const cachedData = cachedCandles.map((c) => ({
+        date: new Date(c.timestamp).toISOString(),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume,
+      }));
+
+      // If we have cached data and it seems complete, return it
+      // (Simple heuristic: if we have candles, return them - Binance will be fetched for gaps later)
+      if (cachedCandles.length > 0) {
+        // Check if we need to fetch more recent data (endTime is close to now)
+        const latestCachedTime =
+          cachedCandles[cachedCandles.length - 1].timestamp;
+        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+
+        // If latest cached candle is recent enough, return cached data
+        if (latestCachedTime >= fiveMinutesAgo || endTime < fiveMinutesAgo) {
+          return res.json({
+            success: true,
+            data: cachedData,
+            accountType: "binance",
+            cached: true,
+          });
+        }
+      }
 
       try {
         let apiUrl: string;
@@ -131,9 +193,9 @@ router.get("/", async (req: Request, res: Response) => {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const params: any = {
-          symbol: (symbol as string)?.toUpperCase(),
+          symbol: symbolUpper,
           interval: binanceInterval,
-          limit,
+          limit: 1000, // Fetch up to 1000 candles per request
         };
 
         if (fromDate) {
@@ -157,6 +219,29 @@ router.get("/", async (req: Request, res: Response) => {
           volume: parseFloat(candle[5]),
         }));
 
+        // Save individual candles to cache - use insertMany with ordered:false to ignore duplicates
+        const candlesToInsert = response.data.map((candle: any[]) => ({
+          symbol: symbolUpper,
+          interval: binanceInterval,
+          marketType: tradingSegment,
+          timestamp: candle[0], // openTime in ms
+          open: parseFloat(candle[1]),
+          high: parseFloat(candle[2]),
+          low: parseFloat(candle[3]),
+          close: parseFloat(candle[4]),
+          volume: parseFloat(candle[5]),
+        }));
+
+        // Insert candles, ignoring duplicates (ordered: false continues on error)
+        HistoricalDataCache.insertMany(candlesToInsert, { ordered: false }).catch(
+          (err) => {
+            // Ignore duplicate key errors (code 11000), log others
+            if (err.code !== 11000 && !err.message?.includes("duplicate key")) {
+              console.warn("Cache save failed:", err.message);
+            }
+          }
+        );
+
         return res.json({
           success: true,
           data: historicalData,
@@ -164,8 +249,27 @@ router.get("/", async (req: Request, res: Response) => {
         });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
-        console.error("Error fetching Binance historical data:", error);
+        console.error(
+          "Error fetching Binance historical data:",
+          error.response?.data || error.message
+        );
 
+        // Handle rate limiting (418 "I'm a teapot" or 429)
+        const isRateLimit =
+          error.response?.status === 418 ||
+          error.response?.status === 429 ||
+          error.response?.data?.code === -1003;
+
+        if (isRateLimit) {
+          const retryAfter = error.response?.headers?.["retry-after"];
+          return res.status(429).json({
+            error: "Rate limited by Binance",
+            retryAfter: retryAfter ? parseInt(retryAfter) : 60,
+            details: "Too many requests. Please wait before retrying.",
+          });
+        }
+
+        // Handle invalid symbol
         const binanceCode = error?.response?.data?.code;
         const binanceMessage = error?.response?.data?.msg;
         const isInvalidSymbol =

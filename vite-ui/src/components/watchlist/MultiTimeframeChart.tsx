@@ -373,7 +373,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             });
         }
       });
-    }, [priceLines]);
+    }, [priceLines, loading, collapsedCharts]);
 
     const resetToDefaults = () => {
       setSelectedTimeframes(DEFAULT_TIMEFRAMES);
@@ -1100,6 +1100,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       createSingleChart,
       fetchChartData,
       setupHistoricalScrollHandler,
+      // NOTE: chartTimeframes is intentionally excluded. A dedicated effect below
+      // handles reloading individual charts when their timeframe changes.
     ]);
 
     // Effect to handle individual chart expand - recreate chart when a collapsed chart is expanded

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import api from "@/lib/api";
+import { useTradingData } from "@/lib/trading-data-context";
 import {
   AlertTriangle,
   Clock,
@@ -97,6 +98,12 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   orderBookPrice,
   onOrderBookPriceApplied,
 }: TradingPanelTabsProps) {
+  // Use shared trading data context to avoid duplicate fetches
+  const {
+    orders: contextOrders,
+    accountDetails: contextAccountDetails,
+  } = useTradingData();
+
   const HISTORY_PAGE_SIZE = 50;
 
   const [activeTab, setActiveTab] = useState("positions");
@@ -255,6 +262,35 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
       });
     }
   }, [positions, orders, accountEquity]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync orders from context to local state (used for SL/TP remaining qty calculations)
+  useEffect(() => {
+    if (contextOrders && contextOrders.length > 0) {
+      setOrders(
+        contextOrders.map((o) => ({
+          id: o.id,
+          symbol: o.symbol,
+          quantity: o.quantity,
+          price: o.price,
+          stopPrice: o.stopPrice,
+          orderType: o.orderType,
+          side: o.transactionType,
+          status: o.status,
+          filledQuantity: o.filledQuantity || 0,
+          timestamp: String(o.timestamp || ""),
+          orderCategory: o.orderCategory,
+          closePosition: o.closePosition,
+        }))
+      );
+    }
+  }, [contextOrders]);
+
+  // Sync account equity from context
+  useEffect(() => {
+    if (contextAccountDetails?.equity) {
+      setAccountEquity(contextAccountDetails.equity);
+    }
+  }, [contextAccountDetails]);
 
   const handlePlaceSlTp = async (posSymbol: string, type: "SL" | "TP") => {
     if (!selectedAccount) return;
@@ -436,47 +472,8 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
               }))
           );
 
-          // Also fetch orders for SL/TP remaining qty calculation
-          try {
-            const ordersResp = await api.get(
-              `/orders?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
-            );
-            if (ordersResp.data?.success) {
-              const ordersArray = ordersResp.data.orders || ordersResp.data.data || [];
-              setOrders(
-                ordersArray.map((o: any) => ({
-                  id: o.id || o.orderId,
-                  symbol: o.symbol,
-                  quantity: parseFloat(o.quantity || o.origQty) || 0,
-                  price: parseFloat(o.price) || 0,
-                  stopPrice: parseFloat(o.stopPrice) || 0,
-                  orderType: o.orderType || o.type,
-                  side: o.transactionType || o.side,
-                  status: o.status,
-                  filledQuantity: parseFloat(o.filledQuantity || o.executedQty) || 0,
-                  timestamp: o.timestamp || o.time,
-                  orderCategory: o.orderCategory,
-                  closePosition: o.closePosition,
-                }))
-              );
-            }
-          } catch (ordersErr) {
-            // Ignore order fetch errors for calculations
-          }
-
-          // Also fetch account equity for percentage calculation (Binance only)
-          if (selectedAccount.accountType === "binance") {
-            try {
-              const detailsResp = await api.get(
-                `/binance/position-details?accountId=${selectedAccount._id}`
-              );
-              if (detailsResp.data?.success && detailsResp.data?.account?.equity) {
-                setAccountEquity(detailsResp.data.account.equity);
-              }
-            } catch (eqErr) {
-              // Ignore equity fetch errors
-            }
-          }
+          // NOTE: Orders and account equity are now synced from TradingDataContext
+          // via useEffect hooks above, eliminating duplicate API calls.
         }
       } else if (activeTab === "orders" && result?.type === "orders") {
         if (result.data?.success) {

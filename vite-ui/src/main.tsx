@@ -6,6 +6,7 @@ import "./index.css";
 import { ThemeProvider } from "@/lib/theme-context";
 import { AuthProvider } from "@/lib/auth-context";
 import { AccountProvider } from "@/lib/account-context";
+import { TradingDataProvider } from "@/lib/trading-data-context";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -20,7 +21,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <ThemeProvider>
           <AuthProvider>
             <AccountProvider>
-              <App />
+              <TradingDataProvider>
+                <App />
+              </TradingDataProvider>
             </AccountProvider>
           </AuthProvider>
         </ThemeProvider>
