@@ -183,6 +183,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       isLoadingHistory?: boolean;
       hasMoreHistory?: boolean;
       visibleRangeHandler?: LogicalRangeChangeEventHandler;
+      // Disposal tracking to prevent accessing removed charts
+      disposed?: boolean;
     }[]>([]);
     const [loading, setLoading] = useState(false);
     const [refreshingCharts, setRefreshingCharts] = useState(false);
@@ -265,7 +267,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           // Skip if charts haven't loaded data for the current symbol yet
           if (currentPrice && currentPrice > 0 && loadedSymbolRef.current === displaySymbol) {
             const chartRef = chartRefs.current[index];
-            if (chartRef?.series) {
+            // Skip if chart is disposed or series is not available
+            if (chartRef?.series && !chartRef.disposed) {
               try {
                 // Get the current time as UTCTimestamp for the update
                 const candleTime = Math.floor(currentPeriodStart / 1000) as UTCTimestamp;
@@ -342,7 +345,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
     useEffect(() => {
       chartRefs.current.forEach((chartRef) => {
-        if (!chartRef?.series) return;
+        // Skip if chart is disposed or series is not available
+        if (!chartRef?.series || chartRef.disposed) return;
 
         // Remove existing price lines
         if (chartRef.priceLineRefs) {
@@ -361,15 +365,21 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           chartRef.priceLineRefs = priceLines
             .filter((pl) => pl.price > 0)
             .map((pl) => {
-              return chartRef.series?.createPriceLine({
-                price: pl.price,
-                color: pl.color,
-                lineWidth: (pl.lineWidth || 1) as LineWidth,
-                lineStyle: pl.lineStyle ?? 2, // Default to dashed
-                axisLabelVisible: pl.axisLabelVisible ?? true,
-                title: pl.title || "",
-              });
-            });
+              try {
+                return chartRef.series?.createPriceLine({
+                  price: pl.price,
+                  color: pl.color,
+                  lineWidth: (pl.lineWidth || 1) as LineWidth,
+                  lineStyle: pl.lineStyle ?? 2, // Default to dashed
+                  axisLabelVisible: pl.axisLabelVisible ?? true,
+                  title: pl.title || "",
+                });
+              } catch (e) {
+                // Ignore errors if chart is disposed during creation
+                return null;
+              }
+            })
+            .filter(Boolean); // Filter out nulls
         }
       });
     }, [priceLines, collapsedCharts]);
@@ -404,7 +414,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             try {
               const data = await fetchChartData(actualTimeframe);
               if (runIdRef.current !== thisRun) return;
-              if (data.length > 0 && typeof chartRef.series.setData === "function") {
+              // Check if chart keys exist and chart is not disposed
+              if (data.length > 0 && chartRef.series && !chartRef.disposed && typeof chartRef.series.setData === "function") {
                 chartRef.series.setData(data);
                 chartRef.chart?.timeScale().fitContent();
                 // Reset historical data tracking after refresh
@@ -441,6 +452,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           if (chartIndex !== -1) {
             const chartRef = chartRefs.current[chartIndex];
             if (chartRef?.chart) {
+              // Mark as disposed FIRST to prevent concurrent access
+              chartRef.disposed = true;
               try {
                 // Remove wheel handler before removing chart
                 if (chartRef.wheelHandler && chartRef.container) {
@@ -455,6 +468,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               chart: null,
               series: null,
               secondarySeries: null,
+              disposed: true,
             };
           }
         }
@@ -875,6 +889,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             mergedData = mergedData.slice(-MAX_CANDLES_IN_MEMORY);
           }
 
+          // Check if chart is still valid before updating
+          if (chartRef.disposed || !chartRef.series) return;
+
           // Update series data
           chartRef.series.setData(mergedData);
 
@@ -948,9 +965,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       selectedTimeframes.forEach((tf, index) => {
         const actualInterval = chartTimeframes[index] || tf.interval;
         const chartRef = chartRefs.current[index];
-        if (chartRef?.series) {
+        // Skip if chart is disposed or series is not available
+        if (chartRef?.series && !chartRef.disposed) {
           fetchChartData(actualInterval).then((data) => {
-            if (data.length > 0 && chartRef.series && typeof chartRef.series.setData === "function") {
+            // Double-check disposed state after async fetch
+            if (data.length > 0 && chartRef.series && !chartRef.disposed && typeof chartRef.series.setData === "function") {
               try {
                 chartRef.series.setData(data);
                 chartRef.chart?.timeScale().scrollToRealTime();
@@ -976,7 +995,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           setError(null);
 
           // Clear existing charts
-          chartRefs.current.forEach(({ chart, wheelHandler, container }) => {
+          chartRefs.current.forEach((chartRef) => {
+            // Mark as disposed FIRST to prevent concurrent access
+            chartRef.disposed = true;
+            const { chart, wheelHandler, container } = chartRef;
             if (chart) {
               try {
                 // Remove wheel handler before removing chart
@@ -1075,7 +1097,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         clearTimeout(timeoutId);
         // Invalidate this run to prevent any pending async work from touching disposed charts
         runIdRef.current = thisRun + 1;
-        chartRefs.current.forEach(({ chart, wheelHandler, container, visibleRangeHandler }) => {
+        chartRefs.current.forEach((chartRef) => {
+          // Mark as disposed FIRST to prevent any concurrent access
+          chartRef.disposed = true;
+          const { chart, wheelHandler, container, visibleRangeHandler } = chartRef;
           if (chart) {
             try {
               // Remove wheel handler before removing chart
