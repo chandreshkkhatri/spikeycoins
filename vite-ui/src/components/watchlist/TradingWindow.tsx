@@ -8,14 +8,12 @@ import {
 } from "@/components/ui/tooltip";
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
+import { useTradingData } from "@/lib/trading-data-context";
 import { AlertTriangle, ChevronDown, ChevronUp, HelpCircle, RefreshCw, X } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
 import TradingPanelTabs from "./TradingPanelTabs";
-
-// Global promise cache to deduplicate simultaneous fetches
-const DETAILS_PROMISE_CACHE = new Map<string, Promise<any>>();
 
 interface TradingWindowProps {
   symbol: string;
@@ -76,6 +74,18 @@ const TradingWindow = memo(function TradingWindow({
   onOrderPlaced,
   onSymbolSelect,
 }: TradingWindowProps) {
+  // Use shared trading data context
+  const {
+    orders: contextOrders,
+    accountDetails: contextAccountDetails,
+    symbolInfo: contextSymbolInfo,
+    existingPosition: contextExistingPosition,
+    refreshAll: contextRefreshAll,
+    setActiveSymbol,
+    loading: contextLoading,
+    lastRefresh: contextLastRefresh,
+  } = useTradingData();
+
   const [orderForm, setOrderForm] = useState<OrderForm>({
     accountId: selectedAccount?._id || accounts[0]?._id || "",
     side: "BUY",
@@ -121,7 +131,8 @@ const TradingWindow = memo(function TradingWindow({
   const [tpPercentage, setTpPercentage] = useState<number>(2);
   const [retryState, setRetryState] = useState<RetryState | null>(null);
   const [orderRefreshTrigger, setOrderRefreshTrigger] = useState(0);
-  const [isRefreshingDetails, setIsRefreshingDetails] = useState(false);
+  // isRefreshingDetails replaced with contextLoading from useTradingData
+  const isRefreshingDetails = contextLoading;
   const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
   const [isInfoPanelCollapsed, setIsInfoPanelCollapsed] = useState(true);
   const [isOrderBookCollapsed, setIsOrderBookCollapsed] = useState(true);
@@ -153,12 +164,69 @@ const TradingWindow = memo(function TradingWindow({
   // A click fires once, a drag fires many times
   const sliderChangeCount = useRef(0);
 
+  // Tell context which symbol we're working with
+  useEffect(() => {
+    if (symbol) {
+      setActiveSymbol(symbol);
+    }
+  }, [symbol, setActiveSymbol]);
+
+  // Sync context data to local state
+  useEffect(() => {
+    // Sync orders (filter to current symbol)
+    const symbolOrders = contextOrders.filter(
+      (order) =>
+        order.symbol === symbol &&
+        (order.status === "NEW" ||
+          order.status === "OPEN" ||
+          order.status === "TRIGGER_PENDING" ||
+          order.status === "PARTIALLY_FILLED")
+    );
+    setOpenOrders(symbolOrders);
+  }, [contextOrders, symbol]);
+
+  useEffect(() => {
+    // Sync existing position from context
+    if (contextExistingPosition && contextExistingPosition.symbol === symbol) {
+      setExistingPosition({
+        size: contextExistingPosition.size,
+        entryPrice: contextExistingPosition.entryPrice,
+        pnl: contextExistingPosition.pnl,
+        leverage: contextExistingPosition.leverage,
+      });
+    } else {
+      setExistingPosition(null);
+    }
+  }, [contextExistingPosition, symbol]);
+
+  useEffect(() => {
+    // Sync account details from context
+    if (contextAccountDetails) {
+      setAccountDetails(contextAccountDetails);
+      setAvailableBalance(contextAccountDetails.availableBalance || contextAccountDetails.equity || 0);
+    }
+  }, [contextAccountDetails]);
+
+  useEffect(() => {
+    // Sync symbol info from context
+    if (contextSymbolInfo) {
+      setTickSize(contextSymbolInfo.tickSize);
+      setStepSize(contextSymbolInfo.stepSize);
+      setExchangeMaxLeverage(contextSymbolInfo.maxLeverage);
+    }
+  }, [contextSymbolInfo]);
+
+  useEffect(() => {
+    // Sync last refresh time
+    if (contextLastRefresh) {
+      setLastDetailsRefresh(contextLastRefresh);
+    }
+  }, [contextLastRefresh]);
+
   // Reset synced state when symbol or account changes
   useEffect(() => {
     hasSyncedLeverage.current = false;
     setHasUserEditedPrice(false);
-    setExistingPosition(null); // Clear stale position data until new data is fetched
-    setOpenOrders([]); // Clear stale order data until new data is fetched
     // When user changes symbol or account, reset price to latest LTP for LIMIT orders
     if (orderForm.type === "LIMIT") {
       const decimals = tickSize.includes(".")
@@ -457,162 +525,20 @@ const TradingWindow = memo(function TradingWindow({
     availableBalance,
   ]);
 
-  const fetchAccountAndPositionDetails = useCallback(async () => {
-    if (!selectedAccount) return;
+  // NOTE: fetchAccountAndPositionDetails and fetchOpenOrders removed.
+  // Data is now fetched centrally via TradingDataContext and synced to local state above.
 
-    setIsRefreshingDetails(true);
-    try {
-      const cacheKey = `${selectedAccount._id}-${symbol}`;
-      let promise = DETAILS_PROMISE_CACHE.get(cacheKey);
-
-      if (!promise) {
-        promise = (async () => {
-          try {
-            if (selectedAccount.accountType === "binance") {
-              const response = await api.get("/binance/position-details", {
-                params: {
-                  accountId: selectedAccount._id,
-                  symbol,
-                },
-              });
-              return { type: "binance", data: response.data };
-            } else {
-              const response = await api.get(
-                `/funds?accountId=${selectedAccount._id}`
-              );
-              return { type: "other", data: response.data };
-            }
-          } catch (e) {
-            throw e;
-          } finally {
-            // Clear cache after 2 seconds
-            setTimeout(() => {
-              DETAILS_PROMISE_CACHE.delete(cacheKey);
-            }, 2000);
-          }
-        })();
-        DETAILS_PROMISE_CACHE.set(cacheKey, promise);
-      }
-
-      const result = await promise;
-
-      if (result.type === "binance") {
-        const data = result.data;
-        if (data && data.success) {
-          setAccountDetails(data.account);
-
-          let newExchangeMaxLeverage = 125;
-          if (data.symbolInfo?.maxLeverage) {
-            newExchangeMaxLeverage = data.symbolInfo.maxLeverage;
-          } else if (data.position?.maxLeverage) {
-            newExchangeMaxLeverage = data.position.maxLeverage;
-          }
-          setExchangeMaxLeverage(newExchangeMaxLeverage);
-
-          if (data.symbolInfo?.tickSize) {
-            setTickSize(data.symbolInfo.tickSize);
-          }
-          if (data.symbolInfo?.stepSize) {
-            setStepSize(data.symbolInfo.stepSize);
-          }
-
-          // Only sync leverage if we haven't done so yet for this session
-          if (!hasSyncedLeverage.current) {
-            const effectiveMaxLeverage = Math.min(
-              newExchangeMaxLeverage,
-              userMaxLeverage
-            );
-            const currentPositionLeverage = data.position?.leverage;
-            const defaultLeverage = currentPositionLeverage
-              ? Math.min(currentPositionLeverage, effectiveMaxLeverage)
-              : effectiveMaxLeverage;
-
-            setOrderForm((prev) => ({
-              ...prev,
-              leverage: String(defaultLeverage),
-            }));
-            hasSyncedLeverage.current = true;
-          }
-
-          const equity = data.account.equity || 0;
-          const available = data.account.availableBalance || equity;
-          setAvailableBalance(available);
-
-          // Check for existing position
-          if (data.position && data.position.size !== 0) {
-            setExistingPosition({
-              size: data.position.size,
-              entryPrice: data.position.entryPrice,
-              pnl: data.position.pnl,
-              leverage: data.position.leverage,
-            });
-          } else {
-            setExistingPosition(null);
-          }
-        }
-      } else {
-        const data = result.data;
-        if (data && data.available) {
-          setAvailableBalance(parseFloat(data.available) || 0);
-        } else if (data && data.data) {
-          const balance = data.data.availableCash || data.data.net || 0;
-          setAvailableBalance(parseFloat(balance));
-        }
-      }
-
-      setLastDetailsRefresh(Date.now());
-    } catch (err) {
-      console.error("Failed to fetch account details:", err);
-    } finally {
-      setIsRefreshingDetails(false);
-    }
-  }, [selectedAccount, symbol, userMaxLeverage]);
-
-  // Fetch open orders for the current symbol
-  const fetchOpenOrders = useCallback(async () => {
-    if (!selectedAccount) {
-      setOpenOrders([]);
-      return;
-    }
-
-    try {
-      const response = await api.get("/orders", {
-        params: {
-          vendor: selectedAccount.accountType,
-          accountId: selectedAccount._id,
-        },
-      });
-
-      if (response.data && Array.isArray(response.data)) {
-        // Filter orders for current symbol that are still open
-        const symbolOrders = response.data.filter(
-          (order: any) =>
-            order.symbol === symbol &&
-            (order.status === "NEW" ||
-              order.status === "OPEN" ||
-              order.status === "TRIGGER_PENDING" ||
-              order.status === "PARTIALLY_FILLED")
-        );
-        setOpenOrders(symbolOrders);
-      }
-    } catch (err) {
-      console.error("Failed to fetch open orders:", err);
-      setOpenOrders([]);
-    }
-  }, [selectedAccount, symbol]);
-
+  // Periodic refresh using context (initial fetch is handled by context on symbol change)
   useEffect(() => {
     if (!selectedAccount) return;
 
-    fetchAccountAndPositionDetails();
-    fetchOpenOrders();
+    // Set up periodic refresh only - initial fetch already happens in context
     const interval = setInterval(() => {
-      fetchAccountAndPositionDetails();
-      fetchOpenOrders();
+      contextRefreshAll();
     }, DETAILS_REFRESH_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [fetchAccountAndPositionDetails, fetchOpenOrders, selectedAccount, symbol]);
+  }, [selectedAccount, contextRefreshAll]);
 
   const handleInputChange = (
     field: keyof OrderForm,
@@ -918,8 +844,7 @@ const TradingWindow = memo(function TradingWindow({
       setOrderRefreshTrigger((prev) => prev + 1); // Trigger refresh of positions/orders tabs
       // Refresh open orders and position data to update chart lines
       setTimeout(() => {
-        fetchOpenOrders();
-        fetchAccountAndPositionDetails();
+        contextRefreshAll();
       }, 1000);
 
       if (response.data.warnings && response.data.warnings.length > 0) {
@@ -1114,6 +1039,19 @@ const TradingWindow = memo(function TradingWindow({
   // Build price lines for the chart
   const chartPriceLines = [];
 
+  // Current Price (LTP) line
+  if (currentPrice > 0) {
+    chartPriceLines.push({
+      price: currentPrice,
+      color: "#64748b", // slate-500
+      lineWidth: 1,
+      lineStyle: 1, // Dotted
+      axis: "right" as const,
+      axisLabelVisible: true,
+      title: "LTP",
+    });
+  }
+
   // Order price line (for limit orders)
   if (orderForm.type === "LIMIT" && orderForm.price) {
     const price = parseFloat(orderForm.price);
@@ -1172,17 +1110,26 @@ const TradingWindow = memo(function TradingWindow({
     const orderPrice = order.stopPrice && order.stopPrice > 0 ? order.stopPrice : order.price;
     if (orderPrice > 0) {
       const isBuy = order.transactionType === "BUY";
-      const isStopOrder = order.orderType.includes("STOP") || order.orderType.includes("TAKE_PROFIT");
+      const isSL = order.orderType.includes("STOP");
+      const isTP = order.orderType.includes("TAKE_PROFIT");
+      const isStopOrder = isSL || isTP;
+      
+      let color = isBuy ? "#86efac" : "#fca5a5"; // Light green for buy, light red for sell
+      if (isSL) color = "#ec4899"; // SL color
+      if (isTP) color = "#3b82f6"; // TP color
+
       chartPriceLines.push({
         price: orderPrice,
-        color: isBuy ? "#86efac" : "#fca5a5", // Light green for buy, light red for sell
+        color: color,
         lineWidth: 1,
         lineStyle: isStopOrder ? 1 : 0, // Dotted for stop orders, solid for limit
+        title: isStopOrder ? (isSL ? "SL" : "TP") : undefined,
       });
     }
   });
 
   const chartLegend = [
+    { label: "LTP", color: "#64748b" },
     { label: "Limit Buy", color: "#22c55e" },
     { label: "Limit Sell", color: "#ef4444" },
     { label: "Stop Loss", color: "#ec4899" },
@@ -1248,7 +1195,7 @@ const TradingWindow = memo(function TradingWindow({
               size="sm"
               className="h-7 text-xs"
               onClick={() => {
-                fetchAccountAndPositionDetails();
+                contextRefreshAll();
                 syncPriceToCurrent();
               }}
               disabled={!selectedAccount || isRefreshingDetails}

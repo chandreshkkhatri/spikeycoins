@@ -71,6 +71,7 @@ interface ChartSettings {
   isLogScale: boolean;
   isCollapsed: boolean;
   collapsedCharts: { [interval: string]: boolean };
+  zoomLevels: { [index: number]: number }; // Per-chart slot bar spacing
 }
 
 // Removed constant PRICE_SCALE_ID as we use both
@@ -183,6 +184,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       isLoadingHistory?: boolean;
       hasMoreHistory?: boolean;
       visibleRangeHandler?: LogicalRangeChangeEventHandler;
+      // Disposal tracking to prevent accessing removed charts
+      disposed?: boolean;
     }[]>([]);
     const [loading, setLoading] = useState(false);
     const [refreshingCharts, setRefreshingCharts] = useState(false);
@@ -203,9 +206,20 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     const [collapsedCharts, setCollapsedCharts] = useState<{
       [interval: string]: boolean;
     }>(storedSettings.current?.collapsedCharts || {});
+    
+    // Per-chart zoom levels (bar spacing), keyed by chart slot index
+    const [zoomLevels, setZoomLevels] = useState<{ [index: number]: number }>(
+      storedSettings.current?.zoomLevels || {}
+    );
+    // Use ref to access zoom levels in createSingleChart without triggering recreation
+    const zoomLevelsRef = useRef(zoomLevels);
+    
+    // Sync ref with state
+    useEffect(() => {
+      zoomLevelsRef.current = zoomLevels;
+    }, [zoomLevels]);
+
     const runIdRef = useRef(0);
-    // Track if charts have been initialized (to skip full reinit on symbol changes)
-    const chartsInitializedRef = useRef(false);
 
     // Countdown timers for each chart's current candle
     const [countdowns, setCountdowns] = useState<{ [key: string]: string }>({});
@@ -267,7 +281,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           // Skip if charts haven't loaded data for the current symbol yet
           if (currentPrice && currentPrice > 0 && loadedSymbolRef.current === displaySymbol) {
             const chartRef = chartRefs.current[index];
-            if (chartRef?.series) {
+            // Skip if chart is disposed or series is not available
+            if (chartRef?.series && !chartRef.disposed) {
               try {
                 // Get the current time as UTCTimestamp for the update
                 const candleTime = Math.floor(currentPeriodStart / 1000) as UTCTimestamp;
@@ -339,13 +354,14 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         isLogScale,
         isCollapsed,
         collapsedCharts,
+        zoomLevels,
       });
-    }, [selectedTimeframes, chartTimeframes, autoScale, isLogScale, isCollapsed, collapsedCharts]);
+    }, [selectedTimeframes, chartTimeframes, autoScale, isLogScale, isCollapsed, collapsedCharts, zoomLevels]);
 
-    // Update price lines on all charts when they change
     useEffect(() => {
       chartRefs.current.forEach((chartRef) => {
-        if (!chartRef?.series) return;
+        // Skip if chart is disposed or series is not available
+        if (!chartRef?.series || chartRef.disposed) return;
 
         // Remove existing price lines
         if (chartRef.priceLineRefs) {
@@ -364,18 +380,24 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           chartRef.priceLineRefs = priceLines
             .filter((pl) => pl.price > 0)
             .map((pl) => {
-              return chartRef.series?.createPriceLine({
-                price: pl.price,
-                color: pl.color,
-                lineWidth: (pl.lineWidth || 1) as LineWidth,
-                lineStyle: pl.lineStyle ?? 2, // Default to dashed
-                axisLabelVisible: pl.axisLabelVisible ?? true,
-                title: pl.title || "",
-              });
-            });
+              try {
+                return chartRef.series?.createPriceLine({
+                  price: pl.price,
+                  color: pl.color,
+                  lineWidth: (pl.lineWidth || 1) as LineWidth,
+                  lineStyle: pl.lineStyle ?? 2, // Default to dashed
+                  axisLabelVisible: pl.axisLabelVisible ?? true,
+                  title: pl.title || "",
+                });
+              } catch (e) {
+                // Ignore errors if chart is disposed during creation
+                return null;
+              }
+            })
+            .filter(Boolean); // Filter out nulls
         }
       });
-    }, [priceLines]);
+    }, [priceLines, collapsedCharts]);
 
     const resetToDefaults = () => {
       setSelectedTimeframes(DEFAULT_TIMEFRAMES);
@@ -407,9 +429,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             try {
               const data = await fetchChartData(actualTimeframe);
               if (runIdRef.current !== thisRun) return;
-              if (data.length > 0 && typeof chartRef.series.setData === "function") {
+              // Check if chart keys exist and chart is not disposed
+              if (data.length > 0 && chartRef.series && !chartRef.disposed && typeof chartRef.series.setData === "function") {
                 chartRef.series.setData(data);
-                chartRef.chart?.timeScale().fitContent();
                 // Reset historical data tracking after refresh
                 chartRef.oldestTimestamp = (data[0].time as number) * 1000;
                 chartRef.hasMoreHistory = true;
@@ -427,8 +449,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           setRefreshingCharts(false);
         }
       }
-      setCollapsedCharts({});
-      localStorage.removeItem(CHART_SETTINGS_KEY);
     };
 
     const toggleChartCollapse = useCallback((interval: string) => {
@@ -444,6 +464,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           if (chartIndex !== -1) {
             const chartRef = chartRefs.current[chartIndex];
             if (chartRef?.chart) {
+              // Mark as disposed FIRST to prevent concurrent access
+              chartRef.disposed = true;
               try {
                 // Remove wheel handler before removing chart
                 if (chartRef.wheelHandler && chartRef.container) {
@@ -458,6 +480,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               chart: null,
               series: null,
               secondarySeries: null,
+              disposed: true,
             };
           }
         }
@@ -530,7 +553,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     }, []);
 
     const createSingleChart = useCallback(
-      (container: HTMLDivElement) => {
+      (container: HTMLDivElement, index: number) => {
         const isDarkMode = document.documentElement.classList.contains("dark");
         const isMobile = window.innerWidth <= 768;
 
@@ -547,6 +570,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         }
 
         const containerWidth = Math.max(container.clientWidth || 300, 300);
+
+        // Get stored zoom for this slot, fallback to a zoomed-in default (fitting ~30 candles)
+        const defaultSpacing = containerWidth / 30;
+        const initialBarSpacing = zoomLevelsRef.current[index] ?? defaultSpacing;
 
         const chart = createChart(container, {
           width: containerWidth,
@@ -605,7 +632,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           timeScale: {
             borderColor: isDarkMode ? "#27272a" : "#e4e4e7",
             rightOffset: isMobile ? 3 : 8,
-            barSpacing: isMobile ? 3 : 5,
+            barSpacing: initialBarSpacing,
             borderVisible: false,
             timeVisible: true,
             secondsVisible: false,
@@ -639,11 +666,27 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             const newBarSpacing = Math.max(1, Math.min(50, currentBarSpacing * zoomFactor));
 
             timeScale.applyOptions({ barSpacing: newBarSpacing });
+            
+            // Persist the new zoom level for this slot
+            setZoomLevels(prev => ({ ...prev, [index]: newBarSpacing }));
           }
           // If Ctrl/Cmd is not pressed, let the event bubble up for normal page scroll
         };
 
         container.addEventListener('wheel', handleWheel, { passive: false });
+
+        // Debounced internal zoom change listener (pinch-to-zoom)
+        let zoomTimeout: ReturnType<typeof setTimeout>;
+        const handleZoomChange = () => {
+          const currentSpacing = chart.timeScale().options().barSpacing;
+          if (currentSpacing && Math.abs(currentSpacing - (zoomLevelsRef.current[index] || 0)) > 0.05) {
+            clearTimeout(zoomTimeout);
+            zoomTimeout = setTimeout(() => {
+              setZoomLevels(prev => ({ ...prev, [index]: currentSpacing }));
+            }, 500);
+          }
+        };
+        chart.timeScale().subscribeVisibleLogicalRangeChange(handleZoomChange);
 
         // Force resize after creation to ensure dimensions are applied
         setTimeout(() => {
@@ -878,6 +921,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             mergedData = mergedData.slice(-MAX_CANDLES_IN_MEMORY);
           }
 
+          // Check if chart is still valid before updating
+          if (chartRef.disposed || !chartRef.series) return;
+
           // Update series data
           chartRef.series.setData(mergedData);
 
@@ -951,9 +997,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       selectedTimeframes.forEach((tf, index) => {
         const actualInterval = chartTimeframes[index] || tf.interval;
         const chartRef = chartRefs.current[index];
-        if (chartRef?.series) {
+        // Skip if chart is disposed or series is not available
+        if (chartRef?.series && !chartRef.disposed) {
           fetchChartData(actualInterval).then((data) => {
-            if (data.length > 0 && chartRef.series && typeof chartRef.series.setData === "function") {
+            // Double-check disposed state after async fetch
+            if (data.length > 0 && chartRef.series && !chartRef.disposed && typeof chartRef.series.setData === "function") {
               try {
                 chartRef.series.setData(data);
                 chartRef.chart?.timeScale().scrollToRealTime();
@@ -979,7 +1027,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           setError(null);
 
           // Clear existing charts
-          chartRefs.current.forEach(({ chart, wheelHandler, container }) => {
+          chartRefs.current.forEach((chartRef) => {
+            // Mark as disposed FIRST to prevent concurrent access
+            chartRef.disposed = true;
+            const { chart, wheelHandler, container } = chartRef;
             if (chart) {
               try {
                 // Remove wheel handler before removing chart
@@ -995,7 +1046,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           chartRefs.current = [];
 
           // Wait for container refs to be available
-          await new Promise((resolve) => requestAnimationFrame(resolve));
+          await new Promise((resolve) => setTimeout(resolve, 300));
 
           // Create charts for all selected timeframes
           const promises = selectedTimeframes.map(async (timeframe, index) => {
@@ -1006,7 +1057,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
             try {
               const { chart, series, secondarySeries, wheelHandler } = createSingleChart(
-                container
+                container,
+                index
               );
               chartRefs.current[index] = {
                 chart,
@@ -1035,7 +1087,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 typeof series.setData === "function"
               ) {
                 series.setData(data);
-                chart.timeScale().fitContent();
 
                 // Track oldest timestamp and set up scroll handler for historical loading
                 chartRefs.current[index].oldestTimestamp = (data[0].time as number) * 1000;
@@ -1056,8 +1107,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
           await Promise.all(promises);
           if (runIdRef.current !== thisRun) return;
-          // Mark charts as initialized and ready for live updates
-          chartsInitializedRef.current = true;
+          // Mark charts as ready for live updates for this symbol
           loadedSymbolRef.current = displaySymbol;
           setLoading(false);
         } catch (err) {
@@ -1073,13 +1123,16 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         // Bail out if a new run has started (unmounted or symbol changed)
         if (runIdRef.current !== thisRun) return;
         initializeCharts();
-      }, 100);
+      }, 500);
 
       return () => {
         clearTimeout(timeoutId);
         // Invalidate this run to prevent any pending async work from touching disposed charts
         runIdRef.current = thisRun + 1;
-        chartRefs.current.forEach(({ chart, wheelHandler, container, visibleRangeHandler }) => {
+        chartRefs.current.forEach((chartRef) => {
+          // Mark as disposed FIRST to prevent any concurrent access
+          chartRef.disposed = true;
+          const { chart, wheelHandler, container, visibleRangeHandler } = chartRef;
           if (chart) {
             try {
               // Remove wheel handler before removing chart
@@ -1097,74 +1150,15 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           }
         });
       };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
+      displaySymbol,
       selectedTimeframes,
       createSingleChart,
       fetchChartData,
       setupHistoricalScrollHandler,
+      // NOTE: chartTimeframes is intentionally excluded. A dedicated effect below
+      // handles reloading individual charts when their timeframe changes.
     ]);
-
-    // Effect to update chart data in-place when symbol changes (without destroying charts)
-    useEffect(() => {
-      // Skip if charts haven't been initialized yet (handled by main effect)
-      if (!chartsInitializedRef.current || chartRefs.current.length === 0) {
-        return;
-      }
-
-      const thisRun = runIdRef.current + 1;
-      runIdRef.current = thisRun;
-
-      const updateChartsForSymbol = async () => {
-        setLoading(true);
-        setError(null);
-
-        // Clear the promise cache to force fresh fetches for new symbol
-        CHART_PROMISE_CACHE.clear();
-
-        // Update data for each chart WITHOUT destroying the chart
-        await Promise.all(
-          selectedTimeframes.map(async (timeframe, index) => {
-            const chartRef = chartRefs.current[index];
-            if (!chartRef?.series || !chartRef?.chart) return;
-
-            const actualTimeframe = chartTimeframes[index] || timeframe.interval;
-
-            try {
-              const data = await fetchChartData(actualTimeframe);
-              if (runIdRef.current !== thisRun) return;
-
-              if (data.length > 0 && typeof chartRef.series.setData === "function") {
-                chartRef.series.setData(data);
-                chartRef.chart?.timeScale().fitContent();
-
-                // Reset historical data tracking
-                chartRef.oldestTimestamp = (data[0].time as number) * 1000;
-                chartRef.hasMoreHistory = true;
-                chartRef.isLoadingHistory = false;
-
-                // Re-setup scroll handler with correct timeframe
-                if (chartRef.visibleRangeHandler) {
-                  chartRef.chart.timeScale().unsubscribeVisibleLogicalRangeChange(chartRef.visibleRangeHandler);
-                }
-                const handler = setupHistoricalScrollHandler(chartRef.chart, chartRef.series, index, actualTimeframe);
-                chartRef.visibleRangeHandler = handler;
-              }
-            } catch (err) {
-              // Handle per-chart errors silently
-            }
-          })
-        );
-
-        if (runIdRef.current === thisRun) {
-          loadedSymbolRef.current = displaySymbol;
-          setLoading(false);
-        }
-      };
-
-      updateChartsForSymbol();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [displaySymbol]);
 
     // Effect to handle individual chart expand - recreate chart when a collapsed chart is expanded
     useEffect(() => {
@@ -1181,7 +1175,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           // Chart exists, just need to resize it
           try {
             existingChart.chart.resize(container.clientWidth, container.clientHeight);
-            existingChart.chart.timeScale().fitContent();
           } catch {
             // Chart might be invalid, recreate it
           }
@@ -1190,7 +1183,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
         try {
           const { chart, series, secondarySeries, wheelHandler } = createSingleChart(
-            container
+            container,
+            index
           );
           chartRefs.current[index] = {
             chart,
@@ -1205,7 +1199,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
           if (data.length > 0 && series && typeof series.setData === "function") {
             series.setData(data);
-            chart.timeScale().fitContent();
           }
         } catch (error) {
           // Ignore error initializing expanded chart
@@ -1257,8 +1250,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 typeof chartRef.series.setData === "function"
               ) {
                 chartRef.series.setData(data);
-                const timeScale = chartRef.chart?.timeScale();
-                timeScale?.fitContent();
 
                 // Set up new scroll handler with new timeframe
                 chartRef.oldestTimestamp = (data[0].time as number) * 1000;

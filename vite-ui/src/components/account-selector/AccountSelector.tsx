@@ -21,6 +21,7 @@ interface AccountSelectorProps {
   selectedAccount: TradingAccount | null;
   onAccountSelect: (account: TradingAccount) => void;
   loading?: boolean;
+  compact?: boolean;
 }
 
 export default function AccountSelector({
@@ -28,6 +29,7 @@ export default function AccountSelector({
   selectedAccount,
   onAccountSelect,
   loading = false,
+  compact = false,
 }: AccountSelectorProps) {
   if (loading) {
     return (
@@ -57,6 +59,19 @@ export default function AccountSelector({
     );
   }
 
+  const getAccountIcon = (accountType: string) => {
+    switch (accountType) {
+      case "binance":
+        return "🟡";
+      case "kite":
+        return "🟠";
+      case "upstox":
+        return "🔵";
+      default:
+        return "🔗";
+    }
+  };
+
   return (
     <Select
       value={selectedAccount?._id}
@@ -65,20 +80,14 @@ export default function AccountSelector({
         if (account) onAccountSelect(account);
       }}
     >
-      <SelectTrigger className="h-9 w-[160px] sm:w-[200px]">
+      <SelectTrigger className={compact ? "h-9 w-auto min-w-[40px] md:w-[160px] lg:w-[200px]" : "h-9 w-[160px] sm:w-[200px]"}>
         <SelectValue placeholder="Select Account">
           {selectedAccount && (
             <div className="flex items-center gap-2 overflow-hidden">
               <span className="shrink-0 text-xs">
-                {selectedAccount.accountType === "binance"
-                  ? "🟡"
-                  : selectedAccount.accountType === "kite"
-                  ? "🟠"
-                  : selectedAccount.accountType === "upstox"
-                  ? "🔵"
-                  : "🔗"}
+                {getAccountIcon(selectedAccount.accountType)}
               </span>
-              <span className="truncate text-sm font-medium">
+              <span className={`truncate text-sm font-medium ${compact ? "hidden md:inline" : ""}`}>
                 {selectedAccount.accountName}
               </span>
             </div>
@@ -90,13 +99,7 @@ export default function AccountSelector({
           <SelectItem key={account._id} value={account._id}>
             <div className="flex items-center gap-2">
               <span className="text-xs">
-                {account.accountType === "binance"
-                  ? "🟡"
-                  : account.accountType === "kite"
-                  ? "🟠"
-                  : account.accountType === "upstox"
-                  ? "🔵"
-                  : "🔗"}
+                {getAccountIcon(account.accountType)}
               </span>
               <span className="font-medium">{account.accountName}</span>
               <span className="ml-1 text-xs capitalize text-muted-foreground">

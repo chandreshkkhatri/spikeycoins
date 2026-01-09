@@ -104,9 +104,11 @@ export default function HoldingsCard({
         throw new Error(response.data?.error || "Failed to fetch holdings");
       }
     } catch (err: any) {
-      // Check if it's a 401 error (authentication failure)
-      if (err.response?.status === 401) {
-        const errorData = err.response?.data;
+      const responseData = err.response?.data;
+      const status = err.response?.status;
+      
+      // Check if it's a permission error (403) from Binance
+      if (status === 403 && responseData?.isPermissionError) {
         setAccountErrors((prev) => {
           const filtered = prev.filter((e) => e.accountId !== account._id);
           return [
@@ -114,9 +116,23 @@ export default function HoldingsCard({
             {
               accountId: account._id!,
               accountName: account.accountName,
-              requiresReauth: errorData?.requiresReauth || true,
+              requiresReauth: false,
+              message: responseData.suggestion || responseData.error || "Permission denied",
+            },
+          ];
+        });
+      } else if (status === 401) {
+        // Handle authentication errors
+        setAccountErrors((prev) => {
+          const filtered = prev.filter((e) => e.accountId !== account._id);
+          return [
+            ...filtered,
+            {
+              accountId: account._id!,
+              accountName: account.accountName,
+              requiresReauth: true,
               message:
-                errorData?.error ||
+                responseData?.error ||
                 "Authentication failed. Please re-authenticate your account.",
             },
           ];
@@ -124,8 +140,9 @@ export default function HoldingsCard({
       } else {
         // Check both 'error' and 'details' fields for the actual error message
         const errorMessage =
-          err.response?.data?.error ||
-          err.response?.data?.details ||
+          responseData?.suggestion ||
+          responseData?.error ||
+          responseData?.details ||
           err.message ||
           "Failed to fetch holdings";
         setError(`${account.accountName}: ${errorMessage}`);
@@ -284,7 +301,7 @@ export default function HoldingsCard({
         </div>
       )}
 
-      {/* Authentication Errors */}
+      {/* Authentication and Permission Errors */}
       {accountErrors.length > 0 && (
         <div className="auth-errors-container">
           {accountErrors.map((error) => {
@@ -293,31 +310,38 @@ export default function HoldingsCard({
             );
             if (!account) return null;
 
+            const isPermissionError = !error.requiresReauth;
+            const errorTitle = isPermissionError 
+              ? `${error.accountName} - Permission Required`
+              : `${error.accountName} - Authentication Required`;
+
             return (
               <div key={error.accountId} className="auth-error-alert">
                 <div className="auth-error-content">
                   <AlertTriangle className="auth-error-icon" size={20} />
                   <div className="auth-error-details">
                     <div className="auth-error-title">
-                      {error.accountName} - Authentication Required
+                      {errorTitle}
                     </div>
                     <div className="auth-error-message">{error.message}</div>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={() => {
-                    // Handle re-authentication based on account type
-                    if (account.accountType === "upstox") {
-                      window.location.href = `/api/auth/upstox?accountId=${account._id}`;
-                    } else if (account.accountType === "kite") {
-                      window.location.href = `/api/auth/kite?accountId=${account._id}`;
-                    }
-                  }}
-                >
-                  Re-authenticate
-                </Button>
+                {error.requiresReauth && (
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={() => {
+                      // Handle re-authentication based on account type
+                      if (account.accountType === "upstox") {
+                        window.location.href = `/api/auth/upstox?accountId=${account._id}`;
+                      } else if (account.accountType === "kite") {
+                        window.location.href = `/api/auth/kite?accountId=${account._id}`;
+                      }
+                    }}
+                  >
+                    Re-authenticate
+                  </Button>
+                )}
               </div>
             );
           })}

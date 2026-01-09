@@ -7,16 +7,27 @@ import { useTheme } from "@/lib/theme-context";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { PAGE_ROUTES } from "@/lib/constants";
-import { LogOut, User, LogIn, Settings } from "lucide-react";
+import { 
+  LogOut, 
+  User, 
+  LogIn, 
+  Settings,
+  LayoutDashboard, 
+  LineChart, 
+  BookOpen, 
+  Dumbbell, 
+  Wallet, 
+  Users 
+} from "lucide-react";
 import { HeaderFundsDisplay } from "./HeaderFundsDisplay";
 
 const navItems = [
-  { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
-  { href: PAGE_ROUTES.TRADING_PANEL, label: "Trading Panel" },
-  { href: PAGE_ROUTES.TRADING_GYM, label: "Trading Gym" },
-  { href: PAGE_ROUTES.HOLDINGS, label: "Holdings" },
-  { href: PAGE_ROUTES.FUNDS, label: "Funds" },
-  { href: PAGE_ROUTES.ACCOUNTS, label: "Accounts" },
+  { href: PAGE_ROUTES.DASHBOARD, label: "Command Center", icon: LayoutDashboard },
+  { href: PAGE_ROUTES.TRADING_PANEL, label: "Terminal", icon: LineChart },
+  { href: PAGE_ROUTES.ANALYST_DESK, label: "Journal", icon: BookOpen },
+  { href: PAGE_ROUTES.TRADING_GYM, label: "Gym", icon: Dumbbell },
+  { href: PAGE_ROUTES.ASSETS, label: "Portfolio", icon: Wallet },
+  { href: PAGE_ROUTES.ACCOUNTS, label: "Brokers", icon: Users },
 ];
 
 export function Header() {
@@ -98,11 +109,12 @@ export function Header() {
             <Link
               key={item.href}
               to={item.href}
-              className={`px-3 py-2 rounded-md transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
+              className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
                 ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
                 : "text-muted-foreground"
                 }`}
             >
+              <item.icon className="h-4 w-4" />
               {item.label}
             </Link>
           ))}
@@ -114,20 +126,20 @@ export function Header() {
             <HeaderFundsDisplay />
           )}
 
-          {/* Account Selector - Show on dashboard, trading pages, and funds */}
+          {/* Account Selector - Show on dashboard, trading pages, and assets */}
           {(pathname.startsWith(PAGE_ROUTES.DASHBOARD) ||
             pathname.startsWith(PAGE_ROUTES.TRADING_PANEL) ||
-            pathname.startsWith(PAGE_ROUTES.HOLDINGS) ||
+            pathname.startsWith(PAGE_ROUTES.ASSETS) ||
             pathname.startsWith(PAGE_ROUTES.TRADING) ||
             pathname.startsWith(PAGE_ROUTES.POSITIONS) ||
-            pathname.startsWith(PAGE_ROUTES.ORDERS) ||
-            pathname.startsWith(PAGE_ROUTES.FUNDS)) && (
-              <div className="hidden md:block mr-2">
+            pathname.startsWith(PAGE_ROUTES.ORDERS)) && (
+              <div className="mr-1 md:mr-2">
                 <AccountSelector
                   accounts={tradingAccounts}
                   selectedAccount={selectedAccount}
                   onAccountSelect={setSelectedAccount}
                   loading={accountsLoading}
+                  compact
                 />
               </div>
             )}
@@ -228,11 +240,10 @@ export function Header() {
           {/* Mobile Account Selector */}
           {(pathname.startsWith(PAGE_ROUTES.DASHBOARD) ||
             pathname.startsWith(PAGE_ROUTES.TRADING_PANEL) ||
-            pathname.startsWith(PAGE_ROUTES.HOLDINGS) ||
+            pathname.startsWith(PAGE_ROUTES.ASSETS) ||
             pathname.startsWith(PAGE_ROUTES.TRADING) ||
             pathname.startsWith(PAGE_ROUTES.POSITIONS) ||
-            pathname.startsWith(PAGE_ROUTES.ORDERS) ||
-            pathname.startsWith(PAGE_ROUTES.FUNDS)) && (
+            pathname.startsWith(PAGE_ROUTES.ORDERS)) && (
               <div className="mb-3 px-3">
                 <div className="text-xs font-medium text-muted-foreground mb-2">
                   Selected Account:
@@ -251,11 +262,12 @@ export function Header() {
               key={item.href}
               to={item.href}
               onClick={() => setOpen(false)}
-              className={`rounded-md px-3 py-2 transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
+              className={`flex items-center gap-2 rounded-md px-3 py-2 transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
                 ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
                 : "text-muted-foreground"
                 }`}
             >
+              <item.icon className="h-4 w-4" />
               {item.label}
             </Link>
           ))}

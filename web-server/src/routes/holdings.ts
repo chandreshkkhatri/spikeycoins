@@ -6,6 +6,57 @@ import { getAccountById } from "../models/account";
 
 const router: Router = Router();
 
+/**
+ * Parse Binance error and return user-friendly message
+ */
+function parseBinanceError(error: any): { 
+  message: string; 
+  code: string;
+  isPermissionError: boolean;
+  suggestion?: string;
+} {
+  const errorData = error.response?.data;
+  const errorCode = errorData?.code;
+  const errorMsg = errorData?.msg || error.message || "Unknown error";
+
+  // Binance error codes related to permissions
+  // -2015: Invalid API-key, IP, or permissions for action
+  // -1022: Signature for this request is not valid (often means wrong permissions)
+  // -2014: API-key format invalid
+  // -1102: Mandatory parameter was not sent (could indicate missing feature access)
+  
+  const permissionErrorCodes = [-2015, -1022, -2014];
+  const isPermissionError = permissionErrorCodes.includes(errorCode) || 
+    errorMsg.toLowerCase().includes('permission') ||
+    errorMsg.toLowerCase().includes('not allowed') ||
+    errorMsg.toLowerCase().includes('unauthorized');
+
+  if (isPermissionError || errorCode === -2015) {
+    return {
+      message: "API key does not have permission to read Spot wallet data",
+      code: String(errorCode || "PERMISSION_DENIED"),
+      isPermissionError: true,
+      suggestion: "Enable 'Enable Reading' permission for Spot wallet in your Binance API key settings"
+    };
+  }
+
+  // Check for IP restriction errors
+  if (errorMsg.includes("IP") || errorCode === -2015) {
+    return {
+      message: errorMsg,
+      code: String(errorCode || "IP_RESTRICTED"),
+      isPermissionError: true,
+      suggestion: "Ensure your IP address is whitelisted in your Binance API key settings"
+    };
+  }
+
+  return {
+    message: errorMsg,
+    code: String(errorCode || "UNKNOWN"),
+    isPermissionError: false
+  };
+}
+
 // GET /api/holdings - Get holdings for an account
 router.get("/", async (req: Request, res: Response) => {
   try {
@@ -66,7 +117,22 @@ router.get("/", async (req: Request, res: Response) => {
       );
 
       // Always fetch spot balances for holdings regardless of trading segment metadata
-      holdings = await binanceService.getSpotBalances();
+      try {
+        holdings = await binanceService.getSpotBalances();
+      } catch (binanceError: any) {
+        // Parse Binance-specific errors
+        const parsedError = parseBinanceError(binanceError);
+        console.error("Binance holdings error:", parsedError);
+        
+        return res.status(parsedError.isPermissionError ? 403 : 500).json({
+          success: false,
+          error: parsedError.message,
+          code: parsedError.code,
+          isPermissionError: parsedError.isPermissionError,
+          suggestion: parsedError.suggestion,
+          data: [],
+        });
+      }
     } else {
       return res
         .status(400)
@@ -134,3 +200,4 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 export default router;
+

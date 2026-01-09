@@ -56,6 +56,7 @@ interface OrderTradeUpdate {
     rp: string; // Realized profit
     ot: string; // Original order type
     ps: string; // Position side
+    R: boolean; // Is request reduce only
   };
 }
 
@@ -350,6 +351,24 @@ class BinanceOrderMonitor {
       }
     }
 
+    // If order is CANCELED, and it was an entry order (reduceOnly = false),
+    // we should trigger cleanup to remove any now-orphaned SL/TP orders.
+    // This handles the case where user cancels the Limit order, and we want 
+    // SL/TPs to go away immediately (instead of waiting for poller).
+    if (order.X === "CANCELED") {
+      const isReduceOnly = order.R === true; // API returns boolean for R
+      // We assume if it's not reduceOnly, it was likely an entry order.
+      // We can also check order types if needed, but R=false is a good signal for entry.
+      if (!isReduceOnly) {
+        console.log(
+          `[OrderMonitor] Entry order CANCELED for ${symbol} on account ${conn.accountId}. Triggering cleanup...`,
+        );
+        // Trigger cleanup to remove orphaned SL/TPs
+        await this.cleanupOrdersForSymbol(conn, symbol);
+      }
+      return;
+    }
+
     // Only cancel remaining SL/TP for STOP_MARKET or TAKE_PROFIT_MARKET orders that are FILLED
     if (order.X !== "FILLED") return;
     if (order.ot !== "STOP_MARKET" && order.ot !== "TAKE_PROFIT_MARKET") return;
@@ -564,6 +583,26 @@ class BinanceOrderMonitor {
       console.log(
         `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} has ${openOrders.length} regular open orders`,
       );
+
+      // Check for pending entry orders (reduceOnly = false)
+      // If we have a pending entry order, we should NOT cancel the SL/TP orders
+      // because they might be attached to that entry order.
+      const hasPendingEntryOrder = openOrders.some((o: any) => {
+        // Check reduceOnly flag (handle both boolean and string "true"/"false")
+        const isReduceOnly = o.reduceOnly === true || o.reduceOnly === "true";
+        const isClosePosition =
+          o.closePosition === true || o.closePosition === "true";
+
+        // If it's NOT reduceOnly and NOT closePosition, it's an entry order
+        return !isReduceOnly && !isClosePosition;
+      });
+
+      if (hasPendingEntryOrder) {
+        console.log(
+          `[OrderMonitor] Cleanup aborted for ${symbol}: Found pending entry order(s). SL/TP orders preserved.`,
+        );
+        return;
+      }
 
       // Cancel SL/TP orders (all conditional order types)
       const conditionalTypes = [

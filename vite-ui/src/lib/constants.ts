@@ -75,6 +75,8 @@ const PAGE_ROUTES = {
   TRADING_GYM: '/trading-gym',
   TRADING: '/trading',
   FUNDS: '/funds',
+  ASSETS: '/assets',
+  ANALYST_DESK: '/analyst-desk',
   SETTINGS: '/settings',
 } as const;
 

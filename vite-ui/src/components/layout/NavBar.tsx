@@ -4,6 +4,14 @@ import { useTheme } from "@/lib/theme-context";
 import { Link, useLocation } from "react-router-dom";
 import { useState } from "react";
 import { PAGE_ROUTES } from "@/lib/constants";
+import { 
+  LayoutDashboard, 
+  LineChart, 
+  BookOpen, 
+  Dumbbell, 
+  Wallet, 
+  Users 
+} from "lucide-react";
 
 interface NavBarProps {
   title?: string;
@@ -31,12 +39,12 @@ export default function NavBar({
   };
 
   const navItems = [
-    { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
-    { href: PAGE_ROUTES.TRADING_PANEL, label: "Trading Panel" },
-    { href: PAGE_ROUTES.TRADING_GYM, label: "Trading Gym" },
-    { href: PAGE_ROUTES.FUNDS, label: "Funds" },
-    { href: PAGE_ROUTES.HOLDINGS, label: "Holdings" },
-    { href: PAGE_ROUTES.ACCOUNTS, label: "Accounts" },
+    { href: PAGE_ROUTES.DASHBOARD, label: "Command Center", icon: LayoutDashboard },
+    { href: PAGE_ROUTES.TRADING_PANEL, label: "Terminal", icon: LineChart },
+    { href: PAGE_ROUTES.ANALYST_DESK, label: "Journal", icon: BookOpen },
+    { href: PAGE_ROUTES.TRADING_GYM, label: "Gym", icon: Dumbbell },
+    { href: PAGE_ROUTES.ASSETS, label: "Portfolio", icon: Wallet },
+    { href: PAGE_ROUTES.ACCOUNTS, label: "Brokers", icon: Users },
   ];
 
   const isActiveRoute = (href: string) => pathname === href;
@@ -67,6 +75,7 @@ export default function NavBar({
                   isActiveRoute(item.href) ? "active" : ""
                 }`}
               >
+                <item.icon className="h-4 w-4 mr-2" />
                 {item.label}
               </Link>
             ))}
@@ -117,7 +126,8 @@ export default function NavBar({
             key={item.href}
             className={isActiveRoute(item.href) ? "active" : ""}
           >
-            <Link to={item.href} onClick={() => setIsMenuOpen(false)}>
+            <Link to={item.href} onClick={() => setIsMenuOpen(false)} className="flex items-center">
+              <item.icon className="h-4 w-4 mr-2" />
               {item.label}
             </Link>
           </li>
