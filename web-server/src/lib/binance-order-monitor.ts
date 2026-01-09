@@ -565,6 +565,26 @@ class BinanceOrderMonitor {
         `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} has ${openOrders.length} regular open orders`,
       );
 
+      // Check for pending entry orders (reduceOnly = false)
+      // If we have a pending entry order, we should NOT cancel the SL/TP orders
+      // because they might be attached to that entry order.
+      const hasPendingEntryOrder = openOrders.some((o: any) => {
+        // Check reduceOnly flag (handle both boolean and string "true"/"false")
+        const isReduceOnly = o.reduceOnly === true || o.reduceOnly === "true";
+        const isClosePosition =
+          o.closePosition === true || o.closePosition === "true";
+
+        // If it's NOT reduceOnly and NOT closePosition, it's an entry order
+        return !isReduceOnly && !isClosePosition;
+      });
+
+      if (hasPendingEntryOrder) {
+        console.log(
+          `[OrderMonitor] Cleanup aborted for ${symbol}: Found pending entry order(s). SL/TP orders preserved.`,
+        );
+        return;
+      }
+
       // Cancel SL/TP orders (all conditional order types)
       const conditionalTypes = [
         "STOP",

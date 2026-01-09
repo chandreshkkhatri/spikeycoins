@@ -94,7 +94,7 @@ router.get("/", async (req: Request, res: Response) => {
           type: o.orderType,
           origQty: o.quantity,
           price: o.price || "0",
-          stopPrice: o.triggerPrice,
+          stopPrice: o.triggerPrice || o.stopPrice,
           status: o.algoStatus,
           time: o.createTime,
           updateTime: o.updateTime,
