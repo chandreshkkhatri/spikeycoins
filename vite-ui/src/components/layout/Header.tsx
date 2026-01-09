@@ -120,12 +120,13 @@ export function Header() {
             pathname.startsWith(PAGE_ROUTES.TRADING) ||
             pathname.startsWith(PAGE_ROUTES.POSITIONS) ||
             pathname.startsWith(PAGE_ROUTES.ORDERS)) && (
-              <div className="hidden md:block mr-2">
+              <div className="mr-1 md:mr-2">
                 <AccountSelector
                   accounts={tradingAccounts}
                   selectedAccount={selectedAccount}
                   onAccountSelect={setSelectedAccount}
                   loading={accountsLoading}
+                  compact
                 />
               </div>
             )}

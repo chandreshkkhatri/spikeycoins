@@ -64,9 +64,9 @@ export function HeaderFundsDisplay() {
 
     if (loading && !funds) {
         return (
-            <div className="hidden md:flex items-center gap-2 mr-4 px-3 py-1.5 bg-muted/30 rounded-full border border-border/50">
+            <div className="flex items-center gap-2 mr-2 md:mr-4 px-2 md:px-3 py-1.5 bg-muted/30 rounded-full border border-border/50">
                 <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Loading funds...</span>
+                <span className="text-xs text-muted-foreground hidden md:inline">Loading...</span>
             </div>
         );
     }
@@ -79,17 +79,17 @@ export function HeaderFundsDisplay() {
     const isPnlPositive = pnl >= 0;
 
     return (
-        <div className="hidden md:flex items-center gap-4 mr-4">
+        <div className="flex items-center gap-2 md:gap-4 mr-2 md:mr-4">
             <div className="flex flex-col items-end">
-                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider leading-none mb-1">Available</span>
-                <span className="text-sm font-bold leading-none font-mono">
-                    {funds.currency}{parseFloat(funds.availableBalance).toFixed(2)}
+                <span className="text-[9px] md:text-[10px] text-muted-foreground font-medium uppercase tracking-wider leading-none mb-0.5 md:mb-1">Equity</span>
+                <span className="text-xs md:text-sm font-bold leading-none font-mono">
+                    {funds.currency}{parseFloat(funds.totalBalance).toFixed(2)}
                 </span>
             </div>
 
-            {/* Optional: Show P&L if relevant */}
+            {/* Optional: Show P&L if relevant - hide on mobile */}
             {pnl !== 0 && (
-                <div className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md bg-opacity-10 ${isPnlPositive ? 'bg-green-500 text-green-600 dark:text-green-400' : 'bg-red-500 text-red-600 dark:text-red-400'}`}>
+                <div className={`hidden md:flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md bg-opacity-10 ${isPnlPositive ? 'bg-green-500 text-green-600 dark:text-green-400' : 'bg-red-500 text-red-600 dark:text-red-400'}`}>
                     {isPnlPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                     {funds.currency}{Math.abs(pnl).toFixed(2)}
                 </div>
