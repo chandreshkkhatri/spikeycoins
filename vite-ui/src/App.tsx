@@ -2,10 +2,9 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { PAGE_ROUTES } from "@/lib/constants";
 import DashboardPage from "@/pages/Dashboard";
 import AccountsPage from "@/pages/Accounts";
-import HoldingsPage from "@/pages/Holdings";
+import AssetsPage from "@/pages/Assets";
 import TradingPanelPage from "@/pages/TradingPanel";
 import TradingPage from "@/pages/Trading";
-import FundsPage from "@/pages/Funds";
 import TradingGymPage from "@/pages/TradingGym";
 import LoginPage from "@/pages/Login";
 import AuthCallbackPage from "@/pages/AuthCallback";
@@ -20,8 +19,10 @@ function App() {
       />
       <Route path={PAGE_ROUTES.DASHBOARD} element={<DashboardPage />} />
       <Route path={PAGE_ROUTES.ACCOUNTS} element={<AccountsPage />} />
-      <Route path={PAGE_ROUTES.FUNDS} element={<FundsPage />} />
-      <Route path={PAGE_ROUTES.HOLDINGS} element={<HoldingsPage />} />
+      <Route path={PAGE_ROUTES.ASSETS} element={<AssetsPage />} />
+      {/* Redirect old routes to Assets page */}
+      <Route path={PAGE_ROUTES.FUNDS} element={<Navigate to={PAGE_ROUTES.ASSETS} replace />} />
+      <Route path={PAGE_ROUTES.HOLDINGS} element={<Navigate to={PAGE_ROUTES.ASSETS} replace />} />
       <Route
         path={PAGE_ROUTES.TRADING_PANEL}
         element={<TradingPanelPage />}

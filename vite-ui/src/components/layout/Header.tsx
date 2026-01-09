@@ -14,8 +14,7 @@ const navItems = [
   { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
   { href: PAGE_ROUTES.TRADING_PANEL, label: "Trading Panel" },
   { href: PAGE_ROUTES.TRADING_GYM, label: "Trading Gym" },
-  { href: PAGE_ROUTES.HOLDINGS, label: "Holdings" },
-  { href: PAGE_ROUTES.FUNDS, label: "Funds" },
+  { href: PAGE_ROUTES.ASSETS, label: "Assets" },
   { href: PAGE_ROUTES.ACCOUNTS, label: "Accounts" },
 ];
 
@@ -114,14 +113,13 @@ export function Header() {
             <HeaderFundsDisplay />
           )}
 
-          {/* Account Selector - Show on dashboard, trading pages, and funds */}
+          {/* Account Selector - Show on dashboard, trading pages, and assets */}
           {(pathname.startsWith(PAGE_ROUTES.DASHBOARD) ||
             pathname.startsWith(PAGE_ROUTES.TRADING_PANEL) ||
-            pathname.startsWith(PAGE_ROUTES.HOLDINGS) ||
+            pathname.startsWith(PAGE_ROUTES.ASSETS) ||
             pathname.startsWith(PAGE_ROUTES.TRADING) ||
             pathname.startsWith(PAGE_ROUTES.POSITIONS) ||
-            pathname.startsWith(PAGE_ROUTES.ORDERS) ||
-            pathname.startsWith(PAGE_ROUTES.FUNDS)) && (
+            pathname.startsWith(PAGE_ROUTES.ORDERS)) && (
               <div className="hidden md:block mr-2">
                 <AccountSelector
                   accounts={tradingAccounts}
@@ -228,11 +226,10 @@ export function Header() {
           {/* Mobile Account Selector */}
           {(pathname.startsWith(PAGE_ROUTES.DASHBOARD) ||
             pathname.startsWith(PAGE_ROUTES.TRADING_PANEL) ||
-            pathname.startsWith(PAGE_ROUTES.HOLDINGS) ||
+            pathname.startsWith(PAGE_ROUTES.ASSETS) ||
             pathname.startsWith(PAGE_ROUTES.TRADING) ||
             pathname.startsWith(PAGE_ROUTES.POSITIONS) ||
-            pathname.startsWith(PAGE_ROUTES.ORDERS) ||
-            pathname.startsWith(PAGE_ROUTES.FUNDS)) && (
+            pathname.startsWith(PAGE_ROUTES.ORDERS)) && (
               <div className="mb-3 px-3">
                 <div className="text-xs font-medium text-muted-foreground mb-2">
                   Selected Account:
