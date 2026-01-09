@@ -449,8 +449,6 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           setRefreshingCharts(false);
         }
       }
-      setCollapsedCharts({});
-      localStorage.removeItem(CHART_SETTINGS_KEY);
     };
 
     const toggleChartCollapse = useCallback((interval: string) => {
