@@ -573,8 +573,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
         const containerWidth = Math.max(container.clientWidth || 300, 300);
 
-        // Get stored zoom for this slot, fallback to default
-        const initialBarSpacing = zoomLevelsRef.current[index] ?? (isMobile ? 3 : 5);
+        // Get stored zoom for this slot, fallback to a zoomed-in default (fitting ~30 candles)
+        const defaultSpacing = containerWidth / 30;
+        const initialBarSpacing = zoomLevelsRef.current[index] ?? defaultSpacing;
 
         const chart = createChart(container, {
           width: containerWidth,
