@@ -3,6 +3,7 @@ import { PAGE_ROUTES } from "@/lib/constants";
 import DashboardPage from "@/pages/Dashboard";
 import AccountsPage from "@/pages/Accounts";
 import AssetsPage from "@/pages/Assets";
+import AnalystDeskPage from "@/pages/AnalystDesk";
 import TradingPanelPage from "@/pages/TradingPanel";
 import TradingPage from "@/pages/Trading";
 import TradingGymPage from "@/pages/TradingGym";
@@ -20,6 +21,7 @@ function App() {
       <Route path={PAGE_ROUTES.DASHBOARD} element={<DashboardPage />} />
       <Route path={PAGE_ROUTES.ACCOUNTS} element={<AccountsPage />} />
       <Route path={PAGE_ROUTES.ASSETS} element={<AssetsPage />} />
+      <Route path={PAGE_ROUTES.ANALYST_DESK} element={<AnalystDeskPage />} />
       {/* Redirect old routes to Assets page */}
       <Route path={PAGE_ROUTES.FUNDS} element={<Navigate to={PAGE_ROUTES.ASSETS} replace />} />
       <Route path={PAGE_ROUTES.HOLDINGS} element={<Navigate to={PAGE_ROUTES.ASSETS} replace />} />

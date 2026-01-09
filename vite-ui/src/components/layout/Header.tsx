@@ -7,15 +7,27 @@ import { useTheme } from "@/lib/theme-context";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { PAGE_ROUTES } from "@/lib/constants";
-import { LogOut, User, LogIn, Settings } from "lucide-react";
+import { 
+  LogOut, 
+  User, 
+  LogIn, 
+  Settings,
+  LayoutDashboard, 
+  LineChart, 
+  BookOpen, 
+  Dumbbell, 
+  Wallet, 
+  Users 
+} from "lucide-react";
 import { HeaderFundsDisplay } from "./HeaderFundsDisplay";
 
 const navItems = [
-  { href: PAGE_ROUTES.DASHBOARD, label: "Dashboard" },
-  { href: PAGE_ROUTES.TRADING_PANEL, label: "Trading Panel" },
-  { href: PAGE_ROUTES.TRADING_GYM, label: "Trading Gym" },
-  { href: PAGE_ROUTES.ASSETS, label: "Assets" },
-  { href: PAGE_ROUTES.ACCOUNTS, label: "Accounts" },
+  { href: PAGE_ROUTES.DASHBOARD, label: "Command Center", icon: LayoutDashboard },
+  { href: PAGE_ROUTES.TRADING_PANEL, label: "Terminal", icon: LineChart },
+  { href: PAGE_ROUTES.ANALYST_DESK, label: "Journal", icon: BookOpen },
+  { href: PAGE_ROUTES.TRADING_GYM, label: "Gym", icon: Dumbbell },
+  { href: PAGE_ROUTES.ASSETS, label: "Portfolio", icon: Wallet },
+  { href: PAGE_ROUTES.ACCOUNTS, label: "Brokers", icon: Users },
 ];
 
 export function Header() {
@@ -97,11 +109,12 @@ export function Header() {
             <Link
               key={item.href}
               to={item.href}
-              className={`px-3 py-2 rounded-md transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
+              className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
                 ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
                 : "text-muted-foreground"
                 }`}
             >
+              <item.icon className="h-4 w-4" />
               {item.label}
             </Link>
           ))}
@@ -249,11 +262,12 @@ export function Header() {
               key={item.href}
               to={item.href}
               onClick={() => setOpen(false)}
-              className={`rounded-md px-3 py-2 transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
+              className={`flex items-center gap-2 rounded-md px-3 py-2 transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
                 ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
                 : "text-muted-foreground"
                 }`}
             >
+              <item.icon className="h-4 w-4" />
               {item.label}
             </Link>
           ))}
