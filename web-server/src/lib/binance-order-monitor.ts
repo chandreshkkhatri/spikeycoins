@@ -56,6 +56,7 @@ interface OrderTradeUpdate {
     rp: string; // Realized profit
     ot: string; // Original order type
     ps: string; // Position side
+    R: boolean; // Is request reduce only
   };
 }
 
@@ -348,6 +349,24 @@ class BinanceOrderMonitor {
           notifError,
         );
       }
+    }
+
+    // If order is CANCELED, and it was an entry order (reduceOnly = false),
+    // we should trigger cleanup to remove any now-orphaned SL/TP orders.
+    // This handles the case where user cancels the Limit order, and we want 
+    // SL/TPs to go away immediately (instead of waiting for poller).
+    if (order.X === "CANCELED") {
+      const isReduceOnly = order.R === true; // API returns boolean for R
+      // We assume if it's not reduceOnly, it was likely an entry order.
+      // We can also check order types if needed, but R=false is a good signal for entry.
+      if (!isReduceOnly) {
+        console.log(
+          `[OrderMonitor] Entry order CANCELED for ${symbol} on account ${conn.accountId}. Triggering cleanup...`,
+        );
+        // Trigger cleanup to remove orphaned SL/TPs
+        await this.cleanupOrdersForSymbol(conn, symbol);
+      }
+      return;
     }
 
     // Only cancel remaining SL/TP for STOP_MARKET or TAKE_PROFIT_MARKET orders that are FILLED
