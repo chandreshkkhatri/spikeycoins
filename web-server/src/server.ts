@@ -29,6 +29,7 @@ import tradingRouter from "./routes/trading";
 import upstoxRouter from "./routes/upstox";
 import watchlistRouter from "./routes/watchlist";
 import inviteRouter from "./routes/invite";
+import gymRouter from "./routes/gym";
 
 // Import database connection
 import connectDB from "./lib/mongodb";
@@ -139,6 +140,7 @@ app.use("/api/trading", tradingRouter);
 app.use("/api/upstox", upstoxRouter);
 app.use("/api/watchlist", watchlistRouter);
 app.use("/api/invites", inviteRouter);
+app.use("/api/gym", gymRouter);
 
 // Error handling middleware
 app.use(
