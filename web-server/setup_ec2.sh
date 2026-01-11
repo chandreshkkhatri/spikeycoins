@@ -6,47 +6,125 @@ set -e # Exit on error
 
 echo "🚀 Starting Open Mandi EC2 Setup..."
 
-# 1. Update and Install System Dependencies
-echo "📦 Installing system dependencies..."
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-sudo npm install -g pnpm pm2
-
-# 2. Install MongoDB (Community Edition)
-# NOTE: Adjust depending on Ubuntu version. Assuming Ubuntu 22.04 or 20.04 commonly used on EC2.
-if ! command -v mongod &> /dev/null
-then
-    echo "🍃 Installing MongoDB..."
-    sudo apt-get install -y gnupg curl
-    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
-       sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
-       --dearmor
-    
-    # Check Ubuntu version
-    UBUNTU_CODENAME=$(lsb_release -sc)
-    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-    
-    sudo apt-get update
-    sudo apt-get install -y mongodb-org
-    
-    # Start MongoDB
-    sudo systemctl start mongod
-    sudo systemctl enable mongod
+# Detect OS
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
 else
-    echo "✅ MongoDB already installed."
+    echo "❌ Cannot detect OS. Exiting."
+    exit 1
 fi
 
-# 3. Setup Project
+echo "os is $OS"
+
+# 1. Update and Install System Dependencies
+echo "📦 Installing system dependencies..."
+
+if [[ "$OS" == "amzn" ]] || [[ "$OS" == "rhel" ]] || [[ "$OS" == "centos" ]]; then
+    # Amazon Linux / RHEL / CentOS
+    echo "Detected Amazon Linux/RHEL..."
+    
+    # Updates
+    sudo yum update -y
+    
+    # Install Node.js 18
+    curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+    sudo yum install -y nodejs git make gcc-c++
+    
+    # Install MongoDB (Amazon Linux 2 / 2023)
+    # Using key consistent with Amazon Linux 2 (usually works for 2023 too for Mongo 6/7)
+    if ! command -v mongod &> /dev/null; then
+        echo "🍃 Installing MongoDB..."
+        echo "[mongodb-org-7.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/amazon/2/mongodb-org/7.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc" | sudo tee /etc/yum.repos.d/mongodb-org-7.0.repo
+
+        sudo yum install -y mongodb-org
+        
+        # Start MongoDB
+        sudo systemctl start mongod
+        sudo systemctl enable mongod
+    fi
+
+elif [[ "$OS" == "ubuntu" ]] || [[ "$OS" == "debian" ]]; then
+    # Debian / Ubuntu
+    echo "Detected Debian/Ubuntu..."
+    
+    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    sudo apt-get install -y nodejs build-essential
+    
+    # Install MongoDB
+    if ! command -v mongod &> /dev/null; then
+        echo "🍃 Installing MongoDB..."
+        sudo apt-get install -y gnupg curl
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+           sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+           --dearmor
+        
+        # Check Ubuntu version or default to jammy
+        UBUNTU_CODENAME=$(lsb_release -sc)
+        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+        
+        sudo apt-get update
+        sudo apt-get install -y mongodb-org
+        
+        # Start MongoDB
+        sudo systemctl start mongod
+        sudo systemctl enable mongod
+    fi
+else
+    echo "❌ Unsupported OS: $OS"
+    exit 1
+fi
+
+# Global NPM packages
+sudo npm install -g pnpm pm2
+
+# 2. Setup Project
 echo "🏗️ Setting up project..."
 cd "$(dirname "$0")"
 
-# Copy env.ec2 to .env if not exists
+# Handle .env
 if [ ! -f .env ]; then
-    echo "📝 Copying env.ec2 to .env..."
-    cp env.ec2 .env
-    echo "⚠️  IMPORTANT: Please edit .env and set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET now!"
-else
-    echo "ℹ️  .env already exists, skipping copy."
+    echo "📝 Creating .env from template..."
+    # If env.ec2 exists (e.g. copied manually), use it, else create dummy
+    if [ -f env.ec2 ]; then
+        cp env.ec2 .env
+    else
+        cat <<EOF > .env
+# Server Configuration
+PORT=8000
+NODE_ENV=development
+
+# URLs
+BASE_URL=http://localhost:8000
+FRONTEND_URL=https://dev.openmandi.com
+ALLOWED_ORIGINS=https://dev.openmandi.com,http://localhost:3000
+
+# Auth
+# NOTE: YOU MUST SET THESE MANUALLY
+GOOGLE_CLIENT_ID=CHANGE_ME
+GOOGLE_CLIENT_SECRET=CHANGE_ME
+GOOGLE_REDIRECT_URI=https://6kv58z4vjf.execute-api.ap-south-1.amazonaws.com/prod/api/auth/google/callback
+
+# Database
+MONGODB_URI=mongodb://localhost:27017/open-mandi-dev
+
+# Security
+SESSION_SECRET=change_this_to_random_string
+ENCRYPTION_KEY=change_this_to_random_string
+
+# Push Notifications (VAPID)
+# Generated automatically, replace if you have existing keys
+VAPID_PUBLIC_KEY=BPFVtOPGg8bWhfBfh69g_LgrcobbLh4nMnpD0N6li8o3yTD5ax6oiupvNXIM27emesk7bsDqx7zv5qMlYYD0rfE
+VAPID_PRIVATE_KEY=ePJyxjiZhi0k_TVYQfo2PeIcg5BJG1lC-zlFVIXgHoM
+VAPID_SUBJECT=mailto:admin@openmandi.com
+EOF
+    fi
+    echo "⚠️  IMPORTANT: .env created. Please edit it and set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET!"
 fi
 
 echo "📦 Installing Node dependencies..."
@@ -59,14 +137,14 @@ pnpm build
 echo "🚀 Starting server with PM2..."
 pm2 start dist/server.js --name "open-mandi-backend" || pm2 restart "open-mandi-backend"
 pm2 save
-pm2 startup | tail -n 1 > startup_script.sh # Generate startup script but don't auto-run it, usually requires sudo
+# Note: startup command requires sudo and env vars, usually run manually
 echo "ℹ️  Run the command generated by 'pm2 startup' to ensure persistence across reboots."
 
 echo "✅ Setup Complete!"
 echo "---------------------------------------------------"
 echo "🔍 Verification Steps:"
 echo "1. Edit .env and set Google credentials."
-echo "2. Restart the app: pm2 restart open-mandi-backend"
+echo "2. Restart aftyer edit: pm2 restart open-mandi-backend"
 echo "3. Check logs: pm2 logs open-mandi-backend"
 echo "4. Test health: curl http://localhost:8000/health"
 echo "---------------------------------------------------"
