@@ -38,7 +38,7 @@ interface AuthContextType {
   // Auth methods
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name: string, inviteCode: string) => Promise<void>;
-  loginWithGoogle: () => void;
+  loginWithGoogle: (inviteCode?: string) => void;
   logout: () => Promise<void>;
 
   // Token methods
@@ -253,9 +253,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     [saveAuth]
   );
 
-  // Redirect to Google OAuth
-  const loginWithGoogle = useCallback(() => {
-    window.location.href = getApiUrl("/api/auth/google");
+  // Redirect to Google OAuth (with optional invite code for new signups)
+  const loginWithGoogle = useCallback((inviteCode?: string) => {
+    const url = new URL(getApiUrl("/api/auth/google"));
+    if (inviteCode) {
+      url.searchParams.set("invite", inviteCode);
+    }
+    window.location.href = url.toString();
   }, []);
 
   // Logout

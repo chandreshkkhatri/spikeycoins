@@ -26,11 +26,12 @@ export default function Login() {
         google_auth_failed: "Google authentication failed",
         google_token_failed: "Failed to get Google token",
         google_userinfo_failed: "Failed to get Google user info",
-        invite_required: "Registration is invite-only. Please sign up with an invite code first, then you can link your Google account.",
+        invite_required: "Registration is invite-only. Enter an invite code below, then click 'Continue with Google'.",
+        invalid_invite: "Invalid or expired invite code. Please check your code and try again.",
       };
       setLocalError(errorMessages[error] || "Authentication failed");
-      // If invite required, switch to register mode
-      if (error === "invite_required") {
+      // If invite required or invalid, switch to register mode
+      if (error === "invite_required" || error === "invalid_invite") {
         setMode("register");
       }
     }
@@ -72,7 +73,8 @@ export default function Login() {
   };
 
   const handleGoogleLogin = () => {
-    loginWithGoogle();
+    // Pass invite code when in register mode (for new user signups)
+    loginWithGoogle(mode === "register" ? inviteCode.trim() || undefined : undefined);
   };
 
   if (isLoading && !isSubmitting) {
@@ -114,6 +116,27 @@ export default function Login() {
 
         {/* Auth Card */}
         <div className="rounded-xl border border-border bg-card p-6 shadow-lg">
+          {/* Invite Code - shown first in register mode for Google signup */}
+          {mode === "register" && (
+            <div className="mb-4">
+              <label htmlFor="inviteCodeTop" className="block text-sm font-medium text-foreground">
+                Invite Code
+              </label>
+              <input
+                id="inviteCodeTop"
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value.trim().toUpperCase())}
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono tracking-wider placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder="XXXX-XXXX-XXXX-XXXX"
+                disabled={isSubmitting}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Enter your invite code, then sign up with Google or email below.
+              </p>
+            </div>
+          )}
+
           {/* Google OAuth */}
           <Button
             type="button"
@@ -140,7 +163,7 @@ export default function Login() {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               />
             </svg>
-            Continue with Google
+            {mode === "register" ? "Sign up with Google" : "Continue with Google"}
           </Button>
 
           <div className="relative my-6">
@@ -169,27 +192,6 @@ export default function Login() {
                   required={mode === "register"}
                   disabled={isSubmitting}
                 />
-              </div>
-            )}
-
-            {mode === "register" && (
-              <div>
-                <label htmlFor="inviteCode" className="block text-sm font-medium text-foreground">
-                  Invite Code
-                </label>
-                <input
-                  id="inviteCode"
-                  type="text"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.trim().toUpperCase())}
-                  className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono tracking-wider placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                  placeholder="XXXX-XXXX-XXXX"
-                  required={mode === "register"}
-                  disabled={isSubmitting}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Registration is invite-only. Contact an existing user for an invite code.
-                </p>
               </div>
             )}
 

@@ -335,6 +335,12 @@ router.get("/google", (req: Request, res: Response) => {
     });
   }
 
+  // Accept optional invite code to pass through OAuth flow
+  const inviteCode = req.query.invite as string | undefined;
+  
+  // Encode invite code in state parameter (will be returned in callback)
+  const state = inviteCode ? Buffer.from(JSON.stringify({ invite: inviteCode })).toString('base64') : '';
+
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: GOOGLE_REDIRECT_URI,
@@ -342,6 +348,7 @@ router.get("/google", (req: Request, res: Response) => {
     scope: "openid email profile",
     access_type: "offline",
     prompt: "consent",
+    ...(state && { state }),
   });
 
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -351,7 +358,7 @@ router.get("/google", (req: Request, res: Response) => {
 // GET /api/auth/google/callback - Handle Google OAuth callback
 router.get("/google/callback", async (req: Request, res: Response) => {
   try {
-    const { code, error: oauthError } = req.query;
+    const { code, error: oauthError, state } = req.query;
 
     if (oauthError) {
       return res.redirect(`${FRONTEND_URL}/login?error=google_auth_cancelled`);
@@ -359,6 +366,17 @@ router.get("/google/callback", async (req: Request, res: Response) => {
 
     if (!code) {
       return res.redirect(`${FRONTEND_URL}/login?error=no_authorization_code`);
+    }
+
+    // Parse invite code from state parameter if present
+    let inviteCodeFromState: string | null = null;
+    if (state && typeof state === 'string') {
+      try {
+        const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
+        inviteCodeFromState = stateData.invite || null;
+      } catch {
+        // Invalid state, ignore
+      }
     }
 
     // Exchange code for tokens
@@ -412,9 +430,33 @@ router.get("/google/callback", async (req: Request, res: Response) => {
       ],
     });
 
-    // If user doesn't exist, they need to register with an invite code first
+    // If user doesn't exist, check bootstrap case or validate invite code
+    let validatedInvite = null;
     if (!existingUser) {
-      return res.redirect(`${FRONTEND_URL}/login?error=invite_required`);
+      const userCount = await User.countDocuments();
+      
+      // Allow first user to sign up via Google without invite code
+      if (userCount === 0) {
+        console.log(`First user bootstrap: Creating account for ${googleUser.email}`);
+      } else if (inviteCodeFromState) {
+        // Validate the invite code
+        const {
+          invite,
+          valid,
+          error: inviteError,
+        } = await (Invite as any).findAndValidate(inviteCodeFromState);
+        
+        if (!valid || !invite) {
+          console.log(`Invalid invite code for Google signup: ${inviteCodeFromState} - ${inviteError}`);
+          return res.redirect(`${FRONTEND_URL}/login?error=invalid_invite`);
+        }
+        
+        validatedInvite = invite;
+        console.log(`Google signup with invite code: ${inviteCodeFromState} for ${googleUser.email}`);
+      } else {
+        // Not the first user and no invite code provided
+        return res.redirect(`${FRONTEND_URL}/login?error=invite_required`);
+      }
     }
 
     // Find or update existing user with Google info
@@ -424,6 +466,11 @@ router.get("/google/callback", async (req: Request, res: Response) => {
       name: googleUser.name,
       picture: googleUser.picture,
     });
+
+    // Mark invite as used if this was a new user signup with invite code
+    if (validatedInvite && !existingUser) {
+      await validatedInvite.useForUser(user._id);
+    }
 
     // Ensure user settings exist
     await (UserSettings as any).getOrCreate(user._id.toString());
