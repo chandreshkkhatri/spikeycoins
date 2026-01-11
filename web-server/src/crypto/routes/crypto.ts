@@ -22,7 +22,7 @@ import {
   get7dTopMovers,
 } from "./routes";
 
-const cryptoRouter = Router();
+const cryptoRouter: Router = Router();
 
 // Health check
 cryptoRouter.get("/", healthCheck);

@@ -27,8 +27,8 @@ if [[ "$OS" == "amzn" ]] || [[ "$OS" == "rhel" ]] || [[ "$OS" == "centos" ]]; th
     # Updates
     sudo yum update -y
     
-    # Install Node.js 18
-    curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+    # Install Node.js 20 (LTS)
+    curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
     sudo yum install -y nodejs git make gcc-c++
     
     # MongoDB Installation Skipped
@@ -39,7 +39,7 @@ elif [[ "$OS" == "ubuntu" ]] || [[ "$OS" == "debian" ]]; then
     # Debian / Ubuntu
     echo "Detected Debian/Ubuntu..."
     
-    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
     sudo apt-get install -y nodejs build-essential
     
     # MongoDB Installation Skipped
