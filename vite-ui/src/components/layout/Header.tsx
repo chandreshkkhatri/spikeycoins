@@ -7,17 +7,18 @@ import { useTheme } from "@/lib/theme-context";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { PAGE_ROUTES } from "@/lib/constants";
-import { 
-  LogOut, 
-  User, 
-  LogIn, 
+import {
+  LogOut,
+  User,
+  LogIn,
   Settings,
-  LayoutDashboard, 
-  LineChart, 
-  BookOpen, 
-  Dumbbell, 
-  Wallet, 
-  Users 
+  LayoutDashboard,
+  LineChart,
+  BookOpen,
+  Dumbbell,
+  Wallet,
+  Users,
+  Coins
 } from "lucide-react";
 import { HeaderFundsDisplay } from "./HeaderFundsDisplay";
 
@@ -26,6 +27,7 @@ const navItems = [
   { href: PAGE_ROUTES.TRADING_PANEL, label: "Terminal", icon: LineChart },
   { href: PAGE_ROUTES.ANALYST_DESK, label: "Journal", icon: BookOpen },
   { href: PAGE_ROUTES.TRADING_GYM, label: "Gym", icon: Dumbbell },
+  { href: PAGE_ROUTES.CRYPTO, label: "Crypto", icon: Coins },
   { href: PAGE_ROUTES.ASSETS, label: "Portfolio", icon: Wallet },
   { href: PAGE_ROUTES.ACCOUNTS, label: "Brokers", icon: Users },
 ];
