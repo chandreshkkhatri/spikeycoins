@@ -31,23 +31,9 @@ if [[ "$OS" == "amzn" ]] || [[ "$OS" == "rhel" ]] || [[ "$OS" == "centos" ]]; th
     curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
     sudo yum install -y nodejs git make gcc-c++
     
-    # Install MongoDB (Amazon Linux 2 / 2023)
-    # Using key consistent with Amazon Linux 2 (usually works for 2023 too for Mongo 6/7)
-    if ! command -v mongod &> /dev/null; then
-        echo "🍃 Installing MongoDB..."
-        echo "[mongodb-org-7.0]
-name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/amazon/2/mongodb-org/7.0/x86_64/
-gpgcheck=1
-enabled=1
-gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc" | sudo tee /etc/yum.repos.d/mongodb-org-7.0.repo
+    # MongoDB Installation Skipped
+    echo "ℹ️  Skipping MongoDB installation (User indicated Docker setup)."
 
-        sudo yum install -y mongodb-org
-        
-        # Start MongoDB
-        sudo systemctl start mongod
-        sudo systemctl enable mongod
-    fi
 
 elif [[ "$OS" == "ubuntu" ]] || [[ "$OS" == "debian" ]]; then
     # Debian / Ubuntu
@@ -56,25 +42,8 @@ elif [[ "$OS" == "ubuntu" ]] || [[ "$OS" == "debian" ]]; then
     curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
     sudo apt-get install -y nodejs build-essential
     
-    # Install MongoDB
-    if ! command -v mongod &> /dev/null; then
-        echo "🍃 Installing MongoDB..."
-        sudo apt-get install -y gnupg curl
-        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
-           sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
-           --dearmor
-        
-        # Check Ubuntu version or default to jammy
-        UBUNTU_CODENAME=$(lsb_release -sc)
-        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu $UBUNTU_CODENAME/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-        
-        sudo apt-get update
-        sudo apt-get install -y mongodb-org
-        
-        # Start MongoDB
-        sudo systemctl start mongod
-        sudo systemctl enable mongod
-    fi
+    # MongoDB Installation Skipped
+    echo "ℹ️  Skipping MongoDB installation (User indicated Docker setup)."
 else
     echo "❌ Unsupported OS: $OS"
     exit 1
