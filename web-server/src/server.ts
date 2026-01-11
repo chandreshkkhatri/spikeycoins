@@ -112,9 +112,8 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 // Connect to MongoDB
-connectDB().catch((err) => {
-  console.error("Failed to connect to MongoDB:", err);
-});
+// Connect to MongoDB handled in startServer
+
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -169,27 +168,94 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
+// Track MongoDB connection status
+let isMongoConnected = false;
+
+// Attempt MongoDB connection with retry logic
+const connectWithRetry = async (retryCount = 0, maxRetries = 5, delayMs = 5000): Promise<boolean> => {
+  try {
+    await connectDB();
+    isMongoConnected = true;
+    console.log("✅ MongoDB connected successfully");
+    return true;
+  } catch (err) {
+    isMongoConnected = false;
+    if (retryCount < maxRetries) {
+      console.warn(`⚠️ MongoDB connection failed (attempt ${retryCount + 1}/${maxRetries}). Retrying in ${delayMs / 1000}s...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      return connectWithRetry(retryCount + 1, maxRetries, delayMs);
+    } else {
+      console.error("❌ MongoDB connection failed after max retries. Server running in degraded mode.");
+      return false;
+    }
+  }
+};
+
+// Background retry if initial connection fails
+const startBackgroundRetry = () => {
+  const retryInterval = setInterval(async () => {
+    if (isMongoConnected) {
+      clearInterval(retryInterval);
+      return;
+    }
+    console.log("🔄 Attempting to reconnect to MongoDB...");
+    try {
+      await connectDB();
+      isMongoConnected = true;
+      console.log("✅ MongoDB reconnected successfully");
+      clearInterval(retryInterval);
+      
+      // Start services that depend on DB
+      console.log("📡 Starting deferred services after DB reconnection...");
+      initializeCryptoServices().catch((err) => {
+        console.error("Failed to start crypto services:", err);
+      });
+      binanceOrderMonitor.start().catch((err) => {
+        console.error("Failed to start order monitor:", err);
+      });
+    } catch (err) {
+      console.warn("⚠️ MongoDB still unavailable, will retry...");
+    }
+  }, 30000); // Retry every 30 seconds
+};
+
 // Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`   Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`   API URL: http://localhost:${PORT}`);
-  
-  // Start Binance price service for caching
-  console.log("📡 Starting Binance price service...");
-  binancePriceService.start();
+const startServer = async () => {
+  // Try to connect to MongoDB (but don't crash if it fails)
+  const dbConnected = await connectWithRetry(0, 3, 3000);
 
-  // Start order monitor for auto-cancelling SL/TP orders
-  console.log("📡 Starting Binance order monitor...");
-  binanceOrderMonitor.start().catch((err) => {
-    console.error("Failed to start order monitor:", err);
-  });
+  // Start HTTP server regardless of DB status
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`   Environment: ${process.env.NODE_ENV || "development"}`);
+    console.log(`   API URL: http://localhost:${PORT}`);
+    console.log(`   MongoDB: ${dbConnected ? "✅ Connected" : "⚠️ Disconnected (degraded mode)"}`);
+    
+    // Start Binance price service (doesn't need DB)
+    console.log("📡 Starting Binance price service...");
+    binancePriceService.start();
 
-  // Start crypto services (Binance WebSocket, Market Overview, etc.)
-  console.log("📡 Starting crypto services...");
-  initializeCryptoServices().catch((err) => {
-    console.error("Failed to start crypto services:", err);
+    if (dbConnected) {
+      // Start order monitor for auto-cancelling SL/TP orders
+      console.log("📡 Starting Binance order monitor...");
+      binanceOrderMonitor.start().catch((err) => {
+        console.error("Failed to start order monitor:", err);
+      });
+
+      // Start crypto services (Binance WebSocket, Market Overview, etc.)
+      console.log("📡 Starting crypto services...");
+      initializeCryptoServices().catch((err) => {
+        console.error("Failed to start crypto services:", err);
+      });
+    } else {
+      // Start background retry for MongoDB
+      console.log("🔄 Starting background MongoDB reconnection...");
+      startBackgroundRetry();
+    }
   });
-});
+};
+
+startServer();
 
 export default app;
+

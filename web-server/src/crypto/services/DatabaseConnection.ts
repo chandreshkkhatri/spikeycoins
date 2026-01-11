@@ -26,7 +26,13 @@ class DatabaseConnection {
    * Initialize Mongoose connection
    */
   static async initialize(): Promise<void> {
-    if (this.isConnected && mongoose.connection.readyState === 1) {
+    // Check if mongoose is already connected (e.g. by server.ts)
+    if ((mongoose.connection.readyState as number) === 1) {
+      this.isConnected = true;
+      return;
+    }
+
+    if (this.isConnected && (mongoose.connection.readyState as number) === 1) {
       return;
     }
 
@@ -85,7 +91,7 @@ class DatabaseConnection {
    * Get mongoose connection
    */
   static getConnection() {
-    if (!this.isConnected || mongoose.connection.readyState !== 1) {
+    if (!this.isConnected || (mongoose.connection.readyState as number) !== 1) {
       throw new Error('Database not connected. Call initialize() first.');
     }
     return mongoose.connection;
@@ -95,7 +101,7 @@ class DatabaseConnection {
    * Get native MongoDB database instance (for backward compatibility)
    */
   static getDatabase() {
-    if (!this.isConnected || mongoose.connection.readyState !== 1) {
+    if (!this.isConnected || (mongoose.connection.readyState as number) !== 1) {
       throw new Error('Database not connected. Call initialize() first.');
     }
     return mongoose.connection.db;
@@ -105,7 +111,7 @@ class DatabaseConnection {
    * Get connection status
    */
   static isConnectionReady(): boolean {
-    return this.isConnected && mongoose.connection.readyState === 1;
+    return this.isConnected && (mongoose.connection.readyState as number) === 1;
   }
 
   /**
@@ -124,7 +130,7 @@ class DatabaseConnection {
    * Close database connection
    */
   static async cleanup(): Promise<void> {
-    if (mongoose.connection.readyState !== 0) {
+    if ((mongoose.connection.readyState as number) !== 0) {
       try {
         await mongoose.disconnect();
         logger.info('DatabaseConnection: Mongoose connection closed');
