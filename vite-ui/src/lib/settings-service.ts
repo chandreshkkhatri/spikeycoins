@@ -92,7 +92,7 @@ class SettingsSyncService {
     }
 
     // Debounce server save
-    this.saveTimeout = setTimeout(() => {
+    this.saveTimeout = window.setTimeout(() => {
       this.syncToServer();
     }, this.DEBOUNCE_DELAY);
   }

@@ -148,7 +148,7 @@ router.post("/session/new", async (req: Request, res: Response) => {
     await session.save();
 
     // Return session without revealing hidden data
-    res.json({
+    return res.json({
       success: true,
       session: {
         id: session._id,
@@ -163,7 +163,7 @@ router.post("/session/new", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Error creating gym session:", error);
-    res.status(500).json({ error: "Failed to create gym session" });
+    return res.status(500).json({ error: "Failed to create gym session" });
   }
 });
 
@@ -177,7 +177,7 @@ router.get("/session/:id", async (req: Request, res: Response) => {
 
     const isRevealed = session.status === "REVEALED";
 
-    res.json({
+    return res.json({
       success: true,
       session: {
         id: session._id,
@@ -197,7 +197,7 @@ router.get("/session/:id", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Error fetching gym session:", error);
-    res.status(500).json({ error: "Failed to fetch gym session" });
+    return res.status(500).json({ error: "Failed to fetch gym session" });
   }
 });
 
@@ -281,7 +281,7 @@ router.post("/session/:id/wait", async (req: Request, res: Response) => {
 
     await session.save();
 
-    res.json({
+    return res.json({
       success: true,
       session: {
         id: session._id,
@@ -295,7 +295,7 @@ router.post("/session/:id/wait", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Error advancing gym session:", error);
-    res.status(500).json({ error: "Failed to advance session" });
+    return res.status(500).json({ error: "Failed to advance session" });
   }
 });
 
@@ -361,7 +361,7 @@ router.post("/session/:id/trade", async (req: Request, res: Response) => {
     session.trades.push(newTrade);
     await session.save();
 
-    res.json({
+    return res.json({
       success: true,
       trade: newTrade,
       session: {
@@ -372,7 +372,7 @@ router.post("/session/:id/trade", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Error opening trade:", error);
-    res.status(500).json({ error: "Failed to open trade" });
+    return res.status(500).json({ error: "Failed to open trade" });
   }
 });
 
@@ -404,7 +404,7 @@ router.post("/session/:id/close", async (req: Request, res: Response) => {
     session.totalPnl += openTrade.pnl;
     await session.save();
 
-    res.json({
+    return res.json({
       success: true,
       trade: openTrade,
       session: {
@@ -415,7 +415,7 @@ router.post("/session/:id/close", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Error closing trade:", error);
-    res.status(500).json({ error: "Failed to close trade" });
+    return res.status(500).json({ error: "Failed to close trade" });
   }
 });
 
@@ -447,7 +447,7 @@ router.post("/session/:id/reveal", async (req: Request, res: Response) => {
     session.status = "REVEALED";
     await session.save();
 
-    res.json({
+    return res.json({
       success: true,
       session: {
         id: session._id,
@@ -462,7 +462,7 @@ router.post("/session/:id/reveal", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Error revealing session:", error);
-    res.status(500).json({ error: "Failed to reveal session" });
+    return res.status(500).json({ error: "Failed to reveal session" });
   }
 });
 
@@ -480,7 +480,7 @@ router.get("/sessions", async (req: Request, res: Response) => {
       .limit(Number(limit))
       .lean();
 
-    res.json({
+    return res.json({
       success: true,
       sessions: sessions.map((s) => ({
         id: s._id,
@@ -494,7 +494,7 @@ router.get("/sessions", async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Error fetching sessions:", error);
-    res.status(500).json({ error: "Failed to fetch sessions" });
+    return res.status(500).json({ error: "Failed to fetch sessions" });
   }
 });
 

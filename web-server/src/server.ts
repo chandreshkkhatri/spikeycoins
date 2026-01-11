@@ -31,6 +31,9 @@ import watchlistRouter from "./routes/watchlist";
 import inviteRouter from "./routes/invite";
 import gymRouter from "./routes/gym";
 
+// Import crypto module
+import { cryptoRouter, initializeCryptoServices } from "./crypto";
+
 // Import database connection
 import connectDB from "./lib/mongodb";
 
@@ -142,6 +145,9 @@ app.use("/api/watchlist", watchlistRouter);
 app.use("/api/invites", inviteRouter);
 app.use("/api/gym", gymRouter);
 
+// Crypto API routes
+app.use("/api", cryptoRouter);
+
 // Error handling middleware
 app.use(
   (
@@ -177,6 +183,12 @@ app.listen(PORT, () => {
   console.log("📡 Starting Binance order monitor...");
   binanceOrderMonitor.start().catch((err) => {
     console.error("Failed to start order monitor:", err);
+  });
+
+  // Start crypto services (Binance WebSocket, Market Overview, etc.)
+  console.log("📡 Starting crypto services...");
+  initializeCryptoServices().catch((err) => {
+    console.error("Failed to start crypto services:", err);
   });
 });
 

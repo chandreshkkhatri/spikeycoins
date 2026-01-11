@@ -10,6 +10,8 @@ import TradingGymPage from "@/pages/TradingGym";
 import LoginPage from "@/pages/Login";
 import AuthCallbackPage from "@/pages/AuthCallback";
 import SettingsPage from "@/pages/Settings";
+import CryptoHomePage from "@/pages/CryptoHome";
+import CryptoScreenerPage from "@/pages/CryptoScreener";
 
 function App() {
   return (
@@ -32,6 +34,8 @@ function App() {
       <Route path={PAGE_ROUTES.TRADING_GYM} element={<TradingGymPage />} />
       <Route path={PAGE_ROUTES.TRADING} element={<TradingPage />} />
       <Route path={PAGE_ROUTES.SETTINGS} element={<SettingsPage />} />
+      <Route path={PAGE_ROUTES.CRYPTO} element={<CryptoHomePage />} />
+      <Route path={PAGE_ROUTES.CRYPTO_SCREENER} element={<CryptoScreenerPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route
