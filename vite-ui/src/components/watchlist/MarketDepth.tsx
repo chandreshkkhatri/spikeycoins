@@ -207,7 +207,7 @@ const MarketDepth = memo(function MarketDepth({
 
             // Throttle updates to once per second
             if (!throttleTimeoutRef.current) {
-              throttleTimeoutRef.current = setTimeout(() => {
+              throttleTimeoutRef.current = window.setTimeout(() => {
                 if (pendingDataRef.current && !isCleanedUp) {
                   setAsks(pendingDataRef.current.asks);
                   setBids(pendingDataRef.current.bids);

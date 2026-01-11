@@ -261,7 +261,7 @@ class BinanceWebSocketService {
    * Start ping interval to keep connection alive
    */
   private startPingInterval() {
-    this.pingInterval = setInterval(() => {
+    this.pingInterval = window.setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         // Binance WebSocket expects pong responses to ping, but we can also send list subscriptions
         const pingMessage = {
