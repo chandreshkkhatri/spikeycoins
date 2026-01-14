@@ -30,7 +30,7 @@ const refreshTokenSchema = new mongoose.Schema<IRefreshToken>(
     expiresAt: {
       type: Date,
       required: true,
-      index: true,
+      // Note: TTL index defined at schema level (line 50) handles auto-deletion
     },
     replacedAt: {
       type: Date,

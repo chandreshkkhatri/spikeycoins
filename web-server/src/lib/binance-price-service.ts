@@ -30,6 +30,10 @@ class BinancePriceService {
   private subscribers: Set<PriceUpdateCallback> = new Set();
   private pingInterval: NodeJS.Timeout | null = null;
 
+  // Memory limits to prevent heap overflow
+  private readonly MAX_CACHE_SIZE = 500;
+  private readonly MIN_VOLUME_THRESHOLD = 1000; // Minimum quote volume in USDT
+
   // Binance Futures WebSocket URL for all tickers stream
   private readonly WS_URL = "wss://fstream.binance.com/ws/!ticker@arr";
 
@@ -93,6 +97,15 @@ class BinancePriceService {
       if (!Array.isArray(tickers)) return;
 
       for (const ticker of tickers) {
+        // Only cache USDT pairs to limit memory usage
+        if (!ticker.s || !ticker.s.endsWith('USDT')) continue;
+
+        const quoteVolume = parseFloat(ticker.q);
+        // Skip low-volume pairs unless already cached
+        if (quoteVolume < this.MIN_VOLUME_THRESHOLD && !this.priceCache.has(ticker.s)) {
+          continue;
+        }
+
         const tickerData: TickerData = {
           symbol: ticker.s,
           lastPrice: parseFloat(ticker.c),
@@ -101,7 +114,7 @@ class BinancePriceService {
           high: parseFloat(ticker.h),
           low: parseFloat(ticker.l),
           volume: parseFloat(ticker.v),
-          quoteVolume: parseFloat(ticker.q),
+          quoteVolume: quoteVolume,
           timestamp: Date.now(),
         };
 
@@ -116,9 +129,25 @@ class BinancePriceService {
           }
         }
       }
+
+      // Prune cache if it exceeds the limit
+      this.pruneCacheIfNeeded();
     } catch (error) {
       // Ignore parse errors for ping/pong messages
     }
+  }
+
+  /**
+   * Prune cache to keep only top symbols by volume
+   */
+  private pruneCacheIfNeeded(): void {
+    if (this.priceCache.size <= this.MAX_CACHE_SIZE) return;
+
+    const sorted = Array.from(this.priceCache.entries())
+      .sort((a, b) => b[1].quoteVolume - a[1].quoteVolume)
+      .slice(0, this.MAX_CACHE_SIZE);
+
+    this.priceCache = new Map(sorted);
   }
 
   /**

@@ -5,6 +5,7 @@ import compression from "compression";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import session from "express-session";
+import MongoStore from "connect-mongo";
 import dotenv from "dotenv";
 import path from "path";
 
@@ -90,12 +91,19 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 // Cookie parser
 app.use(cookieParser());
 
-// Session middleware
+// Session middleware with MongoDB store (prevents memory leaks in production)
+const mongoUrl = process.env.MONGODB_URI || "mongodb://localhost:27017/open-mandi";
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "open-mandi-secret-key",
     resave: false,
     saveUninitialized: false,
+    store: MongoStore.create({
+      mongoUrl,
+      collectionName: "sessions",
+      ttl: 24 * 60 * 60, // 24 hours in seconds
+      autoRemove: "native", // Use MongoDB TTL index for cleanup
+    }),
     cookie: {
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,

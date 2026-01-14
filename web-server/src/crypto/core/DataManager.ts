@@ -66,6 +66,12 @@ class DataManager {
   private static readonly SYMBOL_EXPIRY_TIME = 30 * 60 * 1000; // 30 minutes
   private static readonly MIN_VOLUME_THRESHOLD = 1000;
 
+  // Memory limits to prevent heap overflow
+  private static readonly MAX_TICKERS = 500;
+  private static readonly MAX_CANDLESTICK_SYMBOLS = 100;
+  private static lastPruneTime: number = 0;
+  private static readonly PRUNE_INTERVAL = 30 * 1000; // Prune every 30 seconds
+
   /**
    * Update ticker data from WebSocket stream
    */
@@ -166,6 +172,13 @@ class DataManager {
     // Clean up expired symbols and update rankings
     this.cleanupExpiredSymbols(timestamp);
     this.updateSymbolRankings();
+
+    // Periodically prune tickers and candlesticks to prevent memory growth
+    if (timestamp - this.lastPruneTime > this.PRUNE_INTERVAL) {
+      this.pruneTickersIfNeeded();
+      this.pruneCandlesticksIfNeeded();
+      this.lastPruneTime = timestamp;
+    }
     
     // Log discovery updates periodically
     if (timestamp - this.lastDiscoveryUpdate > this.DISCOVERY_UPDATE_INTERVAL) {
@@ -423,6 +436,47 @@ class DataManager {
 
     if (removedCount > 0) {
       logger.debug(`DataManager: Removed ${removedCount} expired symbols`);
+    }
+  }
+
+  /**
+   * Prune tickers map to prevent unbounded memory growth
+   * Keeps only the top MAX_TICKERS by volume
+   */
+  private static pruneTickersIfNeeded(): void {
+    if (this.tickers.size <= this.MAX_TICKERS) return;
+
+    const sorted = Array.from(this.tickers.entries())
+      .sort((a, b) => b[1].volume_usd - a[1].volume_usd)
+      .slice(0, this.MAX_TICKERS);
+
+    const prunedCount = this.tickers.size - sorted.length;
+    this.tickers = new Map(sorted);
+
+    if (prunedCount > 0) {
+      logger.debug(`DataManager: Pruned ${prunedCount} low-volume tickers, keeping ${this.tickers.size}`);
+    }
+  }
+
+  /**
+   * Prune candlesticks map to prevent unbounded memory growth
+   * Keeps only candlesticks for top MAX_CANDLESTICK_SYMBOLS symbols by volume
+   */
+  private static pruneCandlesticksIfNeeded(): void {
+    if (this.candlesticks.size <= this.MAX_CANDLESTICK_SYMBOLS) return;
+
+    const topSymbols = new Set(this.getTopSymbolsByVolume(this.MAX_CANDLESTICK_SYMBOLS));
+    let prunedCount = 0;
+
+    for (const symbol of this.candlesticks.keys()) {
+      if (!topSymbols.has(symbol)) {
+        this.candlesticks.delete(symbol);
+        prunedCount++;
+      }
+    }
+
+    if (prunedCount > 0) {
+      logger.debug(`DataManager: Pruned candlesticks for ${prunedCount} symbols, keeping ${this.candlesticks.size}`);
     }
   }
 
