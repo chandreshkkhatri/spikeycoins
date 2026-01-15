@@ -5,14 +5,45 @@ import Ticker, { type TickerData } from "@/components/crypto/Ticker";
 import { cryptoApi } from "@/lib/crypto-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, RefreshCw, ChevronLeft } from "lucide-react";
+import { Search, RefreshCw, ChevronLeft, ArrowUpDown } from "lucide-react";
 import { PAGE_ROUTES } from "@/lib/constants";
+import { type SortingState } from "@tanstack/react-table";
+
+const SORTING_STORAGE_KEY = "openMandi_cryptoScreener_sorting";
 
 export default function CryptoScreenerPage() {
   const [tickerArray, setTickerArray] = useState<TickerData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Initialize sorting from localStorage or default
+  const [sorting, setSorting] = useState<SortingState>(() => {
+    try {
+      const stored = localStorage.getItem(SORTING_STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error("Failed to parse stored sorting:", e);
+    }
+    return [{ id: "change_24h", desc: true }];
+  });
+
+  // Persist sorting changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(SORTING_STORAGE_KEY, JSON.stringify(sorting));
+    } catch (e) {
+      console.warn("Failed to save sorting to localStorage:", e);
+    }
+  }, [sorting]);
+
+  const handleResetSort = () => {
+    const defaultSort: SortingState = [{ id: "change_24h", desc: true }];
+    setSorting(defaultSort);
+    localStorage.removeItem(SORTING_STORAGE_KEY);
+  };
 
   const fetchTickerData = useCallback(async () => {
     setLoading(true);
@@ -65,6 +96,15 @@ export default function CryptoScreenerPage() {
 
             <Button
               variant="outline"
+              size="icon"
+              onClick={handleResetSort}
+              title="Reset Sort"
+            >
+              <ArrowUpDown className="h-4 w-4" />
+            </Button>
+
+            <Button
+              variant="outline"
               onClick={fetchTickerData}
               disabled={loading}
             >
@@ -79,6 +119,8 @@ export default function CryptoScreenerPage() {
           loading={loading}
           error={error}
           searchQuery={searchQuery}
+          sorting={sorting}
+          onSortingChange={setSorting}
         />
       </div>
     </PageLayout>

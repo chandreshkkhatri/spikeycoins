@@ -37,6 +37,8 @@ interface TickerProps {
   loading: boolean;
   error: string | null;
   searchQuery?: string;
+  sorting?: SortingState;
+  onSortingChange?: React.Dispatch<React.SetStateAction<SortingState>>;
 }
 
 const columnHelper = createColumnHelper<TickerData>();
@@ -97,6 +99,8 @@ export default function Ticker({
   loading,
   error,
   searchQuery = "",
+  sorting: externalSorting,
+  onSortingChange: externalOnSortingChange,
 }: TickerProps) {
   const columns = useMemo(
     () => [
@@ -195,9 +199,12 @@ export default function Ticker({
     []
   );
 
-  const [sorting, setSorting] = useState<SortingState>([
+  const [internalSorting, setInternalSorting] = useState<SortingState>([
     { id: "change_24h", desc: true },
   ]);
+
+  const sorting = externalSorting || internalSorting;
+  const onSortingChange = externalOnSortingChange || setInternalSorting;
 
   const customGlobalFilterFn: FilterFn<TickerData> = React.useCallback(
     (row, columnId, filterValue) => {
@@ -220,7 +227,7 @@ export default function Ticker({
       sorting,
       globalFilter: searchQuery,
     },
-    onSortingChange: setSorting,
+    onSortingChange,
     globalFilterFn: customGlobalFilterFn,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
