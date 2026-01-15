@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import crypto from "crypto";
 
+export type UserRole = 'user' | 'admin';
+
 export interface IUser {
   _id?: string;
   email: string;
@@ -10,6 +12,7 @@ export interface IUser {
   googleId?: string;
   avatar?: string;
   isEmailVerified: boolean;
+  role: UserRole;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -50,6 +53,11 @@ const userSchema = new mongoose.Schema<IUser>(
     isEmailVerified: {
       type: Boolean,
       default: false,
+    },
+    role: {
+      type: String,
+      enum: ['user', 'admin'],
+      default: 'user',
     },
   },
   {

@@ -12,6 +12,7 @@ import AuthCallbackPage from "@/pages/AuthCallback";
 import SettingsPage from "@/pages/Settings";
 import CryptoHomePage from "@/pages/CryptoHome";
 import CryptoScreenerPage from "@/pages/CryptoScreener";
+import AdminPage from "@/pages/Admin";
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
       <Route path={PAGE_ROUTES.SETTINGS} element={<SettingsPage />} />
       <Route path={PAGE_ROUTES.CRYPTO} element={<CryptoHomePage />} />
       <Route path={PAGE_ROUTES.CRYPTO_SCREENER} element={<CryptoScreenerPage />} />
+      <Route path={PAGE_ROUTES.ADMIN} element={<AdminPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route

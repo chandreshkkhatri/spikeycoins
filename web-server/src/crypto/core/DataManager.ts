@@ -103,6 +103,9 @@ class DataManager {
 
       // Get market cap data if available
       const marketCapData = MarketCapService.getMarketCapData(symbol);
+      if (symbol === 'BTCUSDT') {
+        logger.debug(`DataManager: Market cap for BTCUSDT: ${JSON.stringify(marketCapData)}`);
+      }
       
       // Preserve existing calculated fields if not updating them
       const existingTicker = this.tickers.get(symbol);

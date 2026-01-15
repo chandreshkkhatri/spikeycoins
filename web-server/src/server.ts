@@ -30,6 +30,7 @@ import upstoxRouter from "./routes/upstox";
 import watchlistRouter from "./routes/watchlist";
 import inviteRouter from "./routes/invite";
 import gymRouter from "./routes/gym";
+import adminRouter from "./routes/admin";
 
 // Import crypto module
 import { cryptoRouter, initializeCryptoServices } from "./crypto";
@@ -39,7 +40,7 @@ import { marketsRouter } from "./markets/routes";
 import { BinanceProvider, getMarketRegistry } from "./markets";
 
 // Import database connection
-import connectDB from "./lib/mongodb";
+// import connectDB from "./lib/mongodb";
 
 // Import price service for server-side WebSocket
 import binancePriceService from "./lib/binance-price-service";
@@ -115,10 +116,10 @@ if (process.env.NODE_ENV !== "production") {
   app.use(morgan("combined"));
 }
 
-// Connect to MongoDB
-connectDB().catch((err) => {
-  console.error("Failed to connect to MongoDB:", err);
-});
+// Connect to MongoDB handled by initializeCryptoServices
+// connectDB().catch((err) => {
+//   console.error("Failed to connect to MongoDB:", err);
+// });
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -154,6 +155,9 @@ app.use("/api", cryptoRouter);
 
 // Unified Markets API routes
 app.use("/api/markets", marketsRouter);
+
+// Admin routes (requires authentication)
+app.use("/api/admin", adminRouter);
 
 // Error handling middleware
 app.use(

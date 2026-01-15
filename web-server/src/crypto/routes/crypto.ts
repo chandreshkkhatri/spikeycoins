@@ -48,8 +48,4 @@ cryptoRouter.post("/market/overview/refresh", forceRefreshMarketOverview);
 cryptoRouter.get("/summaries", getSummaries);
 cryptoRouter.get("/watchlists", getUserWatchlists);
 
-// Debug routes
-import { getMemoryStats } from "./debug";
-cryptoRouter.get("/debug/memory", getMemoryStats);
-
 export default cryptoRouter;
