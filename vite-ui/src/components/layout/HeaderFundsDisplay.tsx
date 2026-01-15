@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { API_ROUTES } from "@/lib/constants";
+import { API_ROUTES, getApiUrl } from "@/lib/constants";
 import { useAccount } from "@/lib/account-context";
 import { Loader2, TrendingUp, TrendingDown } from "lucide-react";
 
@@ -28,7 +28,7 @@ export function HeaderFundsDisplay() {
             setError(false);
             try {
                 const response = await axios.get(
-                    `${API_ROUTES.funds}?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
+                    getApiUrl(`${API_ROUTES.funds}?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`)
                 );
 
                 if (response.data?.success && response.data.funds) {
@@ -42,6 +42,7 @@ export function HeaderFundsDisplay() {
                         currency
                     });
                 } else {
+                    console.error("Failed to fetch header funds: API returned success=false", response.data);
                     setError(true);
                 }
             } catch (err: any) {
