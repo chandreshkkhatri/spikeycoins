@@ -11,6 +11,7 @@ import BinanceClient from "../core/BinanceClient";
 import CandlestickStorage from "../services/CandlestickStorage";
 import DatabaseConnection from "../services/DatabaseConnection";
 import MarketOverviewService from "../services/MarketOverviewService";
+import MarketCapService from "../services/MarketCapService";
 import PriceHistoryService from "../services/PriceHistoryService";
 import DailyCandlestickService from "../services/DailyCandlestickService";
 import ResearchService from "../services/ResearchService";
@@ -330,14 +331,33 @@ export async function getCandlestickStorageStats(req: Request, res: Response): P
 }
 
 /**
- * Refresh market cap data (placeholder)
+ * Refresh market cap data from CoinGecko
  */
-export function refreshMarketCapData(req: Request, res: Response): void {
-  res.json({
-    success: true,
-    message: "Market cap data refresh feature not implemented in simplified version",
-    note: "Run 'npm run binance-coingecko-matcher' from scripts directory to update data",
-  });
+export async function refreshMarketCapData(req: Request, res: Response): Promise<void> {
+  try {
+    // Trigger CoinGecko sync
+    const CoinGeckoSyncService = (await import('../services/CoinGeckoSyncService')).default;
+    await CoinGeckoSyncService.getInstance().forceSync();
+    
+    // Reload MarketCapService from database
+    await MarketCapService.forceReload();
+    
+    const symbolCount = MarketCapService.getAllSymbols().size;
+    
+    res.json({
+      success: true,
+      message: "Market cap data synced from CoinGecko",
+      symbolsWithMarketCap: symbolCount,
+      lastUpdate: MarketCapService.getLastUpdateTime()?.toISOString() || null,
+    });
+  } catch (error) {
+    logger.error("Routes: Error refreshing market cap data:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to refresh market cap data",
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**

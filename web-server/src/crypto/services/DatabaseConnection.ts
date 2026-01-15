@@ -12,15 +12,7 @@ class DatabaseConnection {
   private static connectionPromise: Promise<void> | null = null;
 
   // MongoDB connection configuration
-  private static readonly CONNECTION_STRING = process.env.MONGODB_URI || 'mongodb://localhost:27017';
-  private static readonly DATABASE_NAME = process.env.DATABASE_NAME || 'spikey_coins';
-  private static readonly CONNECTION_OPTIONS = {
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-    family: 4, // Use IPv4, skip trying IPv6
-    dbName: process.env.DATABASE_NAME || 'spikey_coins',
-  };
+  // Lazy loaded in _doInitialize to ensure env vars are loaded
 
   /**
    * Initialize Mongoose connection
@@ -52,12 +44,25 @@ class DatabaseConnection {
    */
   private static async _doInitialize(): Promise<void> {
     try {
-      logger.info(`DatabaseConnection: Connecting to MongoDB at ${this.CONNECTION_STRING}`);
+      const connectionString = process.env.MONGODB_URI || 'mongodb://localhost:27017';
+      // Don't force dbName, let URI decide unless explicitly set
+      const dbName = process.env.DATABASE_NAME; // Optional
+      
+      const options = {
+        maxPoolSize: 10,
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 45000,
+        family: 4,
+        ...(dbName ? { dbName } : {})
+      };
+      
+      logger.info(`DatabaseConnection: Connecting to MongoDB at ${connectionString.replace(/\/\/.*@/, '//***:***@')}`);
 
-      await mongoose.connect(this.CONNECTION_STRING, this.CONNECTION_OPTIONS);
+      await mongoose.connect(connectionString, options as mongoose.ConnectOptions);
       this.isConnected = true;
 
-      logger.info(`DatabaseConnection: Successfully connected to database '${this.DATABASE_NAME}'`);
+      const connectedDbName = mongoose.connection.db?.databaseName;
+      logger.info(`DatabaseConnection: Successfully connected to database '${connectedDbName}'`);
 
       // Set up connection event listeners
       mongoose.connection.on('error', (error) => {
@@ -114,8 +119,8 @@ class DatabaseConnection {
   static getConnectionInfo(): any {
     return {
       isConnected: this.isConnected,
-      databaseName: this.DATABASE_NAME,
-      connectionString: this.CONNECTION_STRING.replace(/\/\/.*@/, '//***:***@'), // Hide credentials
+      databaseName: mongoose.connection.db?.databaseName,
+      connectionString: (process.env.MONGODB_URI || 'mongodb://localhost:27017').replace(/\/\/.*@/, '//***:***@'), // Hide credentials
       readyState: mongoose.connection.readyState,
     };
   }

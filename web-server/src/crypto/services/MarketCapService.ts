@@ -70,6 +70,7 @@ class MarketCapService {
       
       // Load all matches from database
       const matches = await collection.find({}).toArray();
+      logger.info(`MarketCapService: Found ${matches.length} matches in database`);
 
       // Clear existing data
       this.marketCapData.clear();
@@ -94,6 +95,11 @@ class MarketCapService {
       this.lastUpdateTime = Date.now();
       logger.info(`MarketCapService: Loaded market cap data for ${this.marketCapData.size} symbols from database`);
       
+      if (this.marketCapData.has('BTCUSDT')) {
+         logger.info(`MarketCapService: BTCUSDT sample: ${JSON.stringify(this.marketCapData.get('BTCUSDT'))}`);
+      } else {
+         logger.warn('MarketCapService: BTCUSDT not found in loaded data');
+      }
     } catch (error) {
       logger.error('MarketCapService: Error loading market cap data from database:', error);
     }

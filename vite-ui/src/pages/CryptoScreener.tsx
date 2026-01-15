@@ -5,7 +5,7 @@ import Ticker, { type TickerData } from "@/components/crypto/Ticker";
 import { cryptoApi } from "@/lib/crypto-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, RefreshCw, ChevronLeft, DollarSign } from "lucide-react";
+import { Search, RefreshCw, ChevronLeft } from "lucide-react";
 import { PAGE_ROUTES } from "@/lib/constants";
 
 export default function CryptoScreenerPage() {
@@ -13,7 +13,6 @@ export default function CryptoScreenerPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [refreshingMarketCap, setRefreshingMarketCap] = useState(false);
 
   const fetchTickerData = useCallback(async () => {
     setLoading(true);
@@ -28,18 +27,6 @@ export default function CryptoScreenerPage() {
       setLoading(false);
     }
   }, []);
-
-  const handleRefreshMarketCap = async () => {
-    setRefreshingMarketCap(true);
-    try {
-      await cryptoApi.refreshMarketcapData();
-      await fetchTickerData();
-    } catch {
-      setError("Failed to refresh market cap data.");
-    } finally {
-      setRefreshingMarketCap(false);
-    }
-  };
 
   useEffect(() => {
     fetchTickerData();
@@ -75,15 +62,6 @@ export default function CryptoScreenerPage() {
                 className="pl-9 w-64"
               />
             </div>
-
-            <Button
-              variant="outline"
-              onClick={handleRefreshMarketCap}
-              disabled={refreshingMarketCap}
-            >
-              <DollarSign className={`h-4 w-4 mr-2 ${refreshingMarketCap ? "animate-pulse" : ""}`} />
-              {refreshingMarketCap ? "Refreshing..." : "Refresh Market Cap"}
-            </Button>
 
             <Button
               variant="outline"

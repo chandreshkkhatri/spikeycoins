@@ -80,6 +80,7 @@ const PAGE_ROUTES = {
   SETTINGS: '/settings',
   CRYPTO: '/crypto',
   CRYPTO_SCREENER: '/crypto/screener',
+  ADMIN: '/admin',
 } as const;
 
 export default {

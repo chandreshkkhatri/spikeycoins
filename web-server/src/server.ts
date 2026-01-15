@@ -30,12 +30,17 @@ import upstoxRouter from "./routes/upstox";
 import watchlistRouter from "./routes/watchlist";
 import inviteRouter from "./routes/invite";
 import gymRouter from "./routes/gym";
+import adminRouter from "./routes/admin";
 
 // Import crypto module
 import { cryptoRouter, initializeCryptoServices } from "./crypto";
 
+// Import markets module
+import { marketsRouter } from "./markets/routes";
+import { BinanceProvider, getMarketRegistry } from "./markets";
+
 // Import database connection
-import connectDB from "./lib/mongodb";
+// import connectDB from "./lib/mongodb";
 
 // Import price service for server-side WebSocket
 import binancePriceService from "./lib/binance-price-service";
@@ -111,10 +116,10 @@ if (process.env.NODE_ENV !== "production") {
   app.use(morgan("combined"));
 }
 
-// Connect to MongoDB
-connectDB().catch((err) => {
-  console.error("Failed to connect to MongoDB:", err);
-});
+// Connect to MongoDB handled by initializeCryptoServices
+// connectDB().catch((err) => {
+//   console.error("Failed to connect to MongoDB:", err);
+// });
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -147,6 +152,12 @@ app.use("/api/gym", gymRouter);
 
 // Crypto API routes
 app.use("/api", cryptoRouter);
+
+// Unified Markets API routes
+app.use("/api/markets", marketsRouter);
+
+// Admin routes (requires authentication)
+app.use("/api/admin", adminRouter);
 
 // Error handling middleware
 app.use(
@@ -190,6 +201,12 @@ app.listen(PORT, () => {
   initializeCryptoServices().catch((err) => {
     console.error("Failed to start crypto services:", err);
   });
+
+  // Register market providers
+  console.log("📡 Registering market providers...");
+  const marketRegistry = getMarketRegistry();
+  marketRegistry.registerProvider(new BinanceProvider());
+  // Note: UpstoxProvider requires user auth, registered on-demand
 });
 
 export default app;
