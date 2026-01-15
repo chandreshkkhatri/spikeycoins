@@ -27,7 +27,7 @@ const navItems = [
   { href: PAGE_ROUTES.TRADING_PANEL, label: "Terminal", icon: LineChart },
   { href: PAGE_ROUTES.ANALYST_DESK, label: "Journal", icon: BookOpen },
   { href: PAGE_ROUTES.TRADING_GYM, label: "Gym", icon: Dumbbell },
-  { href: PAGE_ROUTES.CRYPTO, label: "Crypto", icon: Coins },
+  { href: PAGE_ROUTES.CRYPTO, label: "Market Watch", icon: Coins },
   { href: PAGE_ROUTES.ASSETS, label: "Portfolio", icon: Wallet },
   { href: PAGE_ROUTES.ACCOUNTS, label: "Brokers", icon: Users },
 ];
@@ -92,7 +92,7 @@ export function Header() {
               )}
             </svg>
           </button>
-          <Link to="/dashboard" className="flex items-center gap-2">
+          <Link to={PAGE_ROUTES.DASHBOARD} className="flex items-center gap-2">
             <div className="flex items-center gap-2 px-2">
               <img
                 src="/logo.png"

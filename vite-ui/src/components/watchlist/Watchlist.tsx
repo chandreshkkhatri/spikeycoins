@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import binanceWebSocketService from "@/lib/binance-websocket";
 import { formatPrice, formatVolume, formatPercent } from "@/lib/format-utils";
 import { upstoxWebSocket } from "@/lib/upstox-websocket";
-import { ArrowDown, ArrowUp, ChevronDown, Plus, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Plus, Trash2, X, Search } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SymbolSearchModal from "./SymbolSearchModal";
 import TradingWindow from "./TradingWindow";
@@ -147,6 +147,9 @@ const Watchlist = memo(function Watchlist({
     useState(false);
   const [newWatchlistName, setNewWatchlistName] = useState("");
   const [success, setSuccess] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Context menu state for right-click "Add to" functionality
   const [contextMenu, setContextMenu] = useState<{
@@ -176,6 +179,24 @@ const Watchlist = memo(function Watchlist({
       document.removeEventListener("click", handleClickOutside);
     };
   }, [contextMenu.open, closeContextMenu]);
+
+  // Handle click outside search to close it
+  useEffect(() => {
+    if (!isSearchOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(event.target as Node)
+      ) {
+        setIsSearchOpen(false);
+        setSearchQuery("");
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isSearchOpen]);
 
   const [sortConfig, setSortConfig] = useState<{
     key: keyof WatchlistItem;
@@ -581,6 +602,14 @@ const Watchlist = memo(function Watchlist({
     return items;
   }, [watchlistItems, sortConfig]);
 
+  const filteredWatchlistItems = useMemo(() => {
+    if (!searchQuery.trim()) return sortedWatchlistItems;
+    const query = searchQuery.toLowerCase().trim();
+    return sortedWatchlistItems.filter((item) =>
+      item.symbol.toLowerCase().includes(query)
+    );
+  }, [sortedWatchlistItems, searchQuery]);
+
   const addSymbol = async (item: {
     symbol: string;
     name?: string;
@@ -918,89 +947,135 @@ const Watchlist = memo(function Watchlist({
 
   const renderWatchlistContent = () => (
     <div className="h-full flex flex-col border-r border-border bg-card overflow-hidden">
-      <div className="flex items-center justify-between border-b border-border bg-muted/30 p-3">
-        <div className="relative flex-1">
-          <div
-            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent hover:text-accent-foreground"
-            onClick={() => setShowWatchlistDropdown(!showWatchlistDropdown)}
+      <div className="flex items-center justify-between border-b border-border bg-muted/30 p-3 h-[50px]">
+        {isSearchOpen ? (
+          <div 
+            ref={searchContainerRef}
+            className="flex-1 flex items-center gap-2 animate-in fade-in slide-in-from-right-5 mx-1"
           >
-            <span className="text-sm font-semibold text-foreground">
-              {currentWatchlistName}
-            </span>
-            <ChevronDown size={14} className="text-muted-foreground" />
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setIsSearchOpen(false);
+                  setSearchQuery("");
+                }
+              }}
+              placeholder="Search..."
+              className="flex-1 h-8 bg-transparent border-none text-sm focus:outline-none placeholder:text-muted-foreground"
+            />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              onClick={() => {
+                setIsSearchOpen(false);
+                setSearchQuery("");
+              }}
+            >
+              <X size={14} />
+            </Button>
           </div>
-          {showWatchlistDropdown && (
-            <div className="absolute left-0 top-full z-50 mt-1 min-w-[220px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in zoom-in-95">
-              <div className="mb-1 border-b border-border pb-1">
+        ) : (
+          <>
+            <div className="relative flex-1">
+              <div
+                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent hover:text-accent-foreground"
+                onClick={() => setShowWatchlistDropdown(!showWatchlistDropdown)}
+              >
+                <span className="text-sm font-semibold text-foreground truncate max-w-[140px]">
+                  {currentWatchlistName}
+                </span>
+                <ChevronDown size={14} className="text-muted-foreground shrink-0" />
+              </div>
+              {showWatchlistDropdown && (
+                <div className="absolute left-0 top-full z-50 mt-1 min-w-[220px] rounded-md border border-border bg-popover p-1 shadow-md animate-in fade-in zoom-in-95">
+                  <div className="mb-1 border-b border-border pb-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start gap-2 px-2 text-xs"
+                      onClick={() => {
+                        setShowCreateWatchlistModal(true);
+                        setShowWatchlistDropdown(false);
+                      }}
+                    >
+                      <Plus size={12} /> Create New Watchlist
+                    </Button>
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto">
+                    {watchlists.map((wl) => (
+                      <div
+                        key={wl.id}
+                        className={`group flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${wl.id === currentWatchlistId
+                          ? "bg-accent text-accent-foreground font-medium"
+                          : "text-popover-foreground"
+                          }`}
+                        onClick={() => switchWatchlist(wl.id, wl.name)}
+                      >
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <span className="truncate">{wl.name}</span>
+                          {wl.isSystem && (
+                            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                              System
+                            </span>
+                          )}
+                        </div>
+                        {!wl.isSystem && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                            onClick={(e) => deleteWatchlist(wl.id, e)}
+                          >
+                            <Trash2 size={12} />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => setIsSearchOpen(true)}
+                title="Search symbols"
+              >
+                <Search size={16} />
+              </Button>
+              {!isDefaultBinance && (
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="w-full justify-start gap-2 px-2 text-xs"
-                  onClick={() => {
-                    setShowCreateWatchlistModal(true);
-                    setShowWatchlistDropdown(false);
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={(e) => {
+                    const rect = (
+                      e.currentTarget as HTMLElement
+                    ).getBoundingClientRect();
+                    setAddAnchorRect({
+                      top: rect.top,
+                      left: rect.left,
+                      bottom: rect.bottom,
+                      right: rect.right,
+                      width: rect.width,
+                      height: rect.height,
+                    });
+                    setShowSymbolSearchModal(true);
                   }}
+                  title="Add Symbol"
                 >
-                  <Plus size={12} /> Create New Watchlist
+                  <Plus size={18} />
                 </Button>
-              </div>
-              <div className="max-h-[200px] overflow-y-auto">
-                {watchlists.map((wl) => (
-                  <div
-                    key={wl.id}
-                    className={`group flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${wl.id === currentWatchlistId
-                        ? "bg-accent text-accent-foreground font-medium"
-                        : "text-popover-foreground"
-                      }`}
-                    onClick={() => switchWatchlist(wl.id, wl.name)}
-                  >
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <span className="truncate">{wl.name}</span>
-                      {wl.isSystem && (
-                        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                          System
-                        </span>
-                      )}
-                    </div>
-                    {!wl.isSystem && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
-                        onClick={(e) => deleteWatchlist(wl.id, e)}
-                      >
-                        <Trash2 size={12} />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
+              )}
             </div>
-          )}
-        </div>
-        {!isDefaultBinance && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={(e) => {
-              const rect = (
-                e.currentTarget as HTMLElement
-              ).getBoundingClientRect();
-              setAddAnchorRect({
-                top: rect.top,
-                left: rect.left,
-                bottom: rect.bottom,
-                right: rect.right,
-                width: rect.width,
-                height: rect.height,
-              });
-              setShowSymbolSearchModal(true);
-            }}
-            title="Add Symbol"
-          >
-            <Plus size={18} />
-          </Button>
+          </>
         )}
       </div>
 
@@ -1033,6 +1108,8 @@ const Watchlist = memo(function Watchlist({
           </div>
         </div>
       )}
+
+
 
       {error && (
         <div className="border-b border-yellow-200 bg-yellow-50 px-4 py-2 text-xs text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-200">
@@ -1112,7 +1189,7 @@ const Watchlist = memo(function Watchlist({
             <div></div>
           </div>
         )}
-        {sortedWatchlistItems.map((item) => (
+        {filteredWatchlistItems.map((item) => (
           <div
             key={item.symbol}
             className={`group relative grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 cursor-pointer border-b border-border px-2 pr-1 py-3 transition-colors hover:bg-accent/50 items-center ${selectedSymbol === item.symbol
