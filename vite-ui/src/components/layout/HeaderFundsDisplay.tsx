@@ -44,8 +44,8 @@ export function HeaderFundsDisplay() {
                 } else {
                     setError(true);
                 }
-            } catch (err) {
-                console.error("Failed to fetch header funds", err);
+            } catch (err: any) {
+                console.error("Failed to fetch header funds:", err.message || err);
                 setError(true);
             } finally {
                 setLoading(false);
@@ -64,26 +64,31 @@ export function HeaderFundsDisplay() {
 
     if (loading && !funds) {
         return (
-            <div className="flex items-center gap-2 mr-2 md:mr-4 px-2 md:px-3 py-1.5 bg-muted/30 rounded-full border border-border/50">
+            <div className="flex items-center gap-2 mr-2 md:mr-4 px-2 md:px-3 py-1.5 bg-muted/30 rounded-full border border-border/50 flex-shrink-0">
                 <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                 <span className="text-xs text-muted-foreground hidden md:inline">Loading...</span>
             </div>
         );
     }
 
-    if (error) return null;
+    // Fallback if funds are null or error occurred
+    const displayFunds = funds || {
+        totalBalance: "---",
+        availableBalance: "---",
+        unrealizedPnl: "0",
+        currency: selectedAccount?.accountType === 'binance' ? '$' : '₹'
+    };
 
-    if (!funds) return null;
-
-    const pnl = parseFloat(funds.unrealizedPnl || "0");
+    const pnl = parseFloat(displayFunds.unrealizedPnl || "0");
     const isPnlPositive = pnl >= 0;
 
     return (
-        <div className="flex items-center gap-2 md:gap-4 mr-2 md:mr-4">
+        <div className="flex items-center gap-2 md:gap-4 mr-2 md:mr-4 flex-shrink-0">
             <div className="flex flex-col items-end">
                 <span className="text-[9px] md:text-[10px] text-muted-foreground font-medium uppercase tracking-wider leading-none mb-0.5 md:mb-1">Equity</span>
-                <span className="text-xs md:text-sm font-bold leading-none font-mono">
-                    {funds.currency}{parseFloat(funds.totalBalance).toFixed(2)}
+                <span className={`text-xs md:text-sm font-bold leading-none font-mono ${error ? 'text-destructive' : ''}`}>
+                    {displayFunds.currency !== '$' && displayFunds.currency !== '₹' ? (selectedAccount?.accountType === 'binance' ? '$' : '₹') : displayFunds.currency}
+                    {displayFunds.totalBalance === "---" ? "---" : parseFloat(displayFunds.totalBalance).toFixed(2)}
                 </span>
             </div>
 
@@ -91,7 +96,7 @@ export function HeaderFundsDisplay() {
             {pnl !== 0 && (
                 <div className={`hidden md:flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md bg-opacity-10 ${isPnlPositive ? 'bg-green-500 text-green-600 dark:text-green-400' : 'bg-red-500 text-red-600 dark:text-red-400'}`}>
                     {isPnlPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                    {funds.currency}{Math.abs(pnl).toFixed(2)}
+                    {displayFunds.currency}{Math.abs(pnl).toFixed(2)}
                 </div>
             )}
         </div>
