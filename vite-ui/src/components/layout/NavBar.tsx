@@ -61,7 +61,7 @@ export default function NavBar({
             >
               <span className="hamburger" />
             </button>
-            <Link to="/dashboard" className="brand" aria-label="Home">
+            <Link to={PAGE_ROUTES.DASHBOARD} className="brand" aria-label="Home">
               <img src="/logo.png" alt="" className="brand-logo" style={{ height: '24px', width: '24px', marginRight: '8px', borderRadius: '4px' }} />
               {title}
             </Link>

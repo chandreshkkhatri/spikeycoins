@@ -33,7 +33,7 @@ export default function CryptoScreenerPage() {
   }, [fetchTickerData]);
 
   return (
-    <PageLayout title="Crypto Screener">
+    <PageLayout title="Market Watch">
       <div className="space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
@@ -44,7 +44,7 @@ export default function CryptoScreenerPage() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-semibold text-foreground">Crypto Screener</h1>
+              <h1 className="text-2xl font-semibold text-foreground">Market Watch</h1>
               <p className="text-sm text-muted-foreground mt-1">
                 {tickerArray.length} USDT trading pairs available
               </p>

@@ -62,7 +62,7 @@ export const getApiUrl = (path: string): string => {
 
 const PAGE_ROUTES = {
   HOME: '/',
-  DASHBOARD: '/dashboard',
+  DASHBOARD: '/command-center',
   LOGIN: '/login',
   TERMINAL: '/terminal',
   ORDERS: '/orders',
@@ -70,16 +70,16 @@ const PAGE_ROUTES = {
   HOLDINGS: '/holdings',
   ALERTS: '/alerts',
   SIMULATOR: '/simulator',
-  ACCOUNTS: '/accounts',
-  TRADING_PANEL: '/trading-panel',
-  TRADING_GYM: '/trading-gym',
+  ACCOUNTS: '/brokers',
+  TRADING_PANEL: '/terminal', // Keeping key for compatibility, but value matches new route
+  TRADING_GYM: '/gym',
   TRADING: '/trading',
   FUNDS: '/funds',
-  ASSETS: '/assets',
-  ANALYST_DESK: '/analyst-desk',
+  ASSETS: '/portfolio',
+  ANALYST_DESK: '/journal',
   SETTINGS: '/settings',
-  CRYPTO: '/crypto',
-  CRYPTO_SCREENER: '/crypto/screener',
+  CRYPTO: '/market-watch',
+  CRYPTO_SCREENER: '/market-watch/screener',
   ADMIN: '/admin',
 } as const;
 
