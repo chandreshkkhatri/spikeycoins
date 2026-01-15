@@ -252,8 +252,12 @@ class BinanceClient {
 
     // Clean up old connection to prevent memory leaks
     if (this.tickerWs) {
-      this.tickerWs.removeAllListeners();
-      this.tickerWs.terminate();
+      try {
+        this.tickerWs.removeAllListeners();
+        this.tickerWs.terminate();
+      } catch (err) {
+        logger.error("BinanceClient: Error terminating WebSocket:", err);
+      }
       this.tickerWs = null;
     }
 

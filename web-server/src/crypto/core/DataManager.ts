@@ -66,6 +66,9 @@ class DataManager {
   private static readonly SYMBOL_EXPIRY_TIME = 30 * 60 * 1000; // 30 minutes
   private static readonly MIN_VOLUME_THRESHOLD = 1000;
 
+  private static lastCalculationTime: Map<string, number> = new Map();
+  private static readonly CALCULATION_THROTTLE_MS = 60 * 1000; // 1 minute
+
   /**
    * Update ticker data from WebSocket stream
    */
@@ -86,32 +89,33 @@ class DataManager {
       // Skip low volume pairs
       if (volume24h < this.MIN_VOLUME_THRESHOLD) continue;
       
-      // Calculate short-term changes using CandlestickStorage (non-blocking)
-      let shortTermChanges = {
-        change_1h: null as number | null,
-        change_4h: null as number | null,
-        change_8h: null as number | null,
-        change_12h: null as number | null,
-      };
-      
       // Calculate changes asynchronously and update ticker later
-      CandlestickStorage.calculatePriceChanges(symbol, price).then(changes => {
-        const existingTicker = this.tickers.get(symbol);
-        if (existingTicker) {
-          existingTicker.change_1h = changes.change_1h;
-          existingTicker.change_4h = changes.change_4h;
-          existingTicker.change_8h = changes.change_8h;
-          existingTicker.change_12h = changes.change_12h;
-        }
-      }).catch(error => {
-        // Silently ignore errors to avoid log spam
-      });
+      // THROTTLED: Only calculate if enough time has passed since last calculation
+      const lastCalc = this.lastCalculationTime.get(symbol) || 0;
+      if (timestamp - lastCalc > this.CALCULATION_THROTTLE_MS) {
+        this.lastCalculationTime.set(symbol, timestamp);
+        
+        CandlestickStorage.calculatePriceChanges(symbol, price).then(changes => {
+          const existingTicker = this.tickers.get(symbol);
+          if (existingTicker) {
+            existingTicker.change_1h = changes.change_1h;
+            existingTicker.change_4h = changes.change_4h;
+            existingTicker.change_8h = changes.change_8h;
+            existingTicker.change_12h = changes.change_12h;
+          }
+        }).catch(_error => {
+          // Silently ignore errors to avoid log spam
+        });
+      }
       
       // Calculate 24h range position
       const rangePosition = calculate24hRangePosition(rawTicker);
 
       // Get market cap data if available
       const marketCapData = MarketCapService.getMarketCapData(symbol);
+      
+      // Preserve existing calculated fields if not updating them
+      const existingTicker = this.tickers.get(symbol);
       
       const ticker: TickerData = {
         // Original fields
@@ -130,10 +134,10 @@ class DataManager {
         // Calculated fields
         price,
         change_24h: parseFloat(rawTicker.P),
-        change_1h: shortTermChanges.change_1h,
-        change_4h: shortTermChanges.change_4h,
-        change_8h: shortTermChanges.change_8h,
-        change_12h: shortTermChanges.change_12h,
+        change_1h: existingTicker ? existingTicker.change_1h : null,
+        change_4h: existingTicker ? existingTicker.change_4h : null,
+        change_8h: existingTicker ? existingTicker.change_8h : null,
+        change_12h: existingTicker ? existingTicker.change_12h : null,
         high_24h: parseFloat(rawTicker.h),
         low_24h: parseFloat(rawTicker.l),
         range_position_24h: rangePosition,
@@ -165,6 +169,7 @@ class DataManager {
     
     // Clean up expired symbols and update rankings
     this.cleanupExpiredSymbols(timestamp);
+    this.cleanupStaleData(timestamp); // Add cleanup for stale tickers
     this.updateSymbolRankings();
     
     // Log discovery updates periodically
@@ -177,6 +182,40 @@ class DataManager {
     // Only log ticker updates periodically to avoid log spam
     if (timestamp - this.lastDiscoveryUpdate > this.DISCOVERY_UPDATE_INTERVAL) {
       logger.debug(`DataManager: Updated ${tickerArray.length} tickers, tracking ${this.tickers.size} symbols`);
+    }
+  }
+
+  /**
+   * Remove inactive tickers and candlesticks to prevent memory leaks
+   */
+  private static cleanupStaleData(now: number): void {
+    // Only run cleanup periodically (e.g., every 1 hour)
+    // We use the same interval as DISCOVERY_UPDATE_INTERVAL (5m) for check, but actual cleanup threshold is 24h
+    if (now - this.lastDiscoveryUpdate < this.DISCOVERY_UPDATE_INTERVAL) return;
+
+    const STALE_THRESHOLD = 24 * 60 * 60 * 1000; // 24 hours
+    let removedTickers = 0;
+    
+    // Cleanup stale tickers
+    for (const [symbol, ticker] of this.tickers.entries()) {
+      const lastUpdate = new Date(ticker.last_updated).getTime();
+      if (now - lastUpdate > STALE_THRESHOLD) {
+        this.tickers.delete(symbol);
+        this.lastCalculationTime.delete(symbol);
+        removedTickers++;
+      }
+    }
+
+    // Cleanup stale in-memory candlesticks
+    // Note: CandlestickStorage handles its own cache, but DataManager also keeps a small buffer
+    for (const symbol of this.candlesticks.keys()) {
+      if (!this.tickers.has(symbol)) {
+        this.candlesticks.delete(symbol);
+      }
+    }
+
+    if (removedTickers > 0) {
+      logger.info(`DataManager: Cleaned up ${removedTickers} stale tickers`);
     }
   }
 

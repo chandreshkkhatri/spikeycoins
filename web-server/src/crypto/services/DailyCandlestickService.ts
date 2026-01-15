@@ -375,6 +375,11 @@ class DailyCandlestickService {
   async manualBackfill(): Promise<void> {
     const currentTickers = DataManager.getAllTickers();
     const symbols = currentTickers.map((t: any) => t.s).filter((s: string) => s);
+    
+    if (symbols.length > 500) {
+      logger.warn(`DailyCandlestickService: Manual backfill triggered for large set (${symbols.length} symbols). This may take a while.`);
+    }
+    
     await this.backfillAllSymbols(symbols);
   }
 }

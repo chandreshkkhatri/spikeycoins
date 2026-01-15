@@ -89,17 +89,24 @@ class PriceHistoryService {
       }
 
       const priceHistoryCollection = db.collection('price_history');
+      const BATCH_SIZE = 500;
+      let totalSaved = 0;
 
-      const snapshots: PriceSnapshot[] = tickers.map((ticker: any) => ({
-        symbol: ticker.s || 'UNKNOWN',
-        price: parseFloat(ticker.c || '0'),
-        timestamp: new Date(),
-      }));
+      for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+        const batch = tickers.slice(i, i + BATCH_SIZE);
+        const snapshots: PriceSnapshot[] = batch.map((ticker: any) => ({
+          symbol: ticker.s || 'UNKNOWN',
+          price: parseFloat(ticker.c || '0'),
+          timestamp: new Date(),
+        }));
+        
+        if (snapshots.length > 0) {
+          await priceHistoryCollection.insertMany(snapshots);
+          totalSaved += snapshots.length;
+        }
+      }
 
-      // Insert all snapshots
-      await priceHistoryCollection.insertMany(snapshots);
-
-      logger.info(`PriceHistoryService: Saved ${snapshots.length} price snapshots`);
+      logger.info(`PriceHistoryService: Saved ${totalSaved} price snapshots`);
 
       // Clean up old data (keep only last 8 days)
       const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
@@ -160,7 +167,7 @@ class PriceHistoryService {
       }
 
       // Try to use database snapshots first
-      let oldPriceMap = new Map<string, number>();
+      const oldPriceMap = new Map<string, number>();
       let useDatabase = false;
 
       if (DatabaseConnection.isConnectionReady()) {

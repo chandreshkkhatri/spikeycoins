@@ -6,7 +6,7 @@
 
 import logger from '../utils/logger';
 import DatabaseConnection from './DatabaseConnection';
-import { CandlestickModel, ICandlestick } from '../models/Candlestick';
+import { CandlestickModel } from '../models/Candlestick';
 
 interface Candlestick {
   openTime: number;
@@ -42,9 +42,35 @@ class CandlestickStorage {
       this.isInitialized = true;
       logger.info('CandlestickStorage: Initialized with Mongoose CandlestickModel');
 
+      // periodic cache cleanup every hour
+      setInterval(() => {
+        this.cleanupCache();
+      }, 60 * 60 * 1000);
+
     } catch (error) {
       logger.error('CandlestickStorage: Failed to initialize:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Cleanup stale cache entries
+   */
+  private static cleanupCache(): void {
+    const now = Date.now();
+    let removedCount = 0;
+    
+    for (const [symbol, timestamp] of this.cacheTimestamps.entries()) {
+      // If cache hasn't been accessed/updated in 1 hour
+      if (now - timestamp > 60 * 60 * 1000) {
+        this.cache.delete(symbol);
+        this.cacheTimestamps.delete(symbol);
+        removedCount++;
+      }
+    }
+    
+    if (removedCount > 0) {
+      logger.info(`CandlestickStorage: Cleaned up ${removedCount} stale cache entries`);
     }
   }
 
