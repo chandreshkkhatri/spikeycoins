@@ -21,6 +21,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@binance/connector": "^3.6.1",
+    "@google/generative-ai": "^0.24.1",
     "@types/compression": "^1.7.5",
     "@types/cookie-parser": "^1.4.6",
     "@types/cors": "^2.8.17",
@@ -38,12 +40,16 @@
     "express-session": "^1.17.3",
     "helmet": "^7.1.0",
     "kiteconnect": "^5.1.0",
-    "mongoose": "^8.0.3",
+    "mongoose": "^8.21.0",
     "morgan": "^1.10.0",
+    "node-cron": "^4.2.1",
     "protobufjs": "^7.2.4",
     "typescript": "^5.3.3",
     "upstox-js-sdk": "^2.19.0",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/web-push": "^3.6.4",

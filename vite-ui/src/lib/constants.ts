@@ -78,6 +78,8 @@ const PAGE_ROUTES = {
   ASSETS: '/assets',
   ANALYST_DESK: '/analyst-desk',
   SETTINGS: '/settings',
+  CRYPTO: '/crypto',
+  CRYPTO_SCREENER: '/crypto/screener',
 } as const;
 
 export default {
