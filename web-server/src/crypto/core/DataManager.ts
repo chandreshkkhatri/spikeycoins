@@ -38,17 +38,7 @@ interface TickerData {
   last_updated: string;
 }
 
-interface CandlestickData {
-  symbol: string;
-  openTime: number;
-  closeTime: number;
-  open: string;
-  high: string;
-  low: string;
-  close: string;
-  volume: string;
-  interval: string;
-}
+
 
 interface SymbolStats {
   symbol: string;
@@ -59,7 +49,7 @@ interface SymbolStats {
 
 class DataManager {
   private static tickers: Map<string, TickerData> = new Map();
-  private static candlesticks: Map<string, Map<string, CandlestickData[]>> = new Map(); // symbol -> interval -> data
+
   private static discoveredSymbols: Map<string, SymbolStats> = new Map();
   private static lastDiscoveryUpdate: number = 0;
   private static readonly DISCOVERY_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -206,47 +196,14 @@ class DataManager {
       }
     }
 
-    // Cleanup stale in-memory candlesticks
-    // Note: CandlestickStorage handles its own cache, but DataManager also keeps a small buffer
-    for (const symbol of this.candlesticks.keys()) {
-      if (!this.tickers.has(symbol)) {
-        this.candlesticks.delete(symbol);
-      }
-    }
+
 
     if (removedTickers > 0) {
       logger.info(`DataManager: Cleaned up ${removedTickers} stale tickers`);
     }
   }
 
-  /**
-   * Update candlestick data
-   */
-  static updateCandlesticks(symbol: string, candlestickArray: any[], interval: string = '15m'): void {
-    const candlesticks = candlestickArray.map(candle => ({
-      symbol,
-      openTime: candle[0],
-      closeTime: candle[6],
-      open: candle[1],
-      high: candle[2], 
-      low: candle[3],
-      close: candle[4],
-      volume: candle[5],
-      interval,
-    }));
-    
-    // Ensure symbol entry exists
-    if (!this.candlesticks.has(symbol)) {
-      this.candlesticks.set(symbol, new Map());
-    }
-    
-    // Store data for the specific interval
-    this.candlesticks.get(symbol)!.set(interval, candlesticks);
-    // Reduce candlestick logging frequency
-    if (Math.random() < 0.1) { // Log only 10% of candlestick updates
-      logger.debug(`DataManager: Updated ${candlesticks.length} candlesticks for ${symbol} (${interval})`);
-    }
-  }
+
 
   /**
    * Get all ticker data
@@ -256,14 +213,7 @@ class DataManager {
       .sort((a, b) => b.volume_usd - a.volume_usd);
   }
 
-  /**
-   * Get candlestick data for a symbol and interval
-   */
-  static getCandlesticks(symbol: string, interval: string = '15m'): CandlestickData[] {
-    const symbolData = this.candlesticks.get(symbol);
-    if (!symbolData) return [];
-    return symbolData.get(interval) || [];
-  }
+
   
   /**
    * Get all active symbols (symbols with recent ticker updates)
@@ -290,36 +240,7 @@ class DataManager {
     return this.tickers.get(symbol.toUpperCase()) || null;
   }
 
-  /**
-   * Get candlestick summary
-   */
-  static getCandlestickSummary() {
-    const summary: any[] = [];
-    this.candlesticks.forEach((intervalMap, symbol) => {
-      const intervals: any = {};
-      let totalCandles = 0;
-      let latestTime = 0;
-      
-      intervalMap.forEach((candles, interval) => {
-        intervals[interval] = {
-          candleCount: candles.length,
-          latestTime: candles.length > 0 ? candles[candles.length - 1].closeTime : 0,
-        };
-        totalCandles += candles.length;
-        if (intervals[interval].latestTime > latestTime) {
-          latestTime = intervals[interval].latestTime;
-        }
-      });
-      
-      summary.push({
-        symbol,
-        intervals,
-        totalCandles,
-        latestTime,
-      });
-    });
-    return summary;
-  }
+
 
   /**
    * Get statistics
@@ -327,7 +248,6 @@ class DataManager {
   static getStats() {
     return {
       tickerCount: this.tickers.size,
-      candlestickSymbols: this.candlesticks.size,
       discoveredSymbols: this.discoveredSymbols.size,
     };
   }
@@ -412,38 +332,19 @@ class DataManager {
    * Get storage statistics (simulated for in-memory)
    */
   static getStorageStats() {
-    let totalCandles = 0;
-    let totalSymbols = 0;
-    const intervalStats: any = {};
-
-    this.candlesticks.forEach((intervalMap, symbol) => {
-      totalSymbols++;
-      intervalMap.forEach((candles, interval) => {
-        totalCandles += candles.length;
-        if (!intervalStats[interval]) {
-          intervalStats[interval] = { symbols: 0, candles: 0 };
-        }
-        intervalStats[interval].symbols++;
-        intervalStats[interval].candles += candles.length;
-      });
-    });
-
     // Estimate memory usage (very rough)
-    const estimatedSizeBytes = (totalCandles * 200) + (this.tickers.size * 500); // rough estimate
+    const estimatedSizeBytes = this.tickers.size * 500; // rough estimate
     
     return {
       metadata: {
         type: 'in-memory',
         persistent: false,
-        note: 'Data is stored in memory only and will be lost on restart'
+        note: 'Ticker data is stored in memory. Candlestick data is in CandlestickStorage.'
       },
       filesCount: 0, // No files for in-memory
       totalSizeBytes: estimatedSizeBytes,
       inMemory: {
         tickerSymbols: this.tickers.size,
-        candlestickSymbols: totalSymbols,
-        totalCandles,
-        intervalStats,
       }
     };
   }
@@ -482,7 +383,6 @@ class DataManager {
    */
   static clearAll(): void {
     this.tickers.clear();
-    this.candlesticks.clear();
     this.discoveredSymbols.clear();
     this.lastDiscoveryUpdate = 0;
   }

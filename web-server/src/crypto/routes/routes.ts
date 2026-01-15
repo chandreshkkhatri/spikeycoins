@@ -63,7 +63,6 @@ export function tickerHealth(req: Request, res: Response): void {
       message: "Ticker router is running",
       status: "healthy",
       tickerDataCount: stats.tickerCount,
-      candlestickSymbols: stats.candlestickSymbols,
       timestamp: new Date().toISOString(),
       websocketStatus: clientStatus,
     });
@@ -101,16 +100,16 @@ export function get24hrTicker(req: Request, res: Response): void {
 /**
  * Get candlestick summary
  */
-export function getCandlestickSummary(req: Request, res: Response): void {
+export async function getCandlestickSummary(req: Request, res: Response): Promise<void> {
   try {
-    const summary = DataManager.getCandlestickSummary();
-    const symbols = summary.map(s => s.symbol);
+    const stats = await CandlestickStorage.getStats();
+    const symbols = await CandlestickStorage.getStoredSymbols();
     
     res.json({
       success: true,
       symbols,
-      summary,
-      count: summary.length,
+      stats,
+      count: symbols.length,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -125,10 +124,9 @@ export function getCandlestickSummary(req: Request, res: Response): void {
 /**
  * Get candlestick data for specific symbol
  */
-export function getCandlestickData(req: Request, res: Response): void {
+export async function getCandlestickData(req: Request, res: Response): Promise<void> {
   try {
     const symbol = req.params.symbol?.toUpperCase();
-    const interval = (req.query.interval as string) || '15m';
     
     if (!symbol) {
       res.status(400).json({
@@ -138,12 +136,12 @@ export function getCandlestickData(req: Request, res: Response): void {
       return;
     }
     
-    const candlesticks = DataManager.getCandlesticks(symbol, interval);
+    const candlesticks = await CandlestickStorage.getLatestCandles(symbol);
     
     if (candlesticks.length === 0) {
       res.status(404).json({
         success: false,
-        error: `No candlestick data available for ${symbol} at ${interval} interval`,
+        error: `No candlestick data available for ${symbol}`,
       });
       return;
     }
@@ -151,7 +149,7 @@ export function getCandlestickData(req: Request, res: Response): void {
     res.json({
       success: true,
       symbol,
-      interval,
+      interval: '5m',
       data: candlesticks,
       count: candlesticks.length,
       timestamp: new Date().toISOString(),

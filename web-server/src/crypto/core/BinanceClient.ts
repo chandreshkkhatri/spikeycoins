@@ -231,9 +231,6 @@ class BinanceClient {
     
     if (response.status === 200 && response.data && Array.isArray(response.data)) {
       await CandlestickStorage.storeCandlesticks(symbol, response.data);
-      
-      // Update DataManager with the new candlestick data
-      DataManager.updateCandlesticks(symbol, response.data, '5m');
     } else if (response.status === 429) {
       // Rate limited - slow down
       logger.warn('BinanceClient: Rate limited, slowing down');
