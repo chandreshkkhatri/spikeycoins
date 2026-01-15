@@ -34,6 +34,10 @@ import gymRouter from "./routes/gym";
 // Import crypto module
 import { cryptoRouter, initializeCryptoServices } from "./crypto";
 
+// Import markets module
+import { marketsRouter } from "./markets/routes";
+import { BinanceProvider, getMarketRegistry } from "./markets";
+
 // Import database connection
 import connectDB from "./lib/mongodb";
 
@@ -148,6 +152,9 @@ app.use("/api/gym", gymRouter);
 // Crypto API routes
 app.use("/api", cryptoRouter);
 
+// Unified Markets API routes
+app.use("/api/markets", marketsRouter);
+
 // Error handling middleware
 app.use(
   (
@@ -190,6 +197,12 @@ app.listen(PORT, () => {
   initializeCryptoServices().catch((err) => {
     console.error("Failed to start crypto services:", err);
   });
+
+  // Register market providers
+  console.log("📡 Registering market providers...");
+  const marketRegistry = getMarketRegistry();
+  marketRegistry.registerProvider(new BinanceProvider());
+  // Note: UpstoxProvider requires user auth, registered on-demand
 });
 
 export default app;
