@@ -255,7 +255,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Redirect to Google OAuth (with optional invite code for new signups)
   const loginWithGoogle = useCallback((inviteCode?: string) => {
-    const url = new URL(getApiUrl("/api/auth/google"));
+    const apiUrl = getApiUrl("/api/auth/google");
+    const url = new URL(apiUrl, window.location.origin);
     if (inviteCode) {
       url.searchParams.set("invite", inviteCode);
     }

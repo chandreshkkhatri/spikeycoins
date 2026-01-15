@@ -9,8 +9,9 @@ import {
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
 import { useTradingData } from "@/lib/trading-data-context";
+import { useDebouncedCallback } from "@/lib/use-debounce";
 import { AlertTriangle, ChevronDown, ChevronUp, HelpCircle, RefreshCw, X } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
 import TradingPanelTabs from "./TradingPanelTabs";
@@ -64,6 +65,7 @@ const DEFAULT_RISK_PERCENT_STORAGE_KEY = "openMandi_defaultRiskPercent";
 const DEFAULT_TP_PERCENT_STORAGE_KEY = "openMandi_defaultTakeProfitPercent";
 const USER_MAX_LEVERAGE_STORAGE_KEY = "openMandi_userMaxLeverage";
 const USE_SL_TP_SLIDER_STORAGE_KEY = "openMandi_useSlTpSlider";
+const SYMBOL_LEVERAGES_STORAGE_KEY = "openMandi_symbolLeverages";
 
 const TradingWindow = memo(function TradingWindow({
   symbol,
@@ -107,6 +109,7 @@ const TradingWindow = memo(function TradingWindow({
   const [hasUserEditedSL, setHasUserEditedSL] = useState(false);
   const [hasUserEditedTP, setHasUserEditedTP] = useState(false);
   const [hasUserEditedPrice, setHasUserEditedPrice] = useState(false);
+  const [slAutoCalcWarning, setSlAutoCalcWarning] = useState<string | null>(null);
   const [accountDetails, setAccountDetails] = useState<any>(null);
   const [exchangeMaxLeverage, setExchangeMaxLeverage] = useState<number>(125);
   const [tickSize, setTickSize] = useState<string>("0.01");
@@ -171,7 +174,8 @@ const TradingWindow = memo(function TradingWindow({
     }
   }, [symbol, setActiveSymbol]);
 
-  // Sync context data to local state
+  // Sync all context data to local state in a single effect
+  // This consolidates multiple sync effects to reduce re-render overhead
   useEffect(() => {
     // Sync orders (filter to current symbol)
     const symbolOrders = contextOrders.filter(
@@ -183,9 +187,7 @@ const TradingWindow = memo(function TradingWindow({
           order.status === "PARTIALLY_FILLED")
     );
     setOpenOrders(symbolOrders);
-  }, [contextOrders, symbol]);
 
-  useEffect(() => {
     // Sync existing position from context
     if (contextExistingPosition && contextExistingPosition.symbol === symbol) {
       setExistingPosition({
@@ -197,36 +199,33 @@ const TradingWindow = memo(function TradingWindow({
     } else {
       setExistingPosition(null);
     }
-  }, [contextExistingPosition, symbol]);
 
-  useEffect(() => {
     // Sync account details from context
     if (contextAccountDetails) {
       setAccountDetails(contextAccountDetails);
       setAvailableBalance(contextAccountDetails.availableBalance || contextAccountDetails.equity || 0);
     }
-  }, [contextAccountDetails]);
 
-  useEffect(() => {
     // Sync symbol info from context
     if (contextSymbolInfo) {
       setTickSize(contextSymbolInfo.tickSize);
       setStepSize(contextSymbolInfo.stepSize);
       setExchangeMaxLeverage(contextSymbolInfo.maxLeverage);
     }
-  }, [contextSymbolInfo]);
 
-  useEffect(() => {
     // Sync last refresh time
     if (contextLastRefresh) {
       setLastDetailsRefresh(contextLastRefresh);
     }
-  }, [contextLastRefresh]);
+  }, [contextOrders, contextExistingPosition, contextAccountDetails, contextSymbolInfo, contextLastRefresh, symbol]);
 
   // Reset synced state when symbol or account changes
   useEffect(() => {
     hasSyncedLeverage.current = false;
     setHasUserEditedPrice(false);
+    setHasUserEditedSL(false);
+    setHasUserEditedTP(false);
+    setSlAutoCalcWarning(null);
     // When user changes symbol or account, reset price to latest LTP for LIMIT orders
     if (orderForm.type === "LIMIT") {
       const decimals = tickSize.includes(".")
@@ -251,12 +250,19 @@ const TradingWindow = memo(function TradingWindow({
       : 2;
     const nextPrice = currentPrice.toFixed(decimals);
 
-    // Avoid churn on identical values.
-    if (orderForm.price === nextPrice) return;
+    // Critical: if current price is invalid (0 or empty), ALWAYS sync to the valid currentPrice
+    // This handles fresh page load when orderForm initializes with price="0.00"
+    const currentPriceNum = parseFloat(orderForm.price);
+    const isCurrentPriceInvalid = !Number.isFinite(currentPriceNum) || currentPriceNum <= 0;
+
+    // Avoid churn on identical values (but always update if current price is invalid)
+    if (!isCurrentPriceInvalid && orderForm.price === nextPrice) return;
 
     setOrderForm((prev) => {
       if (prev.type !== "LIMIT") return prev;
-      if (prev.price === nextPrice) return prev;
+      const prevPriceNum = parseFloat(prev.price);
+      const isPrevPriceInvalid = !Number.isFinite(prevPriceNum) || prevPriceNum <= 0;
+      if (!isPrevPriceInvalid && prev.price === nextPrice) return prev;
       return { ...prev, price: nextPrice };
     });
   }, [currentPrice, tickSize, orderForm.type, orderForm.price, hasUserEditedPrice]);
@@ -301,6 +307,29 @@ const TradingWindow = memo(function TradingWindow({
   // Effective max leverage is min of exchange max and user max
   const maxLeverage = Math.min(exchangeMaxLeverage, userMaxLeverage);
 
+  // Helper functions for per-symbol leverage persistence
+  const getStoredLeverageForSymbol = (symbol: string): number | null => {
+    try {
+      const stored = localStorage.getItem(SYMBOL_LEVERAGES_STORAGE_KEY);
+      if (!stored) return null;
+      const leverages = JSON.parse(stored);
+      return leverages[symbol] || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const setStoredLeverageForSymbol = (symbol: string, leverage: number): void => {
+    try {
+      const stored = localStorage.getItem(SYMBOL_LEVERAGES_STORAGE_KEY);
+      const leverages = stored ? JSON.parse(stored) : {};
+      leverages[symbol] = leverage;
+      localStorage.setItem(SYMBOL_LEVERAGES_STORAGE_KEY, JSON.stringify(leverages));
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
   // Helper to round value to nearest step size
   const roundToStep = (value: number, step: string): string => {
     const stepNum = parseFloat(step);
@@ -341,6 +370,12 @@ const TradingWindow = memo(function TradingWindow({
     const effectiveMax = Math.min(exchangeMaxLeverage, nextUserMax);
     if (parseInt(orderForm.leverage) > effectiveMax) {
       setOrderForm((prev) => ({ ...prev, leverage: String(effectiveMax) }));
+    }
+
+    // Also update stored leverage for current symbol if it exceeds new max
+    const storedLeverage = getStoredLeverageForSymbol(symbol);
+    if (storedLeverage !== null && storedLeverage > effectiveMax) {
+      setStoredLeverageForSymbol(symbol, effectiveMax);
     }
 
     const risk = (draftDefaultRiskPercent ?? "").trim();
@@ -387,12 +422,18 @@ const TradingWindow = memo(function TradingWindow({
   ]);
 
   // Helper to calculate decimals from price
-  const calculatePriceDecimals = (_price: number): number => {
-    if (!tickSize) return 2;
-    if (tickSize.includes(".")) {
-      return tickSize.split(".")[1].replace(/0+$/, "").length;
+  const calculatePriceDecimals = (price: number): number => {
+    if (tickSize) {
+      if (tickSize.includes(".")) {
+        return tickSize.split(".")[1].replace(/0+$/, "").length;
+      }
+      return 0;
     }
-    return 0;
+
+    // Fallback: infer decimals from the price itself
+    if (!Number.isFinite(price) || price <= 0) return 2;
+    const parts = price.toString().split(".");
+    return parts[1] ? Math.min(8, parts[1].length) : 0;
   };
 
   // Helper to manually sync price field to latest currentPrice (for Refresh button)
@@ -407,15 +448,59 @@ const TradingWindow = memo(function TradingWindow({
     }));
   };
 
+  // Initialize leverage when symbol changes or when we have the necessary data
+  useEffect(() => {
+    // Only sync leverage once per symbol session
+    if (hasSyncedLeverage.current) return;
+
+    // Need exchange max leverage to calculate effective max
+    if (!exchangeMaxLeverage) return;
+
+    // Calculate effective max leverage (min of exchange max and user max)
+    const effectiveMaxLeverage = Math.min(exchangeMaxLeverage, userMaxLeverage);
+
+    // Priority 1: Try to restore from per-symbol storage
+    try {
+      const stored = localStorage.getItem(SYMBOL_LEVERAGES_STORAGE_KEY);
+      if (stored) {
+        const leverages = JSON.parse(stored);
+        const storedLeverage = leverages[symbol];
+        if (storedLeverage != null) {
+          // Ensure stored leverage doesn't exceed current effective max
+          const safeLeverage = Math.min(storedLeverage, effectiveMaxLeverage);
+          setOrderForm(prev => ({
+            ...prev,
+            leverage: String(safeLeverage)
+          }));
+          hasSyncedLeverage.current = true;
+          return;
+        }
+      }
+    } catch {
+      // Fall through to default if storage read fails
+    }
+
+    // Priority 2: No stored leverage, default to effective max leverage
+    setOrderForm(prev => ({
+      ...prev,
+      leverage: String(effectiveMaxLeverage)
+    }));
+    hasSyncedLeverage.current = true;
+  }, [symbol, exchangeMaxLeverage, userMaxLeverage]);
+
   // Auto-calculate Stop Loss from saved risk % (as % of available balance)
   useEffect(() => {
-    if (hasUserEditedSL) return;
+    if (hasUserEditedSL) {
+      setSlAutoCalcWarning(null);
+      return;
+    }
     if (
       !defaultRiskPercent ||
       !orderForm.quantity ||
       !availableBalance
-    )
+    ) {
       return;
+    }
 
     const riskPercent = parseFloat(defaultRiskPercent);
     const qty = parseFloat(orderForm.quantity);
@@ -428,8 +513,9 @@ const TradingWindow = memo(function TradingWindow({
       isNaN(entryPrice) ||
       qty === 0 ||
       riskPercent <= 0
-    )
+    ) {
       return;
+    }
 
     // Calculate risk amount as percentage of available balance
     const riskAmount = (availableBalance * riskPercent) / 100;
@@ -456,7 +542,18 @@ const TradingWindow = memo(function TradingWindow({
           ...prev,
           stopLoss: roundedSL.toFixed(calculatePriceDecimals(entryPrice)),
         }));
+
+        // Sync slider percentage to match the auto-calculated SL price
+        const slPriceDiff = Math.abs(entryPrice - roundedSL);
+        const slPercentageValue = (slPriceDiff / entryPrice) * 100;
+        setSlPercentage(Math.min(20, Math.max(0.1, slPercentageValue)));
       }
+      setSlAutoCalcWarning(null);
+    } else {
+      // SL calculation resulted in invalid (negative or zero) price
+      setSlAutoCalcWarning(
+        `Auto SL not set: ${riskPercent}% risk with qty ${qty} exceeds price. Increase quantity or reduce risk %.`
+      );
     }
   }, [
     defaultRiskPercent,
@@ -511,6 +608,11 @@ const TradingWindow = memo(function TradingWindow({
           ...prev,
           takeProfit: roundedTP.toFixed(calculatePriceDecimals(entryPrice)),
         }));
+
+        // Sync slider percentage to match the auto-calculated TP price
+        const tpPriceDiff = Math.abs(roundedTP - entryPrice);
+        const tpPercentageValue = (tpPriceDiff / entryPrice) * 100;
+        setTpPercentage(Math.min(50, Math.max(0.1, tpPercentageValue)));
       }
     }
   }, [
@@ -523,6 +625,60 @@ const TradingWindow = memo(function TradingWindow({
     tickSize,
     hasUserEditedTP,
     availableBalance,
+  ]);
+
+  // Initialize SL/TP prices from slider percentages when in slider mode
+  // This runs independently of quantity/balance to show prices immediately on load
+  useEffect(() => {
+    if (!useSlTpSlider) return; // Only for slider mode
+
+    const entryPrice = orderForm.type === "LIMIT"
+      ? parseFloat(orderForm.price) || currentPrice
+      : currentPrice;
+
+    // Need valid entry price
+    if (!entryPrice || entryPrice <= 0) return;
+
+    const decimals = tickSize.includes(".")
+      ? tickSize.split(".")[1].replace(/0+$/, "").length
+      : 2;
+
+    // Initialize SL if empty and user hasn't manually edited
+    if (!hasUserEditedSL && !orderForm.stopLoss) {
+      const slPrice = orderForm.side === "BUY"
+        ? entryPrice * (1 - slPercentage / 100)
+        : entryPrice * (1 + slPercentage / 100);
+
+      setOrderForm((prev) => ({
+        ...prev,
+        stopLoss: slPrice.toFixed(decimals),
+      }));
+    }
+
+    // Initialize TP if empty and user hasn't manually edited
+    if (!hasUserEditedTP && !orderForm.takeProfit) {
+      const tpPrice = orderForm.side === "BUY"
+        ? entryPrice * (1 + tpPercentage / 100)
+        : entryPrice * (1 - tpPercentage / 100);
+
+      setOrderForm((prev) => ({
+        ...prev,
+        takeProfit: tpPrice.toFixed(decimals),
+      }));
+    }
+  }, [
+    useSlTpSlider,
+    currentPrice,
+    orderForm.type,
+    orderForm.price,
+    orderForm.side,
+    orderForm.stopLoss,
+    orderForm.takeProfit,
+    slPercentage,
+    tpPercentage,
+    tickSize,
+    hasUserEditedSL,
+    hasUserEditedTP,
   ]);
 
   // NOTE: fetchAccountAndPositionDetails and fetchOpenOrders removed.
@@ -578,14 +734,21 @@ const TradingWindow = memo(function TradingWindow({
     if (field === "price") {
       setHasUserEditedPrice(true);
     }
+    if (field === "leverage" && typeof value === "string") {
+      // Persist leverage changes for this symbol
+      const leverageValue = parseInt(value, 10);
+      if (!isNaN(leverageValue) && leverageValue > 0) {
+        setStoredLeverageForSymbol(symbol, leverageValue);
+      }
+    }
     setError(null);
     setSuccess(null);
   };
 
-  const handleOrderBookPriceSelect = (price: string) => {
+  const handleOrderBookPriceSelect = useCallback((price: string) => {
     handleInputChange("price", price);
     setOrderBookPrice(price);
-  };
+  }, []);
 
   const handleSliderChange = (value: number[]) => {
     // Increment change count to detect drag vs click
@@ -632,6 +795,67 @@ const TradingWindow = memo(function TradingWindow({
       }
     }
   };
+
+  // Debounced SL slider handler - updates SL price based on percentage
+  const handleSlSliderChange = useDebouncedCallback((value: number[]) => {
+    // Apply exponential scaling if enabled: y = 20 * (x/100)^2
+    // This gives more precision at lower values (0-5% range)
+    let pct = isExponentialSlider
+      ? 20 * Math.pow(value[0] / 100, 2)
+      : value[0] * 0.2; // Linear: 0-100 maps to 0-20%
+
+    // Clamp to reasonable range
+    pct = Math.max(0.1, Math.min(20, pct));
+    setSlPercentage(pct);
+    setHasUserEditedSL(true);
+
+    // Calculate SL price based on side
+    const entryPrice = orderForm.type === "LIMIT"
+      ? parseFloat(orderForm.price) || currentPrice
+      : currentPrice;
+    let slPrice: number;
+    if (orderForm.side === "BUY") {
+      slPrice = entryPrice * (1 - pct / 100);
+    } else {
+      slPrice = entryPrice * (1 + pct / 100);
+    }
+    const decimals = tickSize.includes(".")
+      ? tickSize.split(".")[1].replace(/0+$/, "").length
+      : 2;
+    handleInputChange("stopLoss", slPrice.toFixed(decimals));
+  }, 50); // 50ms debounce for responsive feel
+
+  // Debounced TP slider handler - updates TP price based on percentage
+  const handleTpSliderChange = useDebouncedCallback((value: number[]) => {
+    // Apply exponential scaling if enabled: y = 50 * (x/100)^2
+    // This gives more precision at lower values (0-10% range)
+    let pct = isExponentialSlider
+      ? 50 * Math.pow(value[0] / 100, 2)
+      : value[0] * 0.5; // Linear: 0-100 maps to 0-50%
+
+    pct = Math.max(0.1, Math.min(50, pct));
+    setTpPercentage(pct);
+    setHasUserEditedTP(true);
+
+    const entryPrice = orderForm.type === "LIMIT"
+      ? parseFloat(orderForm.price) || currentPrice
+      : currentPrice;
+    let tpPrice: number;
+    if (orderForm.side === "BUY") {
+      tpPrice = entryPrice * (1 + pct / 100);
+    } else {
+      tpPrice = entryPrice * (1 - pct / 100);
+    }
+    const decimals = tickSize.includes(".")
+      ? tickSize.split(".")[1].replace(/0+$/, "").length
+      : 2;
+    handleInputChange("takeProfit", tpPrice.toFixed(decimals));
+  }, 50); // 50ms debounce for responsive feel
+
+  // Memoized callback for OrderBookPrice applied
+  const handleOrderBookPriceApplied = useCallback(() => {
+    setOrderBookPrice(null);
+  }, []);
 
   const calculateOrderValue = () => {
     const qty = parseFloat(orderForm.quantity) || 0;
@@ -757,21 +981,70 @@ const TradingWindow = memo(function TradingWindow({
   ]);
 
   const setQuickQuantity = (percentage: number) => {
-    if (availableBalance > 0 && currentPrice > 0) {
-      const leverage = parseFloat(orderForm.leverage) || 1;
+    const limitPrice = parseFloat(orderForm.price);
+    const referencePrice =
+      orderForm.type === "LIMIT" && Number.isFinite(limitPrice) && limitPrice > 0
+        ? limitPrice
+        : currentPrice;
+
+    // If we don't have a valid price yet (common on fresh page load), don't compute
+    // a quantity that would become Infinity/NaN.
+    if (!Number.isFinite(referencePrice) || referencePrice <= 0) return;
+
+    const leverage = parseFloat(orderForm.leverage) || 1;
+
+    if (availableBalance > 0) {
       const maxPositionValue = availableBalance * leverage;
-      const rawQuantity =
-        (maxPositionValue / currentPrice) * (percentage / 100);
+      const rawQuantity = (maxPositionValue / referencePrice) * (percentage / 100);
       const quantity = roundToStep(rawQuantity, stepSize);
       handleInputChange("quantity", quantity);
-    } else {
-      // Fallback if balance not available
-      const baseAmount = 1000;
-      const rawQuantity = (baseAmount / currentPrice) * (percentage / 100);
-      const quantity = roundToStep(rawQuantity, stepSize);
-      handleInputChange("quantity", quantity);
+      return;
     }
+
+    // Fallback if balance not available
+    const baseAmount = 1000;
+    const rawQuantity = (baseAmount * leverage / referencePrice) * (percentage / 100);
+    const quantity = roundToStep(rawQuantity, stepSize);
+    handleInputChange("quantity", quantity);
   };
+
+  // Fresh page load can momentarily have currentPrice=0; if the user sets position size
+  // during that window, quantity can become invalid. Once price arrives, recover by
+  // recalculating quantity for the chosen position size.
+  useEffect(() => {
+    if (positionSizePercentage <= 0) return;
+
+    const qty = parseFloat(orderForm.quantity);
+    if (Number.isFinite(qty) && qty > 0) return;
+
+    const limitPrice = parseFloat(orderForm.price);
+    const referencePrice =
+      orderForm.type === "LIMIT" && Number.isFinite(limitPrice) && limitPrice > 0
+        ? limitPrice
+        : currentPrice;
+
+    if (!Number.isFinite(referencePrice) || referencePrice <= 0) return;
+
+    const leverage = parseFloat(orderForm.leverage) || 1;
+    const maxPositionValue =
+      availableBalance > 0 ? availableBalance * leverage : 1000 * leverage;
+    const rawQuantity = (maxPositionValue / referencePrice) * (positionSizePercentage / 100);
+    const nextQuantity = roundToStep(rawQuantity, stepSize);
+
+    setOrderForm((prev) => {
+      if (prev.quantity === nextQuantity) return prev;
+      return { ...prev, quantity: nextQuantity };
+    });
+  }, [
+    positionSizePercentage,
+    orderForm.quantity,
+    orderForm.leverage,
+    orderForm.type,
+    orderForm.price,
+    availableBalance,
+    currentPrice,
+    stepSize,
+  ]);
 
   const submitOrder = async () => {
     if (!orderForm.accountId) {
@@ -840,6 +1113,13 @@ const TradingWindow = memo(function TradingWindow({
       }
 
       setSuccess(successMessage);
+
+      // Persist the leverage used for this order
+      const usedLeverage = parseFloat(orderForm.leverage);
+      if (!isNaN(usedLeverage) && usedLeverage > 0) {
+        setStoredLeverageForSymbol(symbol, usedLeverage);
+      }
+
       onOrderPlaced();
       setOrderRefreshTrigger((prev) => prev + 1); // Trigger refresh of positions/orders tabs
       // Refresh open orders and position data to update chart lines
@@ -901,7 +1181,6 @@ const TradingWindow = memo(function TradingWindow({
       }
 
     } catch (err: any) {
-      // eslint-disable-next-line no-console -- surfaced during order error handling
       console.error("Order placement error:", err);
       const errorData = err.response?.data;
       setError(errorData?.error || "Failed to place order");
@@ -1363,37 +1642,11 @@ const TradingWindow = memo(function TradingWindow({
                       <Slider
                         value={[isExponentialSlider
                           ? Math.sqrt(slPercentage / 20) * 100  // Reverse exponential for display
-                          : slPercentage]}
+                          : slPercentage * 5]} // Linear: 0-20% maps to 0-100
                         min={0}
                         max={100}
                         step={0.5}
-                        onValueChange={(value) => {
-                          // Apply exponential scaling if enabled: y = 20 * (x/100)^2
-                          // This gives more precision at lower values (0-5% range)
-                          let pct = isExponentialSlider
-                            ? 20 * Math.pow(value[0] / 100, 2)
-                            : value[0] * 0.2; // Linear: 0-100 maps to 0-20%
-
-                          // Clamp to reasonable range
-                          pct = Math.max(0.1, Math.min(20, pct));
-                          setSlPercentage(pct);
-                          setHasUserEditedSL(true);
-
-                          // Calculate SL price based on side
-                          const entryPrice = orderForm.type === "LIMIT"
-                            ? parseFloat(orderForm.price) || currentPrice
-                            : currentPrice;
-                          let slPrice: number;
-                          if (orderForm.side === "BUY") {
-                            slPrice = entryPrice * (1 - pct / 100);
-                          } else {
-                            slPrice = entryPrice * (1 + pct / 100);
-                          }
-                          const decimals = tickSize.includes(".")
-                            ? tickSize.split(".")[1].replace(/0+$/, "").length
-                            : 2;
-                          handleInputChange("stopLoss", slPrice.toFixed(decimals));
-                        }}
+                        onValueChange={handleSlSliderChange}
                         className="flex-1"
                       />
                       <span className="text-xs font-medium w-14 text-right text-orange-500">
@@ -1433,6 +1686,12 @@ const TradingWindow = memo(function TradingWindow({
                     {calculateRiskedAmount.percentage.toFixed(1)}%)
                   </div>
                 )}
+                {slAutoCalcWarning && (
+                  <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 mt-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    <span>{slAutoCalcWarning}</span>
+                  </div>
+                )}
               </div>
 
               {/* Take Profit */}
@@ -1448,33 +1707,7 @@ const TradingWindow = memo(function TradingWindow({
                         min={0}
                         max={100}
                         step={0.5}
-                        onValueChange={(value) => {
-                          // Apply exponential scaling if enabled: y = 50 * (x/100)^2
-                          // This gives more precision at lower values (0-10% range)
-                          let pct = isExponentialSlider
-                            ? 50 * Math.pow(value[0] / 100, 2)
-                            : value[0] * 0.5; // Linear: 0-100 maps to 0-50%
-
-                          // Clamp to reasonable range
-                          pct = Math.max(0.1, Math.min(50, pct));
-                          setTpPercentage(pct);
-                          setHasUserEditedTP(true);
-
-                          // Calculate TP price based on side
-                          const entryPrice = orderForm.type === "LIMIT"
-                            ? parseFloat(orderForm.price) || currentPrice
-                            : currentPrice;
-                          let tpPrice: number;
-                          if (orderForm.side === "BUY") {
-                            tpPrice = entryPrice * (1 + pct / 100);
-                          } else {
-                            tpPrice = entryPrice * (1 - pct / 100);
-                          }
-                          const decimals = tickSize.includes(".")
-                            ? tickSize.split(".")[1].replace(/0+$/, "").length
-                            : 2;
-                          handleInputChange("takeProfit", tpPrice.toFixed(decimals));
-                        }}
+                        onValueChange={handleTpSliderChange}
                         className="flex-1"
                       />
                       <span className="text-xs font-medium w-14 text-right text-blue-500">
@@ -1989,7 +2222,7 @@ const TradingWindow = memo(function TradingWindow({
           symbol={symbol}
           refreshTrigger={orderRefreshTrigger}
           orderBookPrice={orderBookPrice}
-          onOrderBookPriceApplied={() => setOrderBookPrice(null)}
+          onOrderBookPriceApplied={handleOrderBookPriceApplied}
           onSymbolSelect={onSymbolSelect}
         />
       </div>

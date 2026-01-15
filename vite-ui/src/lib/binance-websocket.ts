@@ -32,7 +32,7 @@ class BinanceWebSocketService {
   private callbacks: Map<string, SubscriptionCallback[]> = new Map();
   private segment: TradingSegment = "spot";
   private isConnecting = false;
-  private pingInterval: number | null = null;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
   private intentionalDisconnect = false;
 
   // WebSocket URLs according to Binance documentation
