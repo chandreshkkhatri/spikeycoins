@@ -171,6 +171,12 @@ class CandlestickStorage {
    * Get candlesticks from cache or database
    */
   private static async getCandlesticks(symbol: string): Promise<Candlestick[]> {
+    // Ensure DB connection is ready before querying
+    if (!this.isInitialized || !DatabaseConnection.isConnectionReady()) {
+      // Return empty array if not ready (will be fetched later)
+      return [];
+    }
+
     // Check cache first
     const cacheTime = this.cacheTimestamps.get(symbol);
     if (cacheTime && Date.now() - cacheTime < this.CACHE_TTL) {
