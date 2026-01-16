@@ -1,18 +1,113 @@
 "use client";
 
+import AccountCard, { AccountCardAccount } from "@/components/accounts/AccountCard";
 import EnhancedCard from "@/components/enhanced-card";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useAccount } from "@/contexts/account-context";
 import { useAuth } from "@/contexts/auth-context";
+import { useState } from "react";
 
 export default function AccountsPage() {
-  const { accounts: contextAccounts, loadingAccounts, error } = useAccount();
+  const { accounts: contextAccounts, loadingAccounts, error, fetchAccounts } = useAccount();
   const { isLoggedIn, user } = useAuth();
+  const [isAddingAccount, setIsAddingAccount] = useState(false);
 
   const accounts = contextAccounts;
   const loading = loadingAccounts;
   const userId = user?._id;
+
+  const handleEdit = (account: AccountCardAccount) => {
+    // TODO: Implement edit modal
+    console.log("Edit account:", account);
+    alert(`Edit account: ${account.accountName} (Not yet implemented)`);
+  };
+
+  const handleDelete = async (accountId: string) => {
+    if (!confirm("Are you sure you want to delete this account?")) return;
+
+    try {
+      const response = await fetch(`/api/accounts/${accountId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        fetchAccounts();
+      } else {
+        const data = await response.json();
+        alert(`Failed to delete account: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error("Delete error:", err);
+      alert("Failed to delete account");
+    }
+  };
+
+  const handleAuth = async (accountId: string) => {
+    const account = accounts.find((a) => a._id === accountId);
+    if (!account) return;
+
+    if (account.accountType === "binance") {
+      // For Binance, validate API keys
+      try {
+        const response = await fetch(`/api/auth/binance/validate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accountId }),
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          alert("API credentials validated successfully!");
+          fetchAccounts();
+        } else {
+          alert(`Validation failed: ${data.error}`);
+        }
+      } catch (err) {
+        console.error("Validation error:", err);
+        alert("Failed to validate API credentials");
+      }
+    } else if (account.accountType === "upstox") {
+      // For Upstox, redirect to OAuth
+      if (account.metadata?.sandbox) {
+        // For sandbox, prompt for manual token
+        const token = prompt("Enter your Upstox sandbox access token:");
+        if (token) {
+          try {
+            const response = await fetch(`/api/auth/upstox/sandbox-token`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ accountId, accessToken: token }),
+            });
+
+            const data = await response.json();
+            if (data.success) {
+              alert("Token saved successfully!");
+              fetchAccounts();
+            } else {
+              alert(`Failed to save token: ${data.error}`);
+            }
+          } catch (err) {
+            console.error("Token save error:", err);
+            alert("Failed to save token");
+          }
+        }
+      } else {
+        // Redirect to Upstox OAuth
+        window.location.href = `/api/auth/upstox/login?accountId=${accountId}`;
+      }
+    } else if (account.accountType === "kite") {
+      // Redirect to Kite OAuth
+      window.location.href = `/api/auth/kite/login?accountId=${accountId}`;
+    }
+  };
+
+  const handleAddAccount = () => {
+    setIsAddingAccount(true);
+    // TODO: Implement add account modal
+    alert("Add account modal not yet implemented");
+    setIsAddingAccount(false);
+  };
 
   if (loading) {
     return <LoadingSpinner message="Loading accounts..." />;
@@ -25,13 +120,19 @@ export default function AccountsPage() {
         <EnhancedCard>
           <div style={{ textAlign: "center", padding: "60px 20px" }}>
             <div style={{ fontSize: "4rem", marginBottom: "20px" }}>🔐</div>
-            <h3 style={{ fontSize: "1.5rem", fontWeight: 600, margin: "0 0 12px 0" }}>
+            <h3
+              style={{ fontSize: "1.5rem", fontWeight: 600, margin: "0 0 12px 0" }}
+            >
               Login Required
             </h3>
             <p style={{ fontSize: "1rem", color: "#666", margin: "0 0 24px 0" }}>
               Please log in to view and manage your trading accounts.
             </p>
-            <Button onClick={() => window.location.href = "/login"} variant="trading" size="lg">
+            <Button
+              onClick={() => (window.location.href = "/login")}
+              variant="default"
+              size="lg"
+            >
               Go to Login
             </Button>
           </div>
@@ -60,7 +161,12 @@ export default function AccountsPage() {
             Manage your connected trading accounts and credentials
           </p>
         </div>
-        <Button variant="trading" size="lg">
+        <Button
+          variant="default"
+          size="lg"
+          onClick={handleAddAccount}
+          disabled={isAddingAccount}
+        >
           + Add Account
         </Button>
       </div>
@@ -99,7 +205,12 @@ export default function AccountsPage() {
               Connect your first trading account to start managing your
               portfolio across multiple brokers.
             </p>
-            <Button variant="success" size="lg">
+            <Button
+              variant="default"
+              size="lg"
+              onClick={handleAddAccount}
+              disabled={isAddingAccount}
+            >
               Add Your First Account
             </Button>
           </div>
@@ -114,25 +225,13 @@ export default function AccountsPage() {
           }}
         >
           {accounts.map((account, index) => (
-            <EnhancedCard key={account._id || `account-${index}`} hoverable>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="text-2xl">
-                  {account.accountType === "binance" ? "🟡" :
-                    account.accountType === "kite" ? "🟠" :
-                      account.accountType === "upstox" ? "🔵" : "🔗"}
-                </div>
-                <div>
-                  <h3 className="font-bold">{account.accountName}</h3>
-                  <p className="text-sm text-muted-foreground capitalize">{account.accountType}</p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm">Edit</Button>
-                <Button variant="outline" size="sm">
-                  {account.accessToken ? "Reconnect" : "Connect"}
-                </Button>
-              </div>
-            </EnhancedCard>
+            <AccountCard
+              key={account._id || `account-${index}`}
+              account={account}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onAuth={handleAuth}
+            />
           ))}
         </div>
       )}

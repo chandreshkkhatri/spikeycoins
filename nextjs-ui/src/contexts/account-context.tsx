@@ -19,6 +19,18 @@ interface TradingAccount {
   accountType: 'binance' | 'kite' | 'upstox';
   isActive: boolean;
   accessToken?: string;
+  apiKey?: string;
+  apiSecret?: string;
+  lastSyncAt?: string | Date;
+  metadata?: {
+    clientId?: string;
+    redirectUri?: string;
+    scope?: string;
+    testnet?: boolean;
+    sandbox?: boolean;
+    tradingSegment?: 'spot' | 'usdm';
+    [key: string]: unknown;
+  };
 }
 
 interface AccountContextType {
