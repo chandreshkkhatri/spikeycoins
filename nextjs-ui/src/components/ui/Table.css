@@ -8,7 +8,7 @@
   font-size: 0.9rem;
 }
 
-:global(.dark) .empty-state {
+.dark .empty-state {
   background: #2d3748;
   color: #a0aec0;
   border-color: #4a5568;
@@ -43,7 +43,7 @@
   text-transform: uppercase;
 }
 
-:global(.dark) .responsive-table th {
+.dark .responsive-table th {
   background: var(--surface-200);
   color: var(--foreground);
 }
@@ -54,7 +54,7 @@
   vertical-align: middle;
 }
 
-:global(.dark) .responsive-table td {
+.dark .responsive-table td {
   border-bottom-color: var(--surface-200);
 }
 
@@ -66,7 +66,7 @@
   background: var(--surface-100);
 }
 
-:global(.dark) .table-row:hover {
+.dark .table-row:hover {
   background: var(--surface-200);
 }
 
