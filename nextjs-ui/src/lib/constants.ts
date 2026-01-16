@@ -48,7 +48,13 @@ const API_ROUTES = {
 } as const;
 
 const API_CONFIG = {
-  baseURL: process.env.NEXT_PUBLIC_API_URL || '',
+  // Prefer relative URLs so Next.js rewrites can proxy to the backend.
+  // Only use NEXT_PUBLIC_API_URL when it points to a non-local backend.
+  baseURL: (() => {
+    const envUrl = (process.env.NEXT_PUBLIC_API_URL || '').trim();
+    const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(envUrl);
+    return envUrl && !isLocalhost ? envUrl : '';
+  })(),
   // clientURL is only available on client-side
   get clientURL() {
     if (typeof window !== 'undefined') {

@@ -2,8 +2,12 @@
 
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
-// API Base URL - use env var in production, empty string for development (uses Next.js rewrites)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
+// API Base URL
+// Prefer relative URLs ("/api") so Next.js can proxy via rewrites.
+// Only use NEXT_PUBLIC_API_URL when it points to a non-local backend.
+const ENV_API_URL = (process.env.NEXT_PUBLIC_API_URL || '').trim();
+const IS_LOCALHOST_URL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(ENV_API_URL);
+const API_BASE_URL = ENV_API_URL && !IS_LOCALHOST_URL ? ENV_API_URL : '';
 
 // Storage keys (must match auth-context.tsx)
 const ACCESS_TOKEN_KEY = "openMandi_accessToken";
