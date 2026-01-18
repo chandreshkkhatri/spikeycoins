@@ -260,6 +260,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (inviteCode) {
       url.searchParams.set("invite", inviteCode);
     }
+    // Pass current origin so the server redirects back to this client
+    url.searchParams.set("redirect", window.location.origin);
     window.location.href = url.toString();
   }, []);
 
