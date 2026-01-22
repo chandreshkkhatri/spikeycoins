@@ -1,26 +1,30 @@
 "use client";
 
 import AccountCard, { AccountCardAccount } from "@/components/accounts/AccountCard";
+import AddAccountModal from "@/components/accounts/AddAccountModal";
+import EditAccountModal from "@/components/accounts/EditAccountModal";
 import EnhancedCard from "@/components/enhanced-card";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { useAccount } from "@/contexts/account-context";
 import { useAuth } from "@/contexts/auth-context";
+import { IAccount } from "@/models/account";
 import { useState } from "react";
 
 export default function AccountsPage() {
   const { accounts: contextAccounts, loadingAccounts, error, fetchAccounts } = useAccount();
   const { isLoggedIn, user } = useAuth();
-  const [isAddingAccount, setIsAddingAccount] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<IAccount | null>(null);
 
   const accounts = contextAccounts;
   const loading = loadingAccounts;
   const userId = user?._id;
 
   const handleEdit = (account: AccountCardAccount) => {
-    // TODO: Implement edit modal
-    console.log("Edit account:", account);
-    alert(`Edit account: ${account.accountName} (Not yet implemented)`);
+    setEditingAccount(account as IAccount);
+    setIsEditModalOpen(true);
   };
 
   const handleDelete = async (accountId: string) => {
@@ -103,10 +107,63 @@ export default function AccountsPage() {
   };
 
   const handleAddAccount = () => {
-    setIsAddingAccount(true);
-    // TODO: Implement add account modal
-    alert("Add account modal not yet implemented");
-    setIsAddingAccount(false);
+    setIsAddModalOpen(true);
+  };
+
+  const handleAddAccountSubmit = async (accountData: {
+    accountType: "kite" | "upstox" | "binance";
+    accountName: string;
+    apiKey: string;
+    apiSecret: string;
+    redirectUri?: string;
+    tradingSegment?: "spot" | "usdm";
+  }) => {
+    try {
+      const response = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...accountData,
+          userId: user?._id,
+          metadata: {
+            sandbox: accountData.redirectUri === "sandbox",
+            testnet: accountData.redirectUri === "testnet",
+            tradingSegment: accountData.tradingSegment,
+          },
+        }),
+      });
+
+      if (response.ok) {
+        fetchAccounts();
+        setIsAddModalOpen(false);
+      } else {
+        const data = await response.json();
+        alert(`Failed to add account: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error("Add account error:", err);
+      alert("Failed to add account");
+    }
+  };
+
+  const handleEditAccountSave = async (accountId: string, updates: Partial<IAccount>) => {
+    try {
+      const response = await fetch(`/api/accounts/${accountId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+
+      if (response.ok) {
+        fetchAccounts();
+      } else {
+        const data = await response.json();
+        alert(`Failed to update account: ${data.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error("Update account error:", err);
+      alert("Failed to update account");
+    }
   };
 
   if (loading) {
@@ -165,7 +222,6 @@ export default function AccountsPage() {
           variant="default"
           size="lg"
           onClick={handleAddAccount}
-          disabled={isAddingAccount}
         >
           + Add Account
         </Button>
@@ -209,7 +265,6 @@ export default function AccountsPage() {
               variant="default"
               size="lg"
               onClick={handleAddAccount}
-              disabled={isAddingAccount}
             >
               Add Your First Account
             </Button>
@@ -318,6 +373,24 @@ export default function AccountsPage() {
           </EnhancedCard>
         </div>
       )}
+
+      {/* Add Account Modal */}
+      <AddAccountModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSubmit={handleAddAccountSubmit}
+      />
+
+      {/* Edit Account Modal */}
+      <EditAccountModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingAccount(null);
+        }}
+        account={editingAccount}
+        onSave={handleEditAccountSave}
+      />
     </div>
   );
 }
