@@ -12,6 +12,11 @@ const cryptoClient = axios.create({
 });
 
 export const cryptoApi = {
+  async getTickers() {
+    const response = await cryptoClient.get("/api/ticker/24hr");
+    return response;
+  },
+
   async get24hrTicker() {
     const response = await cryptoClient.get("/api/ticker/24hr");
     return response;

@@ -48,6 +48,9 @@ import binancePriceService from "./lib/binance-price-service";
 // Import order monitor for auto-cancelling SL/TP
 import binanceOrderMonitor from "./lib/binance-order-monitor";
 
+// Import cron jobs
+import { startResearchCron } from "./jobs/researchCron";
+
 const app: Application = express();
 const PORT = process.env.PORT || 8000;
 
@@ -198,9 +201,15 @@ app.listen(PORT, () => {
 
   // Start crypto services (Binance WebSocket, Market Overview, etc.)
   console.log("📡 Starting crypto services...");
-  initializeCryptoServices().catch((err) => {
-    console.error("Failed to start crypto services:", err);
-  });
+  initializeCryptoServices()
+    .then(() => {
+      // Start research cron job after crypto services are ready
+      console.log("📅 Starting research cron job...");
+      startResearchCron();
+    })
+    .catch((err) => {
+      console.error("Failed to start crypto services:", err);
+    });
 
   // Register market providers
   console.log("📡 Registering market providers...");

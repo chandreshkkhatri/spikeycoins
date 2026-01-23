@@ -4,6 +4,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PAGE_ROUTES } from "@/lib/constants";
 import { BarChart2 } from "lucide-react";
+import MarketOverview from "@/components/crypto/MarketOverview";
+import MarketSummary from "@/components/crypto/MarketSummary";
+import GainersLosers from "@/components/crypto/GainersLosers";
 
 export default function CryptoHomePage() {
   return (
@@ -23,29 +26,14 @@ export default function CryptoHomePage() {
         </Link>
       </div>
 
-      {/* Market Overview Placeholder */}
-      <div className="rounded-lg border border-dashed p-8 bg-muted/20 text-center">
-        <p className="text-muted-foreground">
-          MarketOverview component will be migrated here.
-        </p>
-      </div>
+      <MarketOverview />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          {/* Market Summary Placeholder */}
-          <div className="rounded-lg border border-dashed p-8 bg-muted/20 text-center h-64">
-            <p className="text-muted-foreground">
-              MarketSummary component will be migrated here.
-            </p>
-          </div>
+          <MarketSummary />
         </div>
         <div>
-          {/* Gainers/Losers Placeholder */}
-          <div className="rounded-lg border border-dashed p-8 bg-muted/20 text-center h-64">
-            <p className="text-muted-foreground">
-              GainersLosers component will be migrated here.
-            </p>
-          </div>
+          <GainersLosers />
         </div>
       </div>
     </div>

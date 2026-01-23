@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   createColumnHelper,
   flexRender,
@@ -15,7 +15,9 @@ import {
 } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ChevronUp, ChevronDown, Search, RefreshCw, ArrowUpDown } from "lucide-react";
+import { cryptoApi } from "@/lib/crypto-api";
 
 export interface TickerData {
   s: string;
@@ -32,15 +34,6 @@ export interface TickerData {
   volume_base: number;
   market_cap?: number | null;
   normalized_volume_score: number;
-}
-
-interface TickerProps {
-  tickerArray: TickerData[];
-  loading: boolean;
-  error: string | null;
-  searchQuery?: string;
-  sorting?: SortingState;
-  onSortingChange?: React.Dispatch<React.SetStateAction<SortingState>>;
 }
 
 const columnHelper = createColumnHelper<TickerData>();
@@ -96,14 +89,30 @@ const formatPrice = (value: number | undefined | null): string => {
   return price.toFixed(8);
 };
 
-export default function Ticker({
-  tickerArray,
-  loading,
-  error,
-  searchQuery = "",
-  sorting: externalSorting,
-  onSortingChange: externalOnSortingChange,
-}: TickerProps) {
+export default function Ticker() {
+  const [tickerArray, setTickerArray] = useState<TickerData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const fetchTickers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await cryptoApi.getTickers();
+      const data = response.data?.data || response.data || [];
+      setTickerArray(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Error fetching tickers:", err);
+      setError("Failed to load market data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTickers();
+  }, []);
   const columns = useMemo(
     () => [
       columnHelper.accessor("s", {
@@ -201,12 +210,13 @@ export default function Ticker({
     []
   );
 
-  const [internalSorting, setInternalSorting] = useState<SortingState>([
+  const [sorting, setSorting] = useState<SortingState>([
     { id: "change_24h", desc: true },
   ]);
 
-  const sorting = externalSorting || internalSorting;
-  const onSortingChange = externalOnSortingChange || setInternalSorting;
+  const resetSort = () => {
+    setSorting([{ id: "change_24h", desc: true }]);
+  };
 
   const customGlobalFilterFn: FilterFn<TickerData> = React.useCallback(
     (row, columnId, filterValue) => {
@@ -229,7 +239,7 @@ export default function Ticker({
       sorting,
       globalFilter: searchQuery,
     },
-    onSortingChange,
+    onSortingChange: setSorting,
     globalFilterFn: customGlobalFilterFn,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -269,7 +279,42 @@ export default function Ticker({
   }
 
   return (
-    <div className="bg-card rounded-lg">
+    <div className="bg-card rounded-lg space-y-4">
+      {/* Controls */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="text-sm text-muted-foreground">
+          {tickerArray.length} USDT trading pairs available
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search pairs..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 w-64"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            title="Reset Sort"
+            onClick={resetSort}
+          >
+            <ArrowUpDown className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            onClick={fetchTickers}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            {loading ? "Loading..." : "Refresh"}
+          </Button>
+        </div>
+      </div>
+
       <div className="overflow-x-auto border border-border rounded-lg">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
