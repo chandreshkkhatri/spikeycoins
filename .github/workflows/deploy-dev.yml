@@ -24,7 +24,7 @@ jobs:
             source ~/.bashrc || true
 
             echo "📦 Pulling latest code..."
-            cd ~/code/openmandi/web-server
+            cd ~/openmandi/web-server
             git pull origin development
 
             echo "📦 Installing dependencies..."
