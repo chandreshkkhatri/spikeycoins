@@ -136,6 +136,61 @@ adminRouter.patch('/users/:userId/role', requireAuth, requireAdmin, async (req: 
 });
 
 /**
+ * POST /api/admin/run-research
+ * Manually trigger the automated research job
+ */
+adminRouter.post('/run-research', requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const { runResearchNow, isResearchRunning } = await import('../jobs/researchCron');
+
+    if (isResearchRunning()) {
+      res.status(409).json({
+        success: false,
+        message: 'Research job is already running',
+      });
+      return;
+    }
+
+    // Run async - don't wait for completion
+    runResearchNow().then((result) => {
+      console.log('[Admin] Research job result:', result);
+    });
+
+    res.json({
+      success: true,
+      message: 'Research job started. Check /api/summaries for results.',
+    });
+  } catch (error) {
+    console.error('Admin: Error triggering research:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to trigger research job',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * GET /api/admin/research-status
+ * Check if research job is currently running
+ */
+adminRouter.get('/research-status', requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const { isResearchRunning } = await import('../jobs/researchCron');
+
+    res.json({
+      success: true,
+      isRunning: isResearchRunning(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check research status',
+    });
+  }
+});
+
+/**
  * GET /api/admin/system
  * Get system status with detailed memory and service stats (admin only)
  */
