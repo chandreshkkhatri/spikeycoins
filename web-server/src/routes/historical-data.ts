@@ -158,9 +158,42 @@ router.get("/", async (req: Request, res: Response) => {
         volume: c.volume,
       }));
 
-      // If we have cached data and it seems complete, return it
-      // (Simple heuristic: if we have candles, return them - Binance will be fetched for gaps later)
-      if (cachedCandles.length > 0) {
+      // Helper to parse interval to milliseconds for gap detection
+      const parseIntervalMs = (int: string): number => {
+        const match = int.match(/^(\d+)([mhHdwM])$/);
+        if (!match) return 0;
+        const val = parseInt(match[1], 10);
+        const unit = match[2];
+        switch (unit) {
+          case "m": return val * 60 * 1000;
+          case "h":
+          case "H": return val * 60 * 60 * 1000;
+          case "d": return val * 24 * 60 * 60 * 1000;
+          case "w": return val * 7 * 24 * 60 * 60 * 1000;
+          case "M": return val * 30 * 24 * 60 * 60 * 1000;
+          default: return 0;
+        }
+      };
+
+      // Check for gaps in cached data
+      const hasGaps = (candles: any[], intervalMs: number): boolean => {
+        if (candles.length < 2 || intervalMs === 0) return false;
+        // Allow 10% tolerance for interval variations
+        const maxAllowedGap = intervalMs * 1.5;
+        for (let i = 1; i < candles.length; i++) {
+          const gap = candles[i].timestamp - candles[i - 1].timestamp;
+          if (gap > maxAllowedGap) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const intervalMs = parseIntervalMs(binanceInterval);
+      const cacheHasGaps = hasGaps(cachedCandles, intervalMs);
+
+      // If we have cached data and it seems complete (no gaps), return it
+      if (cachedCandles.length > 0 && !cacheHasGaps) {
         // Check if we need to fetch more recent data (endTime is close to now)
         const latestCachedTime =
           cachedCandles[cachedCandles.length - 1].timestamp;
@@ -328,6 +361,13 @@ router.get("/", async (req: Request, res: Response) => {
         (toDate as string) || new Date().toISOString(),
         false,
       );
+
+      // Return Kite response
+      return res.json({
+        success: true,
+        data: historicalData,
+        accountType: account.accountType,
+      });
     } else if (account.accountType === "upstox") {
       // Resolve instrumentToken from symbol if not provided
       let resolvedInstrumentToken = instrumentToken as string | undefined;
@@ -415,39 +455,57 @@ router.get("/", async (req: Request, res: Response) => {
       }
 
       // Map common interval formats to Upstox accepted intervals
-      // Upstox accepts: 1minute, 30minute, day, week, month
+      // Upstox only supports: 1minute, 30minute, day, week, month
+      // Strategy: Use the closest LOWER interval to avoid data loss
+      // Note: Frontend may receive more granular data than requested
       const intervalStr = (interval as string).toLowerCase();
       let upstoxInterval: string;
+      let intervalMismatch = false;
 
-      if (
-        intervalStr === "1m" ||
-        intervalStr === "5m" ||
-        intervalStr === "1minute"
-      ) {
+      if (intervalStr === "1m" || intervalStr === "1minute") {
         upstoxInterval = "1minute";
       } else if (
-        intervalStr === "15m" ||
-        intervalStr === "30m" ||
-        intervalStr === "30minute"
+        intervalStr === "5m" ||
+        intervalStr === "15m"
       ) {
+        // Use 1minute for sub-30m intervals (more granular than requested)
+        upstoxInterval = "1minute";
+        intervalMismatch = true;
+      } else if (intervalStr === "30m" || intervalStr === "30minute") {
         upstoxInterval = "30minute";
       } else if (
         intervalStr === "1h" ||
-        intervalStr === "4h" ||
+        intervalStr === "2h" ||
         intervalStr === "60m"
       ) {
-        upstoxInterval = "30minute"; // closest available
+        // Use 30minute for hourly intervals (closest lower interval)
+        upstoxInterval = "30minute";
+        intervalMismatch = true;
+      } else if (
+        intervalStr === "4h" ||
+        intervalStr === "6h" ||
+        intervalStr === "8h" ||
+        intervalStr === "12h"
+      ) {
+        // For multi-hour intervals, day is often more practical than many 30m candles
+        // but 30minute gives more precision - use day for 4h+ as compromise
+        upstoxInterval = "day";
+        intervalMismatch = true;
       } else if (intervalStr === "1d" || intervalStr === "day") {
         upstoxInterval = "day";
+      } else if (intervalStr === "3d") {
+        upstoxInterval = "day";
+        intervalMismatch = true;
       } else if (intervalStr === "1w" || intervalStr === "week") {
         upstoxInterval = "week";
       } else if (
-        intervalStr === "1M" ||
+        intervalStr === "1m" ||
         intervalStr.toLowerCase() === "month"
       ) {
         upstoxInterval = "month";
       } else {
         upstoxInterval = "day"; // default fallback
+        intervalMismatch = true;
       }
 
       const isSandbox = account.metadata?.sandbox || false;
@@ -487,17 +545,22 @@ router.get("/", async (req: Request, res: Response) => {
           (a: any, b: any) =>
             new Date(a.date).getTime() - new Date(b.date).getTime(),
         );
+
+      // Return Upstox response with interval mismatch info
+      return res.json({
+        success: true,
+        data: historicalData,
+        accountType: account.accountType,
+        ...(intervalMismatch && {
+          intervalMismatch: true,
+          actualInterval: upstoxInterval,
+        }),
+      });
     } else {
       return res
         .status(400)
         .json({ error: "Unsupported account type for historical data" });
     }
-
-    return res.json({
-      success: true,
-      data: historicalData,
-      accountType: account.accountType,
-    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error("Error fetching historical data:", error);

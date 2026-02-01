@@ -186,6 +186,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       isLoadingHistory?: boolean;
       hasMoreHistory?: boolean;
       visibleRangeHandler?: LogicalRangeChangeEventHandler;
+      historyDebounceTimer?: ReturnType<typeof setTimeout> | null;
       // Disposal tracking to prevent accessing removed charts
       disposed?: boolean;
     }[]>([]);
@@ -877,6 +878,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         if (!chartRef?.series || !chartRef?.chart) return;
         if (chartRef.isLoadingHistory || chartRef.hasMoreHistory === false) return;
 
+        // Capture the current symbol to verify after async fetch
+        const symbolAtFetchStart = displaySymbol;
+
         // Mark as loading
         chartRef.isLoadingHistory = true;
         setLoadingHistoryCharts(prev => ({ ...prev, [chartIndex]: true }));
@@ -895,6 +899,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
           // Fetch historical data
           const historicalData = await fetchHistoricalData(interval, toDate);
+
+          // Verify symbol hasn't changed during fetch
+          if (symbolAtFetchStart !== displaySymbol) {
+            return; // Symbol changed, discard fetched data
+          }
 
           if (historicalData.length === 0) {
             chartRef.hasMoreHistory = false;
@@ -923,8 +932,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             mergedData = mergedData.slice(-MAX_CANDLES_IN_MEMORY);
           }
 
-          // Check if chart is still valid before updating
-          if (chartRef.disposed || !chartRef.series) return;
+          // Check if chart is still valid and symbol hasn't changed before updating
+          if (chartRef.disposed || !chartRef.series || symbolAtFetchStart !== displaySymbol) return;
 
           // Update series data
           chartRef.series.setData(mergedData);
@@ -952,14 +961,12 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           setLoadingHistoryCharts(prev => ({ ...prev, [chartIndex]: false }));
         }
       },
-      [fetchHistoricalData]
+      [fetchHistoricalData, displaySymbol]
     );
 
     // Set up scroll handler to detect when user scrolls near the left edge
     const setupHistoricalScrollHandler = useCallback(
       (chart: IChartApi, series: ISeriesApi<"Candlestick">, chartIndex: number, interval: string) => {
-        let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
         const handleVisibleLogicalRangeChange = (logicalRange: LogicalRange | null) => {
           if (!logicalRange || !series) return;
 
@@ -974,10 +981,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
           // Check if we're within threshold of left edge
           if (barsInfo.barsBefore !== null && barsInfo.barsBefore < HISTORY_FETCH_THRESHOLD) {
-            // Debounce the fetch
-            if (debounceTimer) clearTimeout(debounceTimer);
+            // Debounce the fetch - store timer in chartRef for proper cleanup
+            if (chartRef.historyDebounceTimer) {
+              clearTimeout(chartRef.historyDebounceTimer);
+            }
 
-            debounceTimer = setTimeout(() => {
+            chartRef.historyDebounceTimer = setTimeout(() => {
+              chartRef.historyDebounceTimer = null;
               loadMoreHistory(chartIndex, interval);
             }, HISTORY_FETCH_DEBOUNCE);
           }
@@ -996,12 +1006,20 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     useEffect(() => {
       if (candleCloseRefresh === 0) return; // Skip initial render
 
+      // Capture current state to verify after async operations
+      const thisRun = runIdRef.current;
+      const symbolAtRefresh = displaySymbol;
+
       selectedTimeframes.forEach((tf, index) => {
         const actualInterval = chartTimeframes[index] || tf.interval;
         const chartRef = chartRefs.current[index];
         // Skip if chart is disposed or series is not available
         if (chartRef?.series && !chartRef.disposed) {
           fetchChartData(actualInterval).then((data) => {
+            // Verify run ID and symbol haven't changed during fetch
+            if (runIdRef.current !== thisRun || displaySymbol !== symbolAtRefresh) {
+              return; // State changed during fetch, discard data
+            }
             // Double-check disposed state after async fetch
             if (data.length > 0 && chartRef.series && !chartRef.disposed && typeof chartRef.series.setData === "function") {
               try {
@@ -1016,7 +1034,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           });
         }
       });
-    }, [candleCloseRefresh, selectedTimeframes, chartTimeframes, fetchChartData]);
+    }, [candleCloseRefresh, selectedTimeframes, chartTimeframes, fetchChartData, displaySymbol]);
 
     useEffect(() => {
       // Increment run id to invalidate any in-flight async work from the previous render
@@ -1134,7 +1152,12 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         chartRefs.current.forEach((chartRef) => {
           // Mark as disposed FIRST to prevent any concurrent access
           chartRef.disposed = true;
-          const { chart, wheelHandler, container, visibleRangeHandler } = chartRef;
+          const { chart, wheelHandler, container, visibleRangeHandler, historyDebounceTimer } = chartRef;
+          // Clear any pending debounce timer
+          if (historyDebounceTimer) {
+            clearTimeout(historyDebounceTimer);
+            chartRef.historyDebounceTimer = null;
+          }
           if (chart) {
             try {
               // Remove wheel handler before removing chart
@@ -1194,6 +1217,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             secondarySeries,
             wheelHandler,
             container,
+            // Initialize historical data tracking
+            oldestTimestamp: undefined,
+            isLoadingHistory: false,
+            hasMoreHistory: true,
+            visibleRangeHandler: undefined,
           };
 
           const actualTimeframe = chartTimeframes[index] || timeframe.interval;
@@ -1201,6 +1229,10 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
           if (data.length > 0 && series && typeof series.setData === "function") {
             series.setData(data);
+            // Set up historical data tracking after data is loaded
+            chartRefs.current[index].oldestTimestamp = (data[0].time as number) * 1000;
+            const handler = setupHistoricalScrollHandler(chart, series, index, actualTimeframe);
+            chartRefs.current[index].visibleRangeHandler = handler;
           }
         } catch (error) {
           // Ignore error initializing expanded chart
