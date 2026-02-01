@@ -1,31 +1,35 @@
-name: Deploy to Dev EC2
+name: Deploy to Dev Server
 
 on:
   push:
     branches: [development]
     paths:
       - 'web-server/**'
+      - '.github/workflows/deploy-dev.yml'
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to EC2
+      - name: Deploy to Dev Server
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
           script: |
             set -e
 
-            # Source profile for pnpm/pm2 PATH (Amazon Linux)
-            source ~/.bashrc || true
+            # Source profile and add common Node paths
+            export PATH="$HOME/.local/share/pnpm:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | tail -1)/bin:$HOME/.npm-global/bin:/usr/local/bin:$PATH"
+            source ~/.bashrc 2>/dev/null || source ~/.profile 2>/dev/null || true
 
             echo "📦 Pulling latest code..."
-            cd ~/code/openmandi/web-server
-            git pull origin development
+            cd ~/deployments/dev/openmandi
+            git fetch origin development
+            git reset --hard origin/development
+            cd web-server
 
             echo "📦 Installing dependencies..."
             pnpm install
@@ -34,7 +38,7 @@ jobs:
             pnpm build
 
             echo "🚀 Restarting server..."
-            pm2 restart open-mandi-backend
+            pm2 restart openmandi-backend
 
             echo "✅ Deployment complete!"
             pm2 status
