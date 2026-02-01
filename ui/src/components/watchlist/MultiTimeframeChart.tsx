@@ -1008,7 +1008,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
       // Capture current state to verify after async operations
       const thisRun = runIdRef.current;
-      const symbolAtRefresh = displaySymbol;
+      // Capture current symbol from loadedSymbolRef (which is set after successful chart load)
+      const symbolAtRefresh = loadedSymbolRef.current;
+
+      // Skip if charts haven't loaded yet for any symbol
+      if (!symbolAtRefresh) return;
 
       selectedTimeframes.forEach((tf, index) => {
         const actualInterval = chartTimeframes[index] || tf.interval;
@@ -1016,8 +1020,8 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         // Skip if chart is disposed or series is not available
         if (chartRef?.series && !chartRef.disposed) {
           fetchChartData(actualInterval).then((data) => {
-            // Verify run ID and symbol haven't changed during fetch
-            if (runIdRef.current !== thisRun || displaySymbol !== symbolAtRefresh) {
+            // Verify run ID and loaded symbol haven't changed during fetch
+            if (runIdRef.current !== thisRun || loadedSymbolRef.current !== symbolAtRefresh) {
               return; // State changed during fetch, discard data
             }
             // Double-check disposed state after async fetch
@@ -1034,7 +1038,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           });
         }
       });
-    }, [candleCloseRefresh, selectedTimeframes, chartTimeframes, fetchChartData, displaySymbol]);
+      // NOTE: displaySymbol intentionally excluded - we use loadedSymbolRef to track
+      // the symbol that charts are actually loaded for, and runIdRef for invalidation
+    }, [candleCloseRefresh, selectedTimeframes, chartTimeframes, fetchChartData]);
 
     useEffect(() => {
       // Increment run id to invalidate any in-flight async work from the previous render
