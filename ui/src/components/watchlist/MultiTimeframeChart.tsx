@@ -65,8 +65,10 @@ const DEFAULT_TIMEFRAMES = [
 ];
 
 const CHART_SETTINGS_KEY = "openMandi_chartSettings";
+const CHART_SETTINGS_VERSION = 2; // Increment when schema changes
 
 interface ChartSettings {
+  version?: number; // Added for migration detection
   selectedTimeframes: typeof DEFAULT_TIMEFRAMES;
   chartTimeframes: { [index: number]: string };
   autoScale: boolean;
@@ -81,8 +83,43 @@ interface ChartSettings {
 const getStoredSettings = (): ChartSettings | null => {
   try {
     const stored = localStorage.getItem(CHART_SETTINGS_KEY);
-    return stored ? JSON.parse(stored) : null;
+    if (!stored) return null;
+
+    const parsed = JSON.parse(stored) as ChartSettings;
+
+    // Version check - reset if old/incompatible settings
+    if (!parsed.version || parsed.version < CHART_SETTINGS_VERSION) {
+      console.log('[CHART] Resetting stale chart settings (old version)');
+      localStorage.removeItem(CHART_SETTINGS_KEY);
+      return null;
+    }
+
+    // Validate critical fields to prevent broken state
+    // If isCollapsed is true but no selectedTimeframes exist, reset
+    if (parsed.isCollapsed && (!parsed.selectedTimeframes || parsed.selectedTimeframes.length === 0)) {
+      console.log('[CHART] Resetting invalid chart settings (collapsed with no timeframes)');
+      localStorage.removeItem(CHART_SETTINGS_KEY);
+      return null;
+    }
+
+    // Validate selectedTimeframes have required properties
+    if (parsed.selectedTimeframes) {
+      const isValid = parsed.selectedTimeframes.every(
+        (tf) => tf && typeof tf.interval === 'string' && typeof tf.index === 'number'
+      );
+      if (!isValid) {
+        console.log('[CHART] Resetting invalid chart settings (malformed timeframes)');
+        localStorage.removeItem(CHART_SETTINGS_KEY);
+        return null;
+      }
+    }
+
+    return parsed;
   } catch {
+    // Corrupted JSON - clear it
+    try {
+      localStorage.removeItem(CHART_SETTINGS_KEY);
+    } catch { /* ignore */ }
     return null;
   }
 };
@@ -351,6 +388,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     // Persist settings to localStorage whenever they change
     useEffect(() => {
       saveSettings({
+        version: CHART_SETTINGS_VERSION,
         selectedTimeframes,
         chartTimeframes,
         autoScale,
