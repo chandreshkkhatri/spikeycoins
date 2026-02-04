@@ -168,76 +168,138 @@ const MarketDepth = memo(function MarketDepth({
 
     let ws: WebSocket | null = null;
     let isCleanedUp = false;
+    let isConnecting = false;
+
+    const safeCloseWebSocket = (socket: WebSocket | null) => {
+      if (!socket) return;
+
+      try {
+        // Clear handlers first
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
+
+        const state = socket.readyState;
+
+        if (state === WebSocket.CONNECTING) {
+          // Mobile Safari/Chrome: Don't close() during CONNECTING
+          // Wait for connection to open, then close
+          socket.onopen = () => {
+            try {
+              if (socket.readyState === WebSocket.OPEN) {
+                socket.close(1000, 'Normal closure');
+              }
+            } catch (e) {
+              /* ignore */
+            }
+          };
+
+          // Safety net: force close after 2 seconds
+          setTimeout(() => {
+            try {
+              if (socket.readyState !== WebSocket.CLOSED) {
+                socket.close();
+              }
+            } catch (e) {
+              /* ignore */
+            }
+          }, 2000);
+        } else if (state === WebSocket.OPEN) {
+          socket.close(1000, 'Normal closure');
+        }
+      } catch (error) {
+        console.debug('[MarketDepth] Error during closure:', error);
+      }
+    };
 
     const connectWebSocket = () => {
-      // Prevent connection if already cleaned up
-      if (isCleanedUp) return;
+      // Prevent connection if already cleaned up or already connecting
+      if (isCleanedUp || isConnecting) return;
 
-      ws = new WebSocket(`${wsBaseUrl}/${streamName}`);
+      isConnecting = true;
 
-      ws.onopen = () => {
+      try {
+        const newWs = new WebSocket(`${wsBaseUrl}/${streamName}`);
+
+        // Check cleanup didn't happen during construction
         if (isCleanedUp) {
-          ws?.close();
+          safeCloseWebSocket(newWs);
+          isConnecting = false;
           return;
         }
-        setWsConnected(true);
-      };
 
-      ws.onmessage = (event) => {
-        if (isCleanedUp) return;
+        ws = newWs;
 
-        try {
-          const data = JSON.parse(event.data);
-          // Binance depth stream format: { bids: [[price, qty], ...], asks: [[price, qty], ...] }
-          if (data.bids && data.asks) {
-            const newAsks: OrderBookItem[] = data.asks
-              .map(([price, qty]: [string, string]) => ({
-                price: parseFloat(price),
-                quantity: parseFloat(qty),
-                total: parseFloat(price) * parseFloat(qty),
-              }));
-
-            const newBids: OrderBookItem[] = data.bids
-              .map(([price, qty]: [string, string]) => ({
-                price: parseFloat(price),
-                quantity: parseFloat(qty),
-                total: parseFloat(price) * parseFloat(qty),
-              }));
-
-            // Store pending data
-            pendingDataRef.current = { asks: newAsks, bids: newBids };
-
-            // Throttle updates to once per second
-            if (!throttleTimeoutRef.current) {
-              throttleTimeoutRef.current = setTimeout(() => {
-                if (pendingDataRef.current && !isCleanedUp) {
-                  setAsks(pendingDataRef.current.asks);
-                  setBids(pendingDataRef.current.bids);
-                  pendingDataRef.current = null;
-                }
-                throttleTimeoutRef.current = null;
-              }, 1000);
-            }
+        ws.onopen = () => {
+          isConnecting = false;
+          if (isCleanedUp) {
+            safeCloseWebSocket(ws);
+            return;
           }
-        } catch (err) {
-          console.error("Error parsing order book data:", err);
-        }
-      };
+          setWsConnected(true);
+        };
 
-      ws.onerror = () => {
-        if (isCleanedUp) return;
-        // Only log error if we haven't closed explicitly
-        if (ws?.readyState !== WebSocket.CLOSED && ws?.readyState !== WebSocket.CLOSING) {
-          // Suppress connection errors during unmount/remount cycles
-          // console.warn(`Order book WebSocket error for ${symbol}:`, error);
-        }
-        setWsConnected(false);
-      };
+        ws.onmessage = (event) => {
+          if (isCleanedUp) return;
 
-      ws.onclose = () => {
-        if (isCleanedUp) return;
-        setWsConnected(false);
-      };
+          try {
+            const data = JSON.parse(event.data);
+            // Binance depth stream format: { bids: [[price, qty], ...], asks: [[price, qty], ...] }
+            if (data.bids && data.asks) {
+              const newAsks: OrderBookItem[] = data.asks
+                .map(([price, qty]: [string, string]) => ({
+                  price: parseFloat(price),
+                  quantity: parseFloat(qty),
+                  total: parseFloat(price) * parseFloat(qty),
+                }));
+
+              const newBids: OrderBookItem[] = data.bids
+                .map(([price, qty]: [string, string]) => ({
+                  price: parseFloat(price),
+                  quantity: parseFloat(qty),
+                  total: parseFloat(price) * parseFloat(qty),
+                }));
+
+              // Store pending data
+              pendingDataRef.current = { asks: newAsks, bids: newBids };
+
+              // Throttle updates to once per second
+              if (!throttleTimeoutRef.current) {
+                throttleTimeoutRef.current = setTimeout(() => {
+                  if (pendingDataRef.current && !isCleanedUp) {
+                    setAsks(pendingDataRef.current.asks);
+                    setBids(pendingDataRef.current.bids);
+                    pendingDataRef.current = null;
+                  }
+                  throttleTimeoutRef.current = null;
+                }, 1000);
+              }
+            }
+          } catch (err) {
+            console.error("Error parsing order book data:", err);
+          }
+        };
+
+        ws.onerror = () => {
+          isConnecting = false;
+          if (isCleanedUp) return;
+          // Only log error if we haven't closed explicitly
+          if (ws?.readyState !== WebSocket.CLOSED && ws?.readyState !== WebSocket.CLOSING) {
+            // Suppress connection errors during unmount/remount cycles
+            // console.warn(`Order book WebSocket error for ${symbol}:`, error);
+          }
+          setWsConnected(false);
+        };
+
+        ws.onclose = () => {
+          if (isCleanedUp) return;
+          setWsConnected(false);
+        };
+      } catch (error) {
+        console.error('[MarketDepth] WebSocket creation failed:', error);
+        isConnecting = false;
+      }
     };
 
     connectWebSocket();
@@ -253,15 +315,11 @@ const MarketDepth = memo(function MarketDepth({
       pendingDataRef.current = null;
 
       if (ws) {
-        ws.onclose = null; // Prevent onclose trigger during cleanup
-        ws.onerror = null;
-        ws.onmessage = null;
-        ws.onopen = null;
-        if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
-          ws.close();
-        }
+        safeCloseWebSocket(ws);
         ws = null;
       }
+
+      isConnecting = false;
     };
   }, [symbol, accountType, marketType]);
 

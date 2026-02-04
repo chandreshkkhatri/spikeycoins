@@ -425,19 +425,28 @@ router.get("/position-details", async (req: Request, res: Response) => {
       }
 
       if (position) {
-        const entryPrice = parseFloat(position.entryPrice);
-        const markPrice = parseFloat(position.markPrice);
-        const size = parseFloat(position.positionAmt);
-        const leverage = parseFloat(position.leverage);
-        const unrealizedProfit = parseFloat(position.unRealizedProfit);
-        const initialMargin = parseFloat(position.initialMargin); // Position Margin
+        // Safe number parsing helper
+        const toSafeNumber = (value: unknown, fallback: number = 0): number => {
+          if (value === null || value === undefined) return fallback;
+          const num = typeof value === 'number' ? value : parseFloat(String(value));
+          return Number.isFinite(num) ? num : fallback;
+        };
+
+        const entryPrice = toSafeNumber(position.entryPrice, 0);
+        const markPrice = toSafeNumber(position.markPrice, 0);
+        const size = toSafeNumber(position.positionAmt, 0);
+        const leverage = toSafeNumber(position.leverage, 1);
+        const unrealizedProfit = toSafeNumber(position.unRealizedProfit, 0);
+        const initialMargin = toSafeNumber(position.initialMargin, 0); // Position Margin
+        const maintMargin = toSafeNumber(position.maintMargin, 0);
+        const marginBalance = toSafeNumber(position.marginBalance, 1);
 
         // ROI %
         const roi =
           initialMargin > 0 ? (unrealizedProfit / initialMargin) * 100 : 0;
 
         // Est. Funding Fee = Size * Mark Price * Funding Rate
-        const fundingRate = funding ? parseFloat(funding.lastFundingRate) : 0;
+        const fundingRate = funding ? toSafeNumber(funding.lastFundingRate, 0) : 0;
         const estFundingFee = Math.abs(size * markPrice) * fundingRate;
 
         // Break Even Price (Approximate, ignoring fees for now or using standard 0.04% taker)
@@ -453,13 +462,13 @@ router.get("/position-details", async (req: Request, res: Response) => {
           size,
           entryPrice,
           markPrice,
-          liquidationPrice: parseFloat(position.liquidationPrice),
+          liquidationPrice: toSafeNumber(position.liquidationPrice, 0),
           margin: initialMargin,
-          marginRatio: position.maintMargin / position.marginBalance, // Position specific if isolated
+          marginRatio: marginBalance > 0 ? maintMargin / marginBalance : 0, // Position specific if isolated
           pnl: unrealizedProfit,
           roi,
           estFundingFee,
-          breakEvenPrice,
+          breakEvenPrice: Number.isFinite(breakEvenPrice) ? breakEvenPrice : entryPrice,
           leverage,
           marginType: position.marginType,
           maxLeverage: symbolMaxLeverage,

@@ -7,27 +7,30 @@ import { getAccountById, IAccount } from "../models/account";
 const router: Router = Router();
 
 // Helper to convert values to numbers safely
-const toNumber = (value: unknown): number => {
-  if (typeof value === "number") return value;
+const toNumber = (value: unknown, fallback: number = 0): number => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : fallback;
+  }
   if (typeof value === "string") {
     const parsed = parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+    return Number.isFinite(parsed) ? parsed : fallback;
   }
-  return 0;
+  return fallback;
 };
 
 // Format Binance futures position
 const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
-  const quantity = toNumber(position.positionAmt);
-  const averagePrice = toNumber(position.entryPrice);
-  const lastPrice = toNumber(position.markPrice);
-  const pnl = toNumber(position.unRealizedProfit);
+  const quantity = toNumber(position.positionAmt, 0);
+  const averagePrice = toNumber(position.entryPrice, 0);
+  const lastPrice = toNumber(position.markPrice, averagePrice); // Fallback to entry if mark not available
+  const pnl = toNumber(position.unRealizedProfit, 0);
   const notional = Math.abs(quantity * averagePrice);
   const pnlPercentage = notional > 0 ? (pnl / notional) * 100 : 0;
   const symbol = position.symbol || "UNKNOWN_SYMBOL";
-  const liquidationPrice = toNumber(position.liquidationPrice);
-  const initialMargin = toNumber(position.initialMargin);
-  const leverage = toNumber(position.leverage);
+  const liquidationPrice = toNumber(position.liquidationPrice, 0);
+  const initialMargin = toNumber(position.initialMargin, 0);
+  const leverage = toNumber(position.leverage, 1); // Default leverage 1 instead of 0
 
   // Break Even Price calculation (entry price + trading fees)
   const TAKER_FEE = 0.0004;
@@ -47,7 +50,7 @@ const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
     pnlPercentage,
     leverage,
     liquidationPrice,
-    breakEvenPrice,
+    breakEvenPrice: Number.isFinite(breakEvenPrice) ? breakEvenPrice : averagePrice, // Validate breakEvenPrice
     margin: initialMargin,
     marginType: position.marginType,
     product: `Futures (${(position.marginType || "cross").toUpperCase()})`,

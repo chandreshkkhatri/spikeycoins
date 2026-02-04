@@ -11,6 +11,7 @@ import React, {
 } from 'react';
 import { useAccount, TradingAccount } from './account-context';
 import api from '@/lib/api';
+import { toSafeNumber } from '@/lib/number-utils';
 
 // ============================================================================
 // Types
@@ -190,12 +191,12 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
             }) => ({
               id: p.id || p.symbol,
               symbol: p.symbol,
-              size: p.quantity,
-              entryPrice: p.entryPrice || p.averagePrice || 0,
-              pnl: p.pnl || p.unrealizedPnl || 0,
-              leverage: p.leverage || 1,
-              liquidationPrice: p.liquidationPrice,
-              breakEvenPrice: p.breakEvenPrice,
+              size: toSafeNumber(p.quantity, 0),
+              entryPrice: toSafeNumber(p.entryPrice || p.averagePrice, 0),
+              pnl: toSafeNumber(p.pnl || p.unrealizedPnl, 0),
+              leverage: toSafeNumber(p.leverage, 1),
+              liquidationPrice: toSafeNumber(p.liquidationPrice),
+              breakEvenPrice: toSafeNumber(p.breakEvenPrice),
               margin: p.margin,
               marginType: p.marginType,
             }));
@@ -399,16 +400,16 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
             stepSize: symInfo.stepSize || DEFAULT_SYMBOL_INFO.stepSize,
             maxLeverage: symInfo.maxLeverage || posData?.maxLeverage || DEFAULT_SYMBOL_INFO.maxLeverage,
           } : DEFAULT_SYMBOL_INFO,
-          position: posData && posData.size !== 0 ? {
+          position: posData && toSafeNumber(posData.size, 0) !== 0 ? {
             id: posData.symbol,
             symbol: posData.symbol,
-            size: posData.size,
-            entryPrice: posData.entryPrice,
-            pnl: posData.pnl,
-            leverage: posData.leverage,
-            liquidationPrice: posData.liquidationPrice,
-            breakEvenPrice: posData.breakEvenPrice,
-            margin: posData.margin,
+            size: toSafeNumber(posData.size, 0),
+            entryPrice: toSafeNumber(posData.entryPrice, 0),
+            pnl: toSafeNumber(posData.pnl, 0),
+            leverage: toSafeNumber(posData.leverage, 1),
+            liquidationPrice: toSafeNumber(posData.liquidationPrice),
+            breakEvenPrice: toSafeNumber(posData.breakEvenPrice),
+            margin: toSafeNumber(posData.margin, 0),
             marginType: posData.marginType,
           } : null,
         };
@@ -514,13 +515,13 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
         }) => ({
           id: p.id || p.symbol,
           symbol: p.symbol,
-          size: p.quantity,
-          entryPrice: p.averagePrice || 0,
-          pnl: p.pnl || 0,
-          leverage: p.leverage || 1,
-          liquidationPrice: p.liquidationPrice,
-          breakEvenPrice: p.breakEvenPrice,
-          margin: p.margin,
+          size: toSafeNumber(p.quantity, 0),
+          entryPrice: toSafeNumber(p.averagePrice, 0),
+          pnl: toSafeNumber(p.pnl, 0),
+          leverage: toSafeNumber(p.leverage, 1),
+          liquidationPrice: toSafeNumber(p.liquidationPrice),
+          breakEvenPrice: toSafeNumber(p.breakEvenPrice),
+          margin: toSafeNumber(p.margin, 0),
           marginType: p.marginType,
         }));
 

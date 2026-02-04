@@ -1502,9 +1502,9 @@ const TradingWindow = memo(function TradingWindow({
                     Existing {existingPosition.size > 0 ? "LONG" : "SHORT"} position
                   </span>
                   <span className="text-xs opacity-90 ml-2">
-                    {Math.abs(existingPosition.size)} @ ${existingPosition.entryPrice.toFixed(2)}
+                    {Math.abs(existingPosition.size)} @ {formatPrice(existingPosition.entryPrice, "$")}
                     <span className={existingPosition.pnl >= 0 ? "text-green-300 ml-2" : "text-red-300 ml-2"}>
-                      ({existingPosition.pnl >= 0 ? "+" : ""}{existingPosition.pnl.toFixed(2)})
+                      ({existingPosition.pnl >= 0 ? "+" : ""}{formatPrice(Math.abs(existingPosition.pnl))})
                     </span>
                   </span>
                 </div>
