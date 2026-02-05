@@ -757,14 +757,14 @@ const TradingWindow = memo(function TradingWindow({
     // A click typically fires 1-2 times, a drag fires many more
     sliderChangeCount.current += 1;
 
-    let percentage = value[0];
+    let percentage = value[0] / 100; // Convert from 0-10000 to 0-100
     if (isExponentialSlider) {
       // Map slider (0-100) to percentage (0-100) exponentially
       // y = 100 * (x/100)^2
-      percentage = 100 * Math.pow(value[0] / 100, 2);
+      percentage = 100 * Math.pow(percentage / 100, 2);
     }
-    // Round to integer
-    percentage = Math.round(percentage);
+    // Round to 2 decimal places (0.01%)
+    percentage = Math.round(percentage * 100) / 100;
 
     setPositionSizePercentage(percentage);
     setQuickQuantity(percentage);
@@ -775,18 +775,18 @@ const TradingWindow = memo(function TradingWindow({
     const wasDragging = sliderChangeCount.current > 2;
     sliderChangeCount.current = 0; // Reset for next interaction
 
-    let percentage = value[0];
+    let percentage = value[0] / 100; // Convert from 0-10000 to 0-100
     if (isExponentialSlider) {
-      percentage = 100 * Math.pow(value[0] / 100, 2);
+      percentage = 100 * Math.pow(percentage / 100, 2);
       // No snapping for exponential mode to allow fine control
-      const rounded = Math.round(percentage);
+      const rounded = Math.round(percentage * 100) / 100;
       setPositionSizePercentage(rounded);
       setQuickQuantity(rounded);
     } else {
       // Only snap to nearest 10% on click (not drag)
       if (wasDragging) {
-        // User was dragging - keep the value as-is (already rounded to integer)
-        const rounded = Math.round(percentage);
+        // User was dragging - keep the value as-is (rounded to 0.01%)
+        const rounded = Math.round(percentage * 100) / 100;
         setPositionSizePercentage(rounded);
         setQuickQuantity(rounded);
       } else {
@@ -1517,7 +1517,7 @@ const TradingWindow = memo(function TradingWindow({
                 <label className="mb-0">
                   Position Size:{" "}
                   <span className="slider-value-display">
-                    {positionSizePercentage}%
+                    {positionSizePercentage.toFixed(2)}%
                   </span>
                 </label>
                 <div className="flex items-center gap-1.5">
@@ -1551,12 +1551,12 @@ const TradingWindow = memo(function TradingWindow({
                 <Slider
                   value={[
                     isExponentialSlider
-                      ? 100 * Math.sqrt(positionSizePercentage / 100)
-                      : positionSizePercentage,
+                      ? 100 * Math.sqrt(positionSizePercentage / 100) * 100
+                      : positionSizePercentage * 100,
                   ]}
                   onValueChange={handleSliderChange}
                   onValueCommit={handleSliderCommit}
-                  max={100}
+                  max={10000}
                   step={1}
                   className="position-slider"
                 />
@@ -1570,31 +1570,31 @@ const TradingWindow = memo(function TradingWindow({
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([20])}
+                  onClick={() => handleSliderCommit([2000])}
                 >
                   {isExponentialSlider ? "4%" : "20%"}
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([40])}
+                  onClick={() => handleSliderCommit([4000])}
                 >
                   {isExponentialSlider ? "16%" : "40%"}
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([60])}
+                  onClick={() => handleSliderCommit([6000])}
                 >
                   {isExponentialSlider ? "36%" : "60%"}
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([80])}
+                  onClick={() => handleSliderCommit([8000])}
                 >
                   {isExponentialSlider ? "64%" : "80%"}
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([100])}
+                  onClick={() => handleSliderCommit([10000])}
                 >
                   100%
                 </span>
