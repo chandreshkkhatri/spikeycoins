@@ -2,12 +2,14 @@
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
+import { useTheme } from "@/contexts/theme-context";
 import { AlertCircle, Loader2, Mail } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function LoginForm() {
   const { login, register, loginWithGoogle, isLoggedIn, isLoading, error } = useAuth();
+  const { isDark } = useTheme();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -96,13 +98,10 @@ function LoginForm() {
         {/* Logo/Brand */}
         <div className="text-center">
           <img
-            src="/logo.png"
+            src={isDark ? "/logo_dark.png" : "/logo.png"}
             alt="Open Mandi"
-            className="h-16 w-16 mx-auto mb-4 rounded-lg object-contain"
+            className="h-192 w-192 mx-auto mb-4 rounded-lg object-contain"
           />
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            Open Mandi
-          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {mode === "login" ? "Sign in to your account" : "Create a new account"}
           </p>

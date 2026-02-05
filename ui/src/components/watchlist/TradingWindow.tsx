@@ -1940,7 +1940,7 @@ const TradingWindow = memo(function TradingWindow({
                 <div className="form-group mb-0">
                   <div className="flex items-center gap-1 mb-1">
                     <span className="text-[10px] text-muted-foreground">
-                      Max Lev.
+                      Max Lev. Global
                     </span>
                     <TooltipProvider delayDuration={100}>
                       <Tooltip>
