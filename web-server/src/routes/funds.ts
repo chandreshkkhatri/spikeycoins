@@ -93,7 +93,7 @@ router.get("/", async (req: Request, res: Response) => {
     // Format funds data with unified structure
     const unifiedFunds = {
       totalBalance:
-        funds.equity?.available_margin || funds.totalWalletBalance || "0",
+        funds.equity?.available_margin || funds.totalMarginBalance || "0",
       availableBalance:
         funds.equity?.available_margin || funds.availableBalance || "0",
       usedMargin:
