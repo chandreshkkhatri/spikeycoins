@@ -116,6 +116,8 @@ const TradingWindow = memo(function TradingWindow({
   const [exchangeMaxLeverage, setExchangeMaxLeverage] = useState<number>(125);
   const [tickSize, setTickSize] = useState<string>("0.01");
   const [stepSize, setStepSize] = useState<string>("0.001");
+  const [minQty, setMinQty] = useState<number>(0);
+  const [minNotional, setMinNotional] = useState<number>(0);
   const [isExponentialSlider, setIsExponentialSlider] = useState<boolean>(() => {
     try {
       return localStorage.getItem(EXPONENTIAL_SLIDER_STORAGE_KEY) === "true";
@@ -212,6 +214,8 @@ const TradingWindow = memo(function TradingWindow({
     if (contextSymbolInfo) {
       setTickSize(contextSymbolInfo.tickSize);
       setStepSize(contextSymbolInfo.stepSize);
+      setMinQty(contextSymbolInfo.minQty || 0);
+      setMinNotional(contextSymbolInfo.minNotional || 0);
       setExchangeMaxLeverage(contextSymbolInfo.maxLeverage);
     }
 
@@ -1073,6 +1077,36 @@ const TradingWindow = memo(function TradingWindow({
       return;
     }
 
+    // Validate minimum quantity and notional value
+    const quantity = parseFloat(orderForm.quantity);
+    if (minQty > 0 && quantity < minQty) {
+      setError(
+        `Quantity ${quantity} is below minimum ${minQty} for ${symbol}. ` +
+        `Please increase position size to at least ${minQty}.`
+      );
+      return;
+    }
+
+    // Validate notional value
+    if (minNotional > 0) {
+      const price =
+        orderForm.type === "LIMIT"
+          ? parseFloat(orderForm.price)
+          : currentPrice || 0;
+
+      const notional = quantity * price;
+      if (notional < minNotional) {
+        const requiredQty = (minNotional / price).toFixed(
+          orderForm.quantity.includes(".") ? orderForm.quantity.split(".")[1].length : 0
+        );
+        setError(
+          `Order notional value ${notional.toFixed(2)} is below minimum ${minNotional} for ${symbol}. ` +
+          `Required quantity: ${requiredQty} (at price ${price.toFixed(2)})`
+        );
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     setError(null);
 
@@ -1618,6 +1652,18 @@ const TradingWindow = memo(function TradingWindow({
                   placeholder="0.001"
                   step={stepSize}
                 />
+                {(minQty > 0 || minNotional > 0) && (
+                  <div className="text-[10px] text-muted-foreground mt-1">
+                    {minQty > 0 && (
+                      <div>Min qty: {minQty}</div>
+                    )}
+                    {minNotional > 0 && (
+                      <div>
+                        Min notional: ${minNotional} (at {currentPrice?.toFixed(2) || "current"} price)
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Price (for limit orders) */}
