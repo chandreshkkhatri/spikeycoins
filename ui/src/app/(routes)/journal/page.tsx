@@ -31,7 +31,7 @@ export default function JournalPage() {
   const { selectedAccount } = useAccount();
   const { isLoggedIn, isLoading: authLoading } = useAuth();
 
-  const [period, setPeriod] = useState<JournalPeriod>("30d");
+  const [period, setPeriod] = useState<JournalPeriod>("all");
   const [chartTab, setChartTab] = useState<"equity" | "daily">("equity");
 
   // Data state
