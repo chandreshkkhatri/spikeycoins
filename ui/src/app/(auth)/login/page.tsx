@@ -100,10 +100,16 @@ function LoginForm() {
           <img
             src={isDark ? "/logo_dark.png" : "/logo.png"}
             alt="Open Mandi"
-            className="h-48 w-48 mx-auto mb-4 rounded-lg object-contain"
+            className="h-48 w-48 mx-auto mb-0 rounded-lg object-contain"
           />
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            Open Mandi
+          </h1>
+
           <p className="mt-2 text-sm text-muted-foreground">
-            {mode === "login" ? "Sign in to your account" : "Create a new account"}
+            {mode === "login"
+              ? "Sign in to your account"
+              : "Create a new account"}
           </p>
         </div>
 
@@ -120,14 +126,19 @@ function LoginForm() {
           {/* Invite Code - shown first in register mode for Google signup */}
           {mode === "register" && (
             <div className="mb-4">
-              <label htmlFor="inviteCodeTop" className="block text-sm font-medium text-foreground">
+              <label
+                htmlFor="inviteCodeTop"
+                className="block text-sm font-medium text-foreground"
+              >
                 Invite Code
               </label>
               <input
                 id="inviteCodeTop"
                 type="text"
                 value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value.trim().toUpperCase())}
+                onChange={(e) =>
+                  setInviteCode(e.target.value.trim().toUpperCase())
+                }
                 className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono tracking-wider placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 placeholder="XXXX-XXXX-XXXX-XXXX"
                 disabled={isSubmitting}
@@ -164,7 +175,9 @@ function LoginForm() {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               />
             </svg>
-            {mode === "register" ? "Sign up with Google" : "Continue with Google"}
+            {mode === "register"
+              ? "Sign up with Google"
+              : "Continue with Google"}
           </Button>
 
           <div className="relative my-6">
@@ -172,7 +185,9 @@ function LoginForm() {
               <div className="w-full border-t border-border"></div>
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with email</span>
+              <span className="bg-card px-2 text-muted-foreground">
+                Or continue with email
+              </span>
             </div>
           </div>
 
@@ -180,7 +195,10 @@ function LoginForm() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === "register" && (
               <div>
-                <label htmlFor="name" className="block text-sm font-medium text-foreground">
+                <label
+                  htmlFor="name"
+                  className="block text-sm font-medium text-foreground"
+                >
                   Name
                 </label>
                 <input
@@ -197,7 +215,10 @@ function LoginForm() {
             )}
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-foreground">
+              <label
+                htmlFor="email"
+                className="block text-sm font-medium text-foreground"
+              >
                 Email
               </label>
               <input
@@ -213,7 +234,10 @@ function LoginForm() {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-foreground">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-foreground"
+              >
                 Password
               </label>
               <input
@@ -222,14 +246,20 @@ function LoginForm() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                placeholder={mode === "register" ? "Min 8 characters" : "••••••••"}
+                placeholder={
+                  mode === "register" ? "Min 8 characters" : "••••••••"
+                }
                 required
                 minLength={mode === "register" ? 8 : undefined}
                 disabled={isSubmitting}
               />
             </div>
 
-            <Button type="submit" className="w-full gap-2" disabled={isSubmitting}>
+            <Button
+              type="submit"
+              className="w-full gap-2"
+              disabled={isSubmitting}
+            >
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
