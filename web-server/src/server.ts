@@ -48,6 +48,9 @@ import binancePriceService from "./lib/binance-price-service";
 // Import order monitor for auto-cancelling SL/TP
 import binanceOrderMonitor from "./lib/binance-order-monitor";
 
+// Import demo account service
+import { demoAccountService } from "./lib/demo-account-service";
+
 // Import cron jobs
 import { startResearchCron } from "./jobs/researchCron";
 
@@ -202,7 +205,10 @@ app.listen(PORT, () => {
   // Start crypto services (Binance WebSocket, Market Overview, etc.)
   console.log("📡 Starting crypto services...");
   initializeCryptoServices()
-    .then(() => {
+    .then(async () => {
+      // Load demo account config from DB now that DB is connected
+      await demoAccountService.initialize();
+
       // Start research cron job after crypto services are ready
       console.log("📅 Starting research cron job...");
       startResearchCron();
