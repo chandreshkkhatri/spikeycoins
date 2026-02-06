@@ -764,8 +764,8 @@ const TradingWindow = memo(function TradingWindow({
     let percentage = value[0] / 100; // Convert from 0-10000 to 0-100
     if (isExponentialSlider) {
       // Map slider (0-100) to percentage (0-100) exponentially
-      // y = 100 * (x/100)^2
-      percentage = 100 * Math.pow(percentage / 100, 2);
+      // y = (x/100)^2 * 100
+      percentage = Math.pow(percentage / 100, 2) * 100;
     }
     // Round to 2 decimal places (0.01%)
     percentage = Math.round(percentage * 100) / 100;
@@ -1096,6 +1096,13 @@ const TradingWindow = memo(function TradingWindow({
 
       const notional = quantity * price;
       if (notional < minNotional) {
+        if (price <= 0) {
+          setError(
+            `Order notional value ${notional.toFixed(2)} is below minimum ${minNotional} for ${symbol}. ` +
+            `Cannot calculate required quantity - invalid price.`
+          );
+          return;
+        }
         const requiredQty = (minNotional / price).toFixed(
           orderForm.quantity.includes(".") ? orderForm.quantity.split(".")[1].length : 0
         );
@@ -1585,7 +1592,7 @@ const TradingWindow = memo(function TradingWindow({
                 <Slider
                   value={[
                     isExponentialSlider
-                      ? 100 * Math.sqrt(positionSizePercentage / 100) * 100
+                      ? Math.sqrt(positionSizePercentage / 100) * 100 * 100
                       : positionSizePercentage * 100,
                   ]}
                   onValueChange={handleSliderChange}

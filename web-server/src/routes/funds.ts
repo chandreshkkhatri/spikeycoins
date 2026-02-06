@@ -97,7 +97,7 @@ router.get("/", async (req: Request, res: Response) => {
       availableBalance:
         funds.equity?.available_margin || funds.availableBalance || "0",
       usedMargin:
-        funds.equity?.used_margin || funds.totalMarginBalance || undefined,
+        funds.equity?.used_margin || funds.totalInitialMargin || undefined,
       unrealizedPnl:
         funds.equity?.unrealised_pnl ||
         funds.totalUnrealizedProfit ||

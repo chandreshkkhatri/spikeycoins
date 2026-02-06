@@ -270,15 +270,24 @@ router.post("/place", async (req: Request, res: Response) => {
         }
 
         // Helper to round to precision with stepSize awareness
-        const roundToPrecision = (value: number, precision: number, stepSizeVal: number = 0): number => {
-          const factor = Math.pow(10, precision);
-          let rounded = Math.round(value * factor) / factor;
+        const roundToPrecision = (
+          value: number,
+          precision: number,
+          stepSizeVal: number = 0
+        ): number => {
+          // First round to precision
+          let rounded = parseFloat(value.toFixed(precision));
 
-          // If stepSize is provided, round to nearest stepSize
+          // Then round to stepSize if provided
           if (stepSizeVal > 0) {
-            rounded = Math.round(rounded / stepSizeVal) * stepSizeVal;
-            // Ensure we don't exceed precision
-            rounded = Math.round(rounded * factor) / factor;
+            const stepPrecision =
+              stepSizeVal.toString().split(".")[1]?.length || 0;
+            const maxPrecision = Math.max(precision, stepPrecision);
+            rounded = parseFloat(
+              (Math.round(rounded / stepSizeVal) * stepSizeVal).toFixed(
+                maxPrecision
+              )
+            );
           }
 
           return rounded;
@@ -338,18 +347,30 @@ router.post("/place", async (req: Request, res: Response) => {
                 orderParams.symbol,
               );
             } catch {
-              // Fallback: use a conservative estimate or reject
-              console.warn(
-                `Could not fetch mark price for ${orderParams.symbol}, skipping notional validation for MARKET order`,
+              // Cannot validate without price - must reject
+              throw new Error(
+                `Cannot validate notional value for MARKET order: unable to fetch current price for ${orderParams.symbol}. ` +
+                  `Please try a LIMIT order instead or check your connection.`
               );
             }
+          }
+
+          // Check for zero/invalid price before division
+          if (notionalPrice <= 0) {
+            throw new Error(
+              `Invalid price (${notionalPrice}) for notional validation. Cannot place order for ${orderParams.symbol}.`
+            );
           }
 
           const notional = roundedQuantity * notionalPrice;
           if (notional < minNotional) {
             throw new Error(
-              `Order notional value ${notional.toFixed(2)} is below minimum ${minNotional} for ${orderParams.symbol}. ` +
-              `Required quantity at current price: ${(minNotional / notionalPrice).toFixed(quantityPrecision)}`,
+              `Order notional value ${notional.toFixed(2)} is below minimum ${minNotional} for ${
+                orderParams.symbol
+              }. ` +
+                `Required quantity at current price: ${(minNotional / notionalPrice).toFixed(
+                  quantityPrecision
+                )}`
             );
           }
         }

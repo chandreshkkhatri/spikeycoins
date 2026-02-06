@@ -100,7 +100,7 @@ function LoginForm() {
           <img
             src={isDark ? "/logo_dark.png" : "/logo.png"}
             alt="Open Mandi"
-            className="h-192 w-192 mx-auto mb-4 rounded-lg object-contain"
+            className="h-48 w-48 mx-auto mb-4 rounded-lg object-contain"
           />
           <p className="mt-2 text-sm text-muted-foreground">
             {mode === "login" ? "Sign in to your account" : "Create a new account"}
