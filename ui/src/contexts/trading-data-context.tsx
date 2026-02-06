@@ -10,6 +10,7 @@ import React, {
   useState,
 } from 'react';
 import { useAccount, TradingAccount } from './account-context';
+import { useAuth } from './auth-context';
 import api from '@/lib/api';
 import { toSafeNumber } from '@/lib/number-utils';
 
@@ -133,6 +134,7 @@ const DEFAULT_SYMBOL_INFO: SymbolInfo = {
 
 export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ children }) => {
   const { selectedAccount } = useAccount();
+  const { isLoggedIn } = useAuth();
   
   // Active symbol for position/order filtering
   const [activeSymbol, setActiveSymbol] = useState<string>('');
@@ -617,6 +619,15 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
       return;
     }
 
+    // Skip trading data API calls for demo accounts when user is not signed in
+    if (selectedAccount.isDemo && !isLoggedIn) {
+      setPositions([]);
+      setOrders([]);
+      setAccountDetails(null);
+      setSymbolInfo(DEFAULT_SYMBOL_INFO);
+      return;
+    }
+
     // Prevent duplicate fetches
     const now = Date.now();
     if (fetchInProgress.current) return;
@@ -666,7 +677,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
       fetchInProgress.current = false;
       setLoading(false);
     }
-  }, [selectedAccount, activeSymbol, fetchPositions, fetchOrders, fetchAccountDetails, fetchTradingSummary]);
+  }, [selectedAccount, activeSymbol, isLoggedIn, fetchPositions, fetchOrders, fetchAccountDetails, fetchTradingSummary]);
   
   // ============================================================================
   // Effects
@@ -677,7 +688,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
     if (selectedAccount) {
       refreshAll();
     }
-  }, [selectedAccount?._id, activeSymbol]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedAccount?._id, activeSymbol, isLoggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // ============================================================================
   // Context Value

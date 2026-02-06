@@ -3,6 +3,7 @@ import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
 import { getAccountById } from "../models/account";
+import { demoAccountService } from "../lib/demo-account-service";
 
 const router: Router = Router();
 
@@ -15,10 +16,17 @@ router.get("/", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "accountId is required" });
     }
 
-    const account = await getAccountById(accountId as string);
-
-    if (!account) {
-      return res.status(404).json({ error: "Account not found" });
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId as string)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId as string);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
     }
 
     let funds;

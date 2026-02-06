@@ -828,10 +828,17 @@ router.put("/modify", async (req: Request, res: Response) => {
         .json({ error: "accountId and orderId are required" });
     }
 
-    const account = await getAccountById(accountId);
-
-    if (!account) {
-      return res.status(404).json({ error: "Account not found" });
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
     }
 
     if (!account.accessToken) {
@@ -890,10 +897,17 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
         .json({ error: "accountId and orderId are required" });
     }
 
-    const account = await getAccountById(accountId as string);
-
-    if (!account) {
-      return res.status(404).json({ error: "Account not found" });
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId as string)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId as string);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
     }
 
     let result;

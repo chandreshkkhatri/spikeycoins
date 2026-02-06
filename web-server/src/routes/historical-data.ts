@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { getAccountById } from "../models/account";
+import { demoAccountService } from "../lib/demo-account-service";
 import axios, { AxiosRequestConfig } from "axios";
 import HistoricalDataCache from "../models/historical-data-cache";
 
@@ -101,7 +102,12 @@ router.get("/", async (req: Request, res: Response) => {
 
       if (accountId) {
         try {
-          const account = await getAccountById(accountId as string);
+          let account;
+          if (demoAccountService.isDemoAccountId(accountId as string)) {
+            account = demoAccountService.getDemoAccount(true);
+          } else {
+            account = await getAccountById(accountId as string);
+          }
           if (account && account.accountType === "binance") {
             tradingSegment = account.metadata?.tradingSegment || "spot";
             isTestnet = account.metadata?.testnet || false;
@@ -331,10 +337,17 @@ router.get("/", async (req: Request, res: Response) => {
       });
     }
 
-    const account = await getAccountById(accountId as string);
-
-    if (!account) {
-      return res.status(404).json({ error: "Account not found" });
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId as string)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId as string);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
     }
 
     if (account.accountType === "kite") {

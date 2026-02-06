@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { BinanceService } from "../lib/binance-service";
 import binancePriceService from "../lib/binance-price-service";
 import { getAccountById } from "../models/account";
+import { demoAccountService } from "../lib/demo-account-service";
 
 const router: Router = Router();
 const AGGREGATED_HISTORY_SYMBOL_LIMIT = 20;
@@ -224,10 +225,17 @@ router.post("/leverage", async (req: Request, res: Response) => {
       });
     }
 
-    const account = await getAccountById(accountId);
-
-    if (!account) {
-      return res.status(404).json({ error: "Account not found" });
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
     }
 
     if (account.accountType !== "binance") {
@@ -277,10 +285,17 @@ router.post("/margin-type", async (req: Request, res: Response) => {
       });
     }
 
-    const account = await getAccountById(accountId);
-
-    if (!account) {
-      return res.status(404).json({ error: "Account not found" });
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
     }
 
     if (account.accountType !== "binance") {
@@ -331,8 +346,18 @@ router.get("/position-details", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "accountId is required" });
     }
 
-    const account = await getAccountById(accountId as string);
-    if (!account) return res.status(404).json({ error: "Account not found" });
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId as string)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId as string);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
+    }
     if (account.accountType !== "binance")
       return res.status(400).json({ error: "Not a Binance account" });
 
@@ -514,9 +539,20 @@ router.get("/order-history", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "accountId is required" });
     }
 
-    const account = await getAccountById(accountId as string);
-    if (!account || account.accountType !== "binance") {
-      return res.status(404).json({ error: "Binance account not found" });
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId as string)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId as string);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
+    }
+    if (account.accountType !== "binance") {
+      return res.status(400).json({ error: "Not a Binance account" });
     }
 
     const tradingSegment = account.metadata?.tradingSegment || "spot";
@@ -659,9 +695,20 @@ router.get("/trade-history", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "accountId is required" });
     }
 
-    const account = await getAccountById(accountId as string);
-    if (!account || account.accountType !== "binance") {
-      return res.status(404).json({ error: "Binance account not found" });
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId as string)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId as string);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
+    }
+    if (account.accountType !== "binance") {
+      return res.status(400).json({ error: "Not a Binance account" });
     }
 
     const tradingSegment = account.metadata?.tradingSegment || "spot";

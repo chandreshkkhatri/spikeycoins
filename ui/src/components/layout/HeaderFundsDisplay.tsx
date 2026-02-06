@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { API_ROUTES, getApiUrl } from "@/lib/constants";
 import { useAccount } from "@/contexts/account-context";
+import { useAuth } from "@/contexts/auth-context";
 import { Loader2, TrendingUp, TrendingDown } from "lucide-react";
 
 interface FundsResponse {
@@ -15,12 +16,19 @@ interface FundsResponse {
 
 export function HeaderFundsDisplay() {
     const { selectedAccount } = useAccount();
+    const { isLoggedIn } = useAuth();
     const [funds, setFunds] = useState<FundsResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(false);
 
     useEffect(() => {
         if (!selectedAccount) {
+            setFunds(null);
+            return;
+        }
+
+        // Skip funds polling for demo accounts when not signed in
+        if (selectedAccount.isDemo && !isLoggedIn) {
             setFunds(null);
             return;
         }
@@ -61,7 +69,7 @@ export function HeaderFundsDisplay() {
         const interval = setInterval(fetchFunds, 30000);
         return () => clearInterval(interval);
 
-    }, [selectedAccount, selectedAccount?._id]);
+    }, [selectedAccount, selectedAccount?._id, isLoggedIn]);
 
     if (!selectedAccount) return null;
 
