@@ -290,7 +290,7 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
               (f: any) => f.filterType === "MIN_NOTIONAL",
             );
             if (minNotionalFilter) {
-              minNotional = parseFloat(minNotionalFilter.minNotional || "0");
+              minNotional = parseFloat(minNotionalFilter.notional || minNotionalFilter.minNotional || "0");
             }
           }
         } catch (infoError) {

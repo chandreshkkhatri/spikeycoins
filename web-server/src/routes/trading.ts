@@ -204,7 +204,7 @@ router.get("/summary", async (req: Request, res: Response) => {
               tickSize: priceFilter?.tickSize || "0.01",
               stepSize: lotSizeFilter?.stepSize || "0.001",
               minQty: parseFloat(lotSizeFilter?.minQty || "0"),
-              minNotional: parseFloat(minNotionalFilter?.minNotional || "0"),
+              minNotional: parseFloat(minNotionalFilter?.notional || minNotionalFilter?.minNotional || "0"),
               maxLeverage,
             };
           }
