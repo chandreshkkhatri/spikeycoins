@@ -589,8 +589,9 @@ Respond with JSON:
 
       logger.info(`ResearchService: Pre-filtered to ${coinsToPreScreen.length} coins needing pre-screening (${allMovers.length - coinsToPreScreen.length} skipped due to recent research)`);
 
-      // Reset quota error count for this run
+      // Reset quota state for this run (quotas reset over time)
       this.quotaErrorCount = 0;
+      this.quotaExceeded = false;
       
       // Pre-screen only coins that need it
       for (const mover of coinsToPreScreen) {
