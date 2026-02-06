@@ -11,6 +11,7 @@ import {
 import { formatPercent, formatPrice } from "@/lib/format-utils";
 import api from "@/lib/api";
 import { useTradingData } from "@/contexts/trading-data-context";
+import { useAuth } from "@/contexts/auth-context";
 import { useDebouncedCallback } from "@/lib/use-debounce";
 import { AlertTriangle, ChevronDown, ChevronUp, HelpCircle, RefreshCw, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -26,12 +27,14 @@ interface TradingWindowProps {
     accountName: string;
     accountType: "binance" | "kite" | "upstox";
     isActive: boolean;
+    isDemo?: boolean;
   }>;
   selectedAccount?: {
     _id: string;
     accountName: string;
     accountType: "binance" | "kite" | "upstox";
     isActive: boolean;
+    isDemo?: boolean;
   } | null;
   marketType?: "spot" | "futures";
   onOrderPlaced: () => void;
@@ -89,6 +92,12 @@ const TradingWindow = memo(function TradingWindow({
     loading: contextLoading,
     lastRefresh: contextLastRefresh,
   } = useTradingData();
+
+  // Check if user is authenticated for demo trading restrictions
+  const { isLoggedIn } = useAuth();
+
+  // Helper to check if demo trading is blocked (demo account + not authenticated)
+  const isDemoTradingBlocked = selectedAccount?.isDemo && !isLoggedIn;
 
   const [orderForm, setOrderForm] = useState<OrderForm>({
     accountId: selectedAccount?._id || accounts[0]?._id || "",
@@ -1053,6 +1062,12 @@ const TradingWindow = memo(function TradingWindow({
   ]);
 
   const submitOrder = async () => {
+    // Check if demo account + not authenticated
+    if (isDemoTradingBlocked) {
+      setError("Please sign in to enable demo trading");
+      return;
+    }
+
     if (!orderForm.accountId) {
       setError("Please select a trading account");
       return;
@@ -1918,14 +1933,23 @@ const TradingWindow = memo(function TradingWindow({
             <Button
               variant={orderForm.side === "BUY" ? "success" : "danger"}
               size="sm"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isDemoTradingBlocked}
               onClick={submitOrder}
               className="w-full"
             >
               {isSubmitting
                 ? "Placing Order..."
+                : isDemoTradingBlocked
+                ? "Sign in to Trade"
                 : `${orderForm.side} ${symbol}`}
             </Button>
+
+            {/* Demo trading info message */}
+            {isDemoTradingBlocked && (
+              <div className="mt-2 p-2 text-xs text-center text-muted-foreground bg-muted/50 rounded">
+                Sign in to enable demo trading with testnet funds
+              </div>
+            )}
           </div>
         </TooltipProvider>
 

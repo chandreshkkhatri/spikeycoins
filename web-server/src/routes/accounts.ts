@@ -7,6 +7,7 @@ import {
   deleteAccount,
 } from "../models/account";
 import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
+import { demoAccountService } from "../lib/demo-account-service";
 
 const router: Router = Router();
 
@@ -27,12 +28,20 @@ router.get(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const userId = getUserId(req);
+      let accounts: any[] = [];
 
-      if (!userId) {
-        return res.status(400).json({ error: "User ID is required" });
+      // Get user's personal accounts if authenticated
+      if (userId) {
+        accounts = await getAccountsByUserId(userId);
       }
 
-      const accounts = await getAccountsByUserId(userId);
+      // Append demo account if enabled
+      if (demoAccountService.isDemoAccountEnabled()) {
+        const demoAccount = demoAccountService.getDemoAccount(false);
+        if (demoAccount) {
+          accounts.push(demoAccount);
+        }
+      }
 
       // Remove sensitive data before sending to client
       const safeAccounts = accounts.map((account) => ({

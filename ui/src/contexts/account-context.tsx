@@ -18,6 +18,7 @@ interface TradingAccount {
   accountName: string;
   accountType: 'binance' | 'kite' | 'upstox';
   isActive: boolean;
+  isDemo?: boolean;
   accessToken?: string;
   apiKey?: string;
   apiSecret?: string;
@@ -84,11 +85,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
   const fetchAccounts = useCallback(
     async (isBackground = false) => {
-      // Require authentication - don't fetch if not logged in
-      if (!isLoggedIn || !user?._id) {
-        setLoadingAccounts(false);
-        return;
-      }
+      // Allow fetching without auth for demo account
+      // Backend will return only demo account if not authenticated
 
       // Prevent duplicate fetches
       const now = Date.now();
@@ -101,11 +99,12 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
         return;
       }
 
-      // Use authenticated user ID (no more default_user fallback)
-      const userId = user._id;
+      // Use authenticated user ID if available
+      const userId = user?._id;
 
-      const cacheKey = 'accountsCache';
-      const cacheTimeKey = 'accountsCacheTime';
+      // Use different cache keys for demo vs authenticated
+      const cacheKey = isLoggedIn ? 'accountsCache' : 'demoAccountsCache';
+      const cacheTimeKey = isLoggedIn ? 'accountsCacheTime' : 'demoAccountsCacheTime';
       const cacheTime = 120000; // 2 minutes
 
       const cachedData = localStorage.getItem(cacheKey);
@@ -156,7 +155,11 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
         while (attempt <= maxRetries) {
           try {
-            response = await axios.get(getApiUrl(`${API_ROUTES.accounts.getAccounts}?userId=${userId}`), {
+            // Build URL - include userId only if authenticated
+            const apiUrl = userId
+              ? `${API_ROUTES.accounts.getAccounts}?userId=${userId}`
+              : API_ROUTES.accounts.getAccounts;
+            response = await axios.get(getApiUrl(apiUrl), {
               timeout: 12000,
               headers,
             });
@@ -253,15 +256,10 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
     if (hasInitialized.current) return;
 
-    // Require authentication - don't initialize if not logged in
-    if (!isLoggedIn) {
-      setLoadingAccounts(false);
-      return;
-    }
-
     hasInitialized.current = true;
 
-    const cacheKey = 'accountsCache';
+    // Use different cache keys for demo vs authenticated
+    const cacheKey = isLoggedIn ? 'accountsCache' : 'demoAccountsCache';
     const cachedData = localStorage.getItem(cacheKey);
     const savedAccountId = localStorage.getItem('selectedAccountId');
 

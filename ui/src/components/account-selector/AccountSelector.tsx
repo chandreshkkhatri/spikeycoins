@@ -15,6 +15,7 @@ interface TradingAccount {
   accountName: string;
   accountType: "binance" | "kite" | "upstox";
   isActive: boolean;
+  isDemo?: boolean;
   accessToken?: string;
 }
 
@@ -61,7 +62,8 @@ export default function AccountSelector({
     );
   }
 
-  const getAccountIcon = (accountType: string) => {
+  const getAccountIcon = (accountType: string, isDemo?: boolean) => {
+    if (isDemo) return "🎮";
     switch (accountType) {
       case "binance":
         return "🟡";
@@ -87,11 +89,16 @@ export default function AccountSelector({
           {selectedAccount && (
             <div className="flex items-center gap-2 overflow-hidden">
               <span className="shrink-0 text-xs">
-                {getAccountIcon(selectedAccount.accountType)}
+                {getAccountIcon(selectedAccount.accountType, selectedAccount.isDemo)}
               </span>
               <span className={`truncate text-sm font-medium ${compact ? "hidden md:inline" : ""}`}>
                 {selectedAccount.accountName}
               </span>
+              {selectedAccount.isDemo && (
+                <span className="shrink-0 px-1 py-0.5 text-[10px] font-medium rounded bg-blue-500/10 text-blue-500">
+                  DEMO
+                </span>
+              )}
             </div>
           )}
         </SelectValue>
@@ -101,12 +108,18 @@ export default function AccountSelector({
           <SelectItem key={account._id} value={account._id}>
             <div className="flex items-center gap-2">
               <span className="text-xs">
-                {getAccountIcon(account.accountType)}
+                {getAccountIcon(account.accountType, account.isDemo)}
               </span>
               <span className="font-medium">{account.accountName}</span>
-              <span className="ml-1 text-xs capitalize text-muted-foreground">
-                ({account.accountType})
-              </span>
+              {account.isDemo ? (
+                <span className="ml-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-500/10 text-blue-500">
+                  DEMO
+                </span>
+              ) : (
+                <span className="ml-1 text-xs capitalize text-muted-foreground">
+                  ({account.accountType})
+                </span>
+              )}
             </div>
           </SelectItem>
         ))}

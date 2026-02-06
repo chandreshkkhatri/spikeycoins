@@ -4,6 +4,8 @@ import upstoxService from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
 import pushNotificationService from "../lib/push-notification-service";
 import { getAccountById } from "../models/account";
+import { demoAccountService } from "../lib/demo-account-service";
+import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 
 const router: Router = Router();
 
@@ -16,10 +18,18 @@ router.get("/", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "accountId is required" });
     }
 
-    const account = await getAccountById(accountId as string);
-
-    if (!account) {
-      return res.status(404).json({ error: "Account not found" });
+    // Handle demo account
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId as string)) {
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+    } else {
+      account = await getAccountById(accountId as string);
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
     }
 
     let orders;
@@ -145,7 +155,7 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 // POST /api/orders/place - Place a new order
-router.post("/place", async (req: Request, res: Response) => {
+router.post("/place", optionalAuth, async (req: Request, res: Response) => {
   try {
     const { accountId, ...orderParams } = req.body;
 
@@ -158,11 +168,32 @@ router.post("/place", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "accountId is required" });
     }
 
-    const account = await getAccountById(accountId);
+    // Handle demo account
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId)) {
+      // Check authentication for demo trading
+      const userId = (req as AuthenticatedRequest).user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: "DEMO_TRADING_REQUIRES_AUTH",
+          message: "Please sign in to enable demo trading",
+        });
+      }
 
-    if (!account) {
-      console.log("[Orders/Place] Account not found:", accountId);
-      return res.status(404).json({ error: "Account not found" });
+      // Use demo account credentials from service
+      account = demoAccountService.getDemoAccount(true);
+      if (!account) {
+        return res.status(500).json({ error: "Demo account not configured" });
+      }
+      console.log("[Orders/Place] Using demo account for authenticated user:", userId);
+    } else {
+      // Normal account lookup from database
+      account = await getAccountById(accountId);
+      if (!account) {
+        console.log("[Orders/Place] Account not found:", accountId);
+        return res.status(404).json({ error: "Account not found" });
+      }
     }
 
     let result;
