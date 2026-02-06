@@ -43,7 +43,6 @@ class DemoAccountService {
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    this.initialized = true;
 
     try {
       const config = await getConfigByKey("demo_account");
@@ -55,6 +54,7 @@ class DemoAccountService {
           if (accountName) this.accountName = accountName;
           if (isTestnet !== undefined) this.isTestnet = isTestnet;
           this.enabled = true;
+          this.initialized = true;
           console.log(
             `[DemoAccount] Demo account loaded from DB: ${this.accountName} (testnet: ${this.isTestnet})`
           );
@@ -64,6 +64,8 @@ class DemoAccountService {
     } catch (err) {
       console.warn("[DemoAccount] Failed to load from DB, using env fallback:", err);
     }
+
+    this.initialized = true;
 
     if (this.enabled) {
       console.log(

@@ -186,6 +186,11 @@ router.get("/:id", async (req: Request, res: Response) => {
 async function handleUpdateAccount(req: Request, res: Response) {
   try {
     const { id } = req.params;
+
+    if (demoAccountService.isDemoAccountId(id)) {
+      return res.status(403).json({ error: "Cannot modify demo account" });
+    }
+
     const updates = req.body;
 
     // Don't allow updating certain fields
@@ -233,6 +238,10 @@ router.patch("/:id", handleUpdateAccount);
 router.delete("/:id", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+
+    if (demoAccountService.isDemoAccountId(id)) {
+      return res.status(403).json({ error: "Cannot delete demo account" });
+    }
 
     const success = await deleteAccount(id);
 

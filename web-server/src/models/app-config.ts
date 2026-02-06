@@ -38,7 +38,10 @@ const appConfigSchema = new mongoose.Schema<IAppConfig>(
 const SENSITIVE_FIELDS = ["apiKey", "apiSecret", "accessToken", "refreshToken"];
 
 function isEncrypted(val: string): boolean {
-  return typeof val === "string" && val.includes(":") && val.length > 40;
+  if (typeof val !== "string") return false;
+  const parts = val.split(":");
+  // Encrypted format from encryption.ts: {32-hex-char IV}:{hex-encrypted-data}
+  return parts.length === 2 && /^[0-9a-f]{32}$/.test(parts[0]);
 }
 
 // Auto-encrypt sensitive fields before save
