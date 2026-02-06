@@ -137,7 +137,8 @@ export function Header() {
             pathname?.startsWith(PAGE_ROUTES.ASSETS) ||
             pathname?.startsWith(PAGE_ROUTES.TRADING) ||
             pathname?.startsWith(PAGE_ROUTES.POSITIONS) ||
-            pathname?.startsWith(PAGE_ROUTES.ORDERS)) && (
+            pathname?.startsWith(PAGE_ROUTES.ORDERS) ||
+            pathname?.startsWith(PAGE_ROUTES.ANALYST_DESK)) && (
               <div className="mr-1 md:mr-2">
                 <AccountSelector
                   accounts={tradingAccounts}
@@ -248,7 +249,8 @@ export function Header() {
             pathname?.startsWith(PAGE_ROUTES.ASSETS) ||
             pathname?.startsWith(PAGE_ROUTES.TRADING) ||
             pathname?.startsWith(PAGE_ROUTES.POSITIONS) ||
-            pathname?.startsWith(PAGE_ROUTES.ORDERS)) && (
+            pathname?.startsWith(PAGE_ROUTES.ORDERS) ||
+            pathname?.startsWith(PAGE_ROUTES.ANALYST_DESK)) && (
               <div className="mb-3 px-3">
                 <div className="text-xs font-medium text-muted-foreground mb-2">
                   Selected Account:

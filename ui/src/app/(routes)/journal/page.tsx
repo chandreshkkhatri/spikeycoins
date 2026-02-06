@@ -115,18 +115,33 @@ export default function JournalPage() {
     }
   }, [accountId, period, page, sortBy, sortOrder]);
 
+  // Poll sync status until no longer "syncing", then refresh data
+  const pollSyncUntilDone = useCallback(async () => {
+    for (let i = 0; i < 40; i++) { // max ~2 min
+      await new Promise((r) => setTimeout(r, 3000));
+      const status = await fetchSyncStatus();
+      if (status?.syncStatus !== "syncing") break;
+    }
+    await fetchData();
+  }, [fetchSyncStatus, fetchData]);
+
   // Handle sync
   const handleSync = useCallback(async () => {
     if (!accountId) return;
     try {
       await api.post("/journal/sync", { accountId });
-      await fetchSyncStatus();
-      await fetchData();
+      await fetchSyncStatus(); // immediately show "syncing" state
+      await pollSyncUntilDone();
     } catch (err: any) {
-      console.error("Sync failed:", err);
-      await fetchSyncStatus();
+      if (err?.response?.status === 409) {
+        // Already syncing — just poll until done
+        await pollSyncUntilDone();
+      } else {
+        console.error("Sync failed:", err);
+        await fetchSyncStatus();
+      }
     }
-  }, [accountId, fetchSyncStatus, fetchData]);
+  }, [accountId, fetchSyncStatus, pollSyncUntilDone]);
 
   // Auto-sync on mount if stale
   useEffect(() => {
@@ -141,20 +156,21 @@ export default function JournalPage() {
         (status.lastSyncTime &&
           Date.now() - status.lastSyncTime > AUTO_SYNC_STALE_MS)
       ) {
-        // Trigger sync, then fetch data
+        // Trigger sync in background
         try {
           await api.post("/journal/sync", { accountId });
-          await fetchSyncStatus();
         } catch {
-          // Ignore — might already be syncing
+          // Ignore 409 — might already be syncing
         }
+        await pollSyncUntilDone();
+        return;
       }
 
       await fetchData();
     };
 
     autoSync();
-  }, [accountId, isFutures, fetchSyncStatus, fetchData]);
+  }, [accountId, isFutures, fetchSyncStatus, fetchData, pollSyncUntilDone]);
 
   // Reset auto-sync flag when account changes
   useEffect(() => {

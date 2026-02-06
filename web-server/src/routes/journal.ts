@@ -53,9 +53,13 @@ router.post("/sync", async (req: Request, res: Response) => {
     }
 
     const service = initBinanceService(account);
-    const result = await syncAccount(accountId, userId, service);
 
-    return res.json({ success: true, syncResult: result });
+    // Fire-and-forget — respond immediately, sync runs in background
+    syncAccount(accountId, userId, service).catch((err) => {
+      console.error("Journal background sync error:", err);
+    });
+
+    return res.status(202).json({ success: true, message: "Sync started" });
   } catch (error: any) {
     if (error.message === "Sync already in progress for this account") {
       return res.status(409).json({ error: error.message });

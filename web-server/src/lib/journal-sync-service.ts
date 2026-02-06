@@ -51,6 +51,7 @@ const SYNC_OVERLAP_MS = 60_000; // 60s overlap for clock skew
 const API_DELAY_MS = 100; // delay between API calls
 const MAX_FILLS_PER_REQUEST = 1000;
 const MAX_SYMBOLS = 20;
+const STALE_SYNC_MS = 5 * 60 * 1000; // 5 min — assume crashed if stuck longer
 
 // ── Helpers ────────────────────────────────────────────
 
@@ -464,10 +465,16 @@ export async function syncAccount(
 ): Promise<SyncResult> {
   const startMs = Date.now();
 
-  // Check if already syncing
+  // Check if already syncing (with stale lock recovery)
   let syncState = await JournalSync.findOne({ accountId });
   if (syncState?.syncStatus === "syncing") {
-    throw new Error("Sync already in progress for this account");
+    const staleSince = Date.now() - new Date(syncState.updatedAt).getTime();
+    if (staleSince < STALE_SYNC_MS) {
+      throw new Error("Sync already in progress for this account");
+    }
+    console.warn(
+      `Journal sync [${accountId}]: Resetting stale sync lock (${(staleSince / 1000).toFixed(0)}s old)`,
+    );
   }
 
   // Create or update sync state to "syncing"
