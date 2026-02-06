@@ -54,6 +54,8 @@ interface AccountDetails {
 interface SymbolInfo {
   tickSize: string;
   stepSize: string;
+  minQty: number;
+  minNotional: number;
   maxLeverage: number;
 }
 
@@ -124,6 +126,8 @@ const SUMMARY_CACHE_TTL = 5000; // 5 seconds for summary data
 const DEFAULT_SYMBOL_INFO: SymbolInfo = {
   tickSize: '0.01',
   stepSize: '0.001',
+  minQty: 0,
+  minNotional: 0,
   maxLeverage: 125,
 };
 
@@ -398,6 +402,8 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
           symbolInfo: symInfo ? {
             tickSize: symInfo.tickSize || DEFAULT_SYMBOL_INFO.tickSize,
             stepSize: symInfo.stepSize || DEFAULT_SYMBOL_INFO.stepSize,
+            minQty: symInfo.minQty || DEFAULT_SYMBOL_INFO.minQty,
+            minNotional: symInfo.minNotional || DEFAULT_SYMBOL_INFO.minNotional,
             maxLeverage: symInfo.maxLeverage || posData?.maxLeverage || DEFAULT_SYMBOL_INFO.maxLeverage,
           } : DEFAULT_SYMBOL_INFO,
           position: posData && toSafeNumber(posData.size, 0) !== 0 ? {
@@ -566,6 +572,8 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
         const symbolInfo: SymbolInfo = data.symbolInfo ? {
           tickSize: data.symbolInfo.tickSize || DEFAULT_SYMBOL_INFO.tickSize,
           stepSize: data.symbolInfo.stepSize || DEFAULT_SYMBOL_INFO.stepSize,
+          minQty: data.symbolInfo.minQty || DEFAULT_SYMBOL_INFO.minQty,
+          minNotional: data.symbolInfo.minNotional || DEFAULT_SYMBOL_INFO.minNotional,
           maxLeverage: data.symbolInfo.maxLeverage || DEFAULT_SYMBOL_INFO.maxLeverage,
         } : DEFAULT_SYMBOL_INFO;
 

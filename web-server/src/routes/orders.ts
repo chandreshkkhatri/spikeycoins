@@ -230,9 +230,12 @@ router.post("/place", async (req: Request, res: Response) => {
           ...binanceOrderParams
         } = orderParams;
 
-        // Fetch exchange info to get precision
+        // Fetch exchange info to get precision and filters
         let quantityPrecision = 0;
         let pricePrecision = 2;
+        let stepSize = 0;
+        let minQty = 0;
+        let minNotional = 0;
         try {
           const exchangeInfo = await binanceService.getFuturesExchangeInfo();
           const symbolInfo = exchangeInfo.symbols?.find(
@@ -241,6 +244,23 @@ router.post("/place", async (req: Request, res: Response) => {
           if (symbolInfo) {
             quantityPrecision = symbolInfo.quantityPrecision || 0;
             pricePrecision = symbolInfo.pricePrecision || 2;
+
+            // Extract LOT_SIZE filter
+            const lotSizeFilter = symbolInfo.filters?.find(
+              (f: any) => f.filterType === "LOT_SIZE",
+            );
+            if (lotSizeFilter) {
+              minQty = parseFloat(lotSizeFilter.minQty || "0");
+              stepSize = parseFloat(lotSizeFilter.stepSize || "0");
+            }
+
+            // Extract MIN_NOTIONAL filter
+            const minNotionalFilter = symbolInfo.filters?.find(
+              (f: any) => f.filterType === "MIN_NOTIONAL",
+            );
+            if (minNotionalFilter) {
+              minNotional = parseFloat(minNotionalFilter.minNotional || "0");
+            }
           }
         } catch (infoError) {
           console.warn(
@@ -249,10 +269,19 @@ router.post("/place", async (req: Request, res: Response) => {
           );
         }
 
-        // Helper to round to precision
-        const roundToPrecision = (value: number, precision: number): number => {
+        // Helper to round to precision with stepSize awareness
+        const roundToPrecision = (value: number, precision: number, stepSizeVal: number = 0): number => {
           const factor = Math.pow(10, precision);
-          return Math.floor(value * factor) / factor;
+          let rounded = Math.round(value * factor) / factor;
+
+          // If stepSize is provided, round to nearest stepSize
+          if (stepSizeVal > 0) {
+            rounded = Math.round(rounded / stepSizeVal) * stepSizeVal;
+            // Ensure we don't exceed precision
+            rounded = Math.round(rounded * factor) / factor;
+          }
+
+          return rounded;
         };
 
         // Set leverage if provided
@@ -274,6 +303,7 @@ router.post("/place", async (req: Request, res: Response) => {
         const roundedQuantity = roundToPrecision(
           binanceOrderParams.quantity,
           quantityPrecision,
+          stepSize,
         );
         const roundedPrice = binanceOrderParams.price
           ? roundToPrecision(binanceOrderParams.price, pricePrecision)
@@ -281,6 +311,48 @@ router.post("/place", async (req: Request, res: Response) => {
         const roundedStopPrice = binanceOrderParams.stopPrice
           ? roundToPrecision(binanceOrderParams.stopPrice, pricePrecision)
           : undefined;
+
+        // Validate quantity after rounding
+        if (roundedQuantity <= 0) {
+          throw new Error(
+            `Order quantity after rounding is ${roundedQuantity}. Quantity must be greater than 0. ` +
+            `Try increasing the position size. Minimum quantity: ${minQty}`,
+          );
+        }
+
+        if (minQty > 0 && roundedQuantity < minQty) {
+          throw new Error(
+            `Order quantity ${roundedQuantity} is less than minimum ${minQty} for ${orderParams.symbol}. ` +
+            `Please increase the position size to at least ${minQty}.`,
+          );
+        }
+
+        // Validate notional value
+        if (minNotional > 0) {
+          let notionalPrice = roundedPrice || binanceOrderParams.price || 0;
+
+          // For MARKET orders, try to get mark price
+          if (!notionalPrice && binanceOrderParams.type === "MARKET") {
+            try {
+              notionalPrice = await binanceService.getFuturesMarkPrice(
+                orderParams.symbol,
+              );
+            } catch {
+              // Fallback: use a conservative estimate or reject
+              console.warn(
+                `Could not fetch mark price for ${orderParams.symbol}, skipping notional validation for MARKET order`,
+              );
+            }
+          }
+
+          const notional = roundedQuantity * notionalPrice;
+          if (notional < minNotional) {
+            throw new Error(
+              `Order notional value ${notional.toFixed(2)} is below minimum ${minNotional} for ${orderParams.symbol}. ` +
+              `Required quantity at current price: ${(minNotional / notionalPrice).toFixed(quantityPrecision)}`,
+            );
+          }
+        }
 
         // Build clean order params for Binance
         const cleanOrderParams: any = {

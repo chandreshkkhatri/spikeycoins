@@ -181,6 +181,9 @@ router.get("/summary", async (req: Request, res: Response) => {
             const lotSizeFilter = symbolData.filters?.find(
               (f: any) => f.filterType === "LOT_SIZE"
             );
+            const minNotionalFilter = symbolData.filters?.find(
+              (f: any) => f.filterType === "MIN_NOTIONAL"
+            );
 
             // Get max leverage from brackets
             let maxLeverage = 125;
@@ -191,6 +194,8 @@ router.get("/summary", async (req: Request, res: Response) => {
             response.symbolInfo = {
               tickSize: priceFilter?.tickSize || "0.01",
               stepSize: lotSizeFilter?.stepSize || "0.001",
+              minQty: parseFloat(lotSizeFilter?.minQty || "0"),
+              minNotional: parseFloat(minNotionalFilter?.minNotional || "0"),
               maxLeverage,
             };
           }

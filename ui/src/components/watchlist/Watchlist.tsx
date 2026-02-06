@@ -948,11 +948,13 @@ const Watchlist = memo(function Watchlist({
   }
 
   const renderWatchlistContent = () => (
-    <div className="h-full flex flex-col border-r border-border bg-card overflow-hidden">
+    <div
+      ref={isSearchOpen ? searchContainerRef : null}
+      className="h-full flex flex-col border-r border-border bg-card overflow-hidden"
+    >
       <div className="flex items-center justify-between border-b border-border bg-muted/30 p-3 h-[50px]">
         {isSearchOpen ? (
-          <div 
-            ref={searchContainerRef}
+          <div
             className="flex-1 flex items-center gap-2 animate-in fade-in slide-in-from-right-5 mx-1"
           >
             <Search className="h-4 w-4 text-muted-foreground" />
@@ -1204,6 +1206,10 @@ const Watchlist = memo(function Watchlist({
             onClick={() => {
               setSelectedSymbol(item.symbol);
               setIsMobileWatchlistOpen(false);
+              if (isSearchOpen) {
+                setIsSearchOpen(false);
+                setSearchQuery("");
+              }
             }}
             onContextMenu={(e) => {
               e.preventDefault();

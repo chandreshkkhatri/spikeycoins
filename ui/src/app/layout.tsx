@@ -5,6 +5,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Open Mandi | Trading Platform",
   description: "Multi-broker trading platform with real-time data",
+  icons: {
+    icon: "/logo.svg",
+  },
 };
 
 export default function RootLayout({

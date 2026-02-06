@@ -116,6 +116,8 @@ const TradingWindow = memo(function TradingWindow({
   const [exchangeMaxLeverage, setExchangeMaxLeverage] = useState<number>(125);
   const [tickSize, setTickSize] = useState<string>("0.01");
   const [stepSize, setStepSize] = useState<string>("0.001");
+  const [minQty, setMinQty] = useState<number>(0);
+  const [minNotional, setMinNotional] = useState<number>(0);
   const [isExponentialSlider, setIsExponentialSlider] = useState<boolean>(() => {
     try {
       return localStorage.getItem(EXPONENTIAL_SLIDER_STORAGE_KEY) === "true";
@@ -212,6 +214,8 @@ const TradingWindow = memo(function TradingWindow({
     if (contextSymbolInfo) {
       setTickSize(contextSymbolInfo.tickSize);
       setStepSize(contextSymbolInfo.stepSize);
+      setMinQty(contextSymbolInfo.minQty || 0);
+      setMinNotional(contextSymbolInfo.minNotional || 0);
       setExchangeMaxLeverage(contextSymbolInfo.maxLeverage);
     }
 
@@ -757,14 +761,14 @@ const TradingWindow = memo(function TradingWindow({
     // A click typically fires 1-2 times, a drag fires many more
     sliderChangeCount.current += 1;
 
-    let percentage = value[0];
+    let percentage = value[0] / 100; // Convert from 0-10000 to 0-100
     if (isExponentialSlider) {
       // Map slider (0-100) to percentage (0-100) exponentially
       // y = 100 * (x/100)^2
-      percentage = 100 * Math.pow(value[0] / 100, 2);
+      percentage = 100 * Math.pow(percentage / 100, 2);
     }
-    // Round to integer
-    percentage = Math.round(percentage);
+    // Round to 2 decimal places (0.01%)
+    percentage = Math.round(percentage * 100) / 100;
 
     setPositionSizePercentage(percentage);
     setQuickQuantity(percentage);
@@ -775,18 +779,18 @@ const TradingWindow = memo(function TradingWindow({
     const wasDragging = sliderChangeCount.current > 2;
     sliderChangeCount.current = 0; // Reset for next interaction
 
-    let percentage = value[0];
+    let percentage = value[0] / 100; // Convert from 0-10000 to 0-100
     if (isExponentialSlider) {
-      percentage = 100 * Math.pow(value[0] / 100, 2);
+      percentage = 100 * Math.pow(percentage / 100, 2);
       // No snapping for exponential mode to allow fine control
-      const rounded = Math.round(percentage);
+      const rounded = Math.round(percentage * 100) / 100;
       setPositionSizePercentage(rounded);
       setQuickQuantity(rounded);
     } else {
       // Only snap to nearest 10% on click (not drag)
       if (wasDragging) {
-        // User was dragging - keep the value as-is (already rounded to integer)
-        const rounded = Math.round(percentage);
+        // User was dragging - keep the value as-is (rounded to 0.01%)
+        const rounded = Math.round(percentage * 100) / 100;
         setPositionSizePercentage(rounded);
         setQuickQuantity(rounded);
       } else {
@@ -1071,6 +1075,36 @@ const TradingWindow = memo(function TradingWindow({
     ) {
       setError("Please enter a valid price");
       return;
+    }
+
+    // Validate minimum quantity and notional value
+    const quantity = parseFloat(orderForm.quantity);
+    if (minQty > 0 && quantity < minQty) {
+      setError(
+        `Quantity ${quantity} is below minimum ${minQty} for ${symbol}. ` +
+        `Please increase position size to at least ${minQty}.`
+      );
+      return;
+    }
+
+    // Validate notional value
+    if (minNotional > 0) {
+      const price =
+        orderForm.type === "LIMIT"
+          ? parseFloat(orderForm.price)
+          : currentPrice || 0;
+
+      const notional = quantity * price;
+      if (notional < minNotional) {
+        const requiredQty = (minNotional / price).toFixed(
+          orderForm.quantity.includes(".") ? orderForm.quantity.split(".")[1].length : 0
+        );
+        setError(
+          `Order notional value ${notional.toFixed(2)} is below minimum ${minNotional} for ${symbol}. ` +
+          `Required quantity: ${requiredQty} (at price ${price.toFixed(2)})`
+        );
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -1517,7 +1551,7 @@ const TradingWindow = memo(function TradingWindow({
                 <label className="mb-0">
                   Position Size:{" "}
                   <span className="slider-value-display">
-                    {positionSizePercentage}%
+                    {positionSizePercentage.toFixed(2)}%
                   </span>
                 </label>
                 <div className="flex items-center gap-1.5">
@@ -1551,12 +1585,12 @@ const TradingWindow = memo(function TradingWindow({
                 <Slider
                   value={[
                     isExponentialSlider
-                      ? 100 * Math.sqrt(positionSizePercentage / 100)
-                      : positionSizePercentage,
+                      ? 100 * Math.sqrt(positionSizePercentage / 100) * 100
+                      : positionSizePercentage * 100,
                   ]}
                   onValueChange={handleSliderChange}
                   onValueCommit={handleSliderCommit}
-                  max={100}
+                  max={10000}
                   step={1}
                   className="position-slider"
                 />
@@ -1570,31 +1604,31 @@ const TradingWindow = memo(function TradingWindow({
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([20])}
+                  onClick={() => handleSliderCommit([2000])}
                 >
                   {isExponentialSlider ? "4%" : "20%"}
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([40])}
+                  onClick={() => handleSliderCommit([4000])}
                 >
                   {isExponentialSlider ? "16%" : "40%"}
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([60])}
+                  onClick={() => handleSliderCommit([6000])}
                 >
                   {isExponentialSlider ? "36%" : "60%"}
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([80])}
+                  onClick={() => handleSliderCommit([8000])}
                 >
                   {isExponentialSlider ? "64%" : "80%"}
                 </span>
                 <span
                   className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([100])}
+                  onClick={() => handleSliderCommit([10000])}
                 >
                   100%
                 </span>
@@ -1618,6 +1652,18 @@ const TradingWindow = memo(function TradingWindow({
                   placeholder="0.001"
                   step={stepSize}
                 />
+                {(minQty > 0 || minNotional > 0) && (
+                  <div className="text-[10px] text-muted-foreground mt-1">
+                    {minQty > 0 && (
+                      <div>Min qty: {minQty}</div>
+                    )}
+                    {minNotional > 0 && (
+                      <div>
+                        Min notional: ${minNotional} (at {currentPrice?.toFixed(2) || "current"} price)
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Price (for limit orders) */}
@@ -1940,7 +1986,7 @@ const TradingWindow = memo(function TradingWindow({
                 <div className="form-group mb-0">
                   <div className="flex items-center gap-1 mb-1">
                     <span className="text-[10px] text-muted-foreground">
-                      Max Lev.
+                      Max Lev. Global
                     </span>
                     <TooltipProvider delayDuration={100}>
                       <Tooltip>
