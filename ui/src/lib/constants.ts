@@ -45,6 +45,14 @@ const API_ROUTES = {
     callback: '/api/auth/kite/callback',
     session: '/api/auth/kite/session',
   },
+  journal: {
+    sync: '/api/journal/sync',
+    syncStatus: '/api/journal/sync/status',
+    trades: '/api/journal/trades',
+    stats: '/api/journal/stats',
+    equityChart: '/api/journal/chart/equity',
+    dailyPnlChart: '/api/journal/chart/daily-pnl',
+  },
 } as const;
 
 const API_CONFIG = {

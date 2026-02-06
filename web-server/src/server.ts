@@ -30,6 +30,7 @@ import upstoxRouter from "./routes/upstox";
 import watchlistRouter from "./routes/watchlist";
 import inviteRouter from "./routes/invite";
 import gymRouter from "./routes/gym";
+import journalRouter from "./routes/journal";
 import adminRouter from "./routes/admin";
 
 // Import crypto module
@@ -155,6 +156,7 @@ app.use("/api/upstox", upstoxRouter);
 app.use("/api/watchlist", watchlistRouter);
 app.use("/api/invites", inviteRouter);
 app.use("/api/gym", gymRouter);
+app.use("/api/journal", journalRouter);
 
 // Crypto API routes
 app.use("/api", cryptoRouter);
