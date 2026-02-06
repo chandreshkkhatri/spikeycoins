@@ -183,6 +183,8 @@ const Watchlist = memo(function Watchlist({
   }, [contextMenu.open, closeContextMenu]);
 
   // Handle click outside search to close it
+  // Uses "click" (not "mousedown") so React's onClick on search results
+  // fires first, ensuring setSelectedSymbol runs before the search closes.
   useEffect(() => {
     if (!isSearchOpen) return;
 
@@ -196,8 +198,8 @@ const Watchlist = memo(function Watchlist({
       }
     };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
   }, [isSearchOpen]);
 
   const [sortConfig, setSortConfig] = useState<{
