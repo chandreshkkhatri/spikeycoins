@@ -62,7 +62,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   const [accounts, setAccounts] = useState<TradingAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { isLoggedIn, user, getAccessToken } = useAuth();
+  const { isLoggedIn, user, getAccessToken, isLoading: authLoading } = useAuth();
 
   // Track in-flight requests to prevent duplicates
   const fetchInProgress = useRef(false);
@@ -76,6 +76,9 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
       // User logged out - clear all cached data
       localStorage.removeItem('accountsCache');
       localStorage.removeItem('accountsCacheTime');
+      localStorage.removeItem('demoAccountsCache');
+      localStorage.removeItem('demoAccountsCacheTime');
+      localStorage.removeItem('selectedAccountId');
       setAccounts([]);
       setSelectedAccountState(null);
       setError(null);
@@ -243,20 +246,17 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
     }
   }, []);
 
-  // Single initialization effect
-  const hasInitialized = useRef(false);
-  const lastUserId = useRef<string | null>(null);
+  // Single initialization effect — waits for auth to settle before fetching
+  const lastAuthKey = useRef<string | null>(null);
 
   useEffect(() => {
-    // Reset initialization if user changes
-    if (user?._id !== lastUserId.current) {
-      hasInitialized.current = false;
-      lastUserId.current = user?._id || null;
-    }
+    // Don't initialize until auth is settled
+    if (authLoading) return;
 
-    if (hasInitialized.current) return;
-
-    hasInitialized.current = true;
+    // Only re-run when auth state actually changes
+    const authKey = `${isLoggedIn}:${user?._id || 'none'}`;
+    if (authKey === lastAuthKey.current) return;
+    lastAuthKey.current = authKey;
 
     // Use different cache keys for demo vs authenticated
     const cacheKey = isLoggedIn ? 'accountsCache' : 'demoAccountsCache';
@@ -283,7 +283,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
     // Fetch fresh data (will use cache check inside)
     fetchAccounts();
-  }, [isLoggedIn, user?._id, fetchAccounts]);
+  }, [authLoading, isLoggedIn, user?._id, fetchAccounts]);
 
   const value: AccountContextType = {
     selectedAccount,
