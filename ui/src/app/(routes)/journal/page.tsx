@@ -14,6 +14,7 @@ import type {
   JournalTrade,
   JournalStats,
   SyncStatus,
+  SyncProgressEvent,
   ChartDataPoint,
   JournalPeriod,
 } from "@/components/journal/types";
@@ -57,6 +58,8 @@ export default function JournalPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
 
+  const [syncProgress, setSyncProgress] = useState<SyncProgressEvent | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
   const autoSyncDone = useRef(false);
 
   const accountId = selectedAccount?._id;
@@ -115,33 +118,65 @@ export default function JournalPage() {
     }
   }, [accountId, period, page, sortBy, sortOrder]);
 
-  // Poll sync status until no longer "syncing", then refresh data
-  const pollSyncUntilDone = useCallback(async () => {
-    for (let i = 0; i < 40; i++) { // max ~2 min
-      await new Promise((r) => setTimeout(r, 3000));
-      const status = await fetchSyncStatus();
-      if (status?.syncStatus !== "syncing") break;
-    }
-    await fetchData();
-  }, [fetchSyncStatus, fetchData]);
+  // Open SSE stream for live sync progress
+  const triggerSyncStream = useCallback(() => {
+    if (!accountId) return;
 
-  // Handle sync
+    // Close any existing stream
+    if (sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
+    }
+
+    // Mark as syncing immediately
+    setSyncStatus((prev) => prev ? { ...prev, syncStatus: "syncing" } : prev);
+    setSyncProgress(null);
+
+    const es = new EventSource(`/api/journal/sync/stream?accountId=${accountId}`);
+    sseRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as SyncProgressEvent;
+        setSyncProgress(data);
+
+        if (data.stage === "done" || data.stage === "error") {
+          es.close();
+          sseRef.current = null;
+          setSyncProgress(null);
+          fetchSyncStatus();
+          fetchData();
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      sseRef.current = null;
+      setSyncProgress(null);
+      // Fall back to polling status
+      fetchSyncStatus();
+      fetchData();
+    };
+  }, [accountId, fetchSyncStatus, fetchData]);
+
+  // Handle sync button click
   const handleSync = useCallback(async () => {
     if (!accountId) return;
-    try {
-      await api.post("/journal/sync", { accountId });
-      await fetchSyncStatus(); // immediately show "syncing" state
-      await pollSyncUntilDone();
-    } catch (err: any) {
-      if (err?.response?.status === 409) {
-        // Already syncing — just poll until done
-        await pollSyncUntilDone();
-      } else {
-        console.error("Sync failed:", err);
-        await fetchSyncStatus();
+    triggerSyncStream();
+  }, [accountId, triggerSyncStream]);
+
+  // Clean up SSE on unmount
+  useEffect(() => {
+    return () => {
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
       }
-    }
-  }, [accountId, fetchSyncStatus, pollSyncUntilDone]);
+    };
+  }, []);
 
   // Auto-sync on mount if stale
   useEffect(() => {
@@ -156,13 +191,7 @@ export default function JournalPage() {
         (status.lastSyncTime &&
           Date.now() - status.lastSyncTime > AUTO_SYNC_STALE_MS)
       ) {
-        // Trigger sync in background
-        try {
-          await api.post("/journal/sync", { accountId });
-        } catch {
-          // Ignore 409 — might already be syncing
-        }
-        await pollSyncUntilDone();
+        triggerSyncStream();
         return;
       }
 
@@ -170,7 +199,7 @@ export default function JournalPage() {
     };
 
     autoSync();
-  }, [accountId, isFutures, fetchSyncStatus, fetchData, pollSyncUntilDone]);
+  }, [accountId, isFutures, fetchSyncStatus, fetchData, triggerSyncStream]);
 
   // Reset auto-sync flag when account changes
   useEffect(() => {
@@ -288,6 +317,7 @@ export default function JournalPage() {
             syncStatus={syncStatus}
             onSync={handleSync}
             disabled={!isFutures}
+            progress={syncProgress}
           />
         </div>
       </div>

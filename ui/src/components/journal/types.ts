@@ -62,3 +62,11 @@ export interface ChartDataPoint {
 }
 
 export type JournalPeriod = "7d" | "30d" | "90d" | "all";
+
+export type SyncProgressEvent =
+  | { stage: "discovering" }
+  | { stage: "fetching"; symbol: string; symbolIndex: number; totalSymbols: number }
+  | { stage: "processing"; totalFills: number }
+  | { stage: "persisting" }
+  | { stage: "done"; result: SyncResult }
+  | { stage: "error"; error: string };

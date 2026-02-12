@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { RefreshCw, AlertCircle } from "lucide-react";
-import type { SyncStatus } from "./types";
+import type { SyncStatus, SyncProgressEvent } from "./types";
 
 interface SyncButtonProps {
   syncStatus: SyncStatus | null;
-  onSync: () => Promise<void>;
+  onSync: () => Promise<void> | void;
   disabled?: boolean;
+  progress?: SyncProgressEvent | null;
 }
 
 function formatTimeAgo(timestamp: number): string {
@@ -22,10 +23,26 @@ function formatTimeAgo(timestamp: number): string {
   return `${days}d ago`;
 }
 
+function getProgressText(progress: SyncProgressEvent): string {
+  switch (progress.stage) {
+    case "discovering":
+      return "Discovering symbols...";
+    case "fetching":
+      return `Fetching ${progress.symbol} (${progress.symbolIndex}/${progress.totalSymbols})...`;
+    case "processing":
+      return `Processing ${progress.totalFills} fills...`;
+    case "persisting":
+      return "Saving trades...";
+    default:
+      return "Syncing...";
+  }
+}
+
 export default function SyncButton({
   syncStatus,
   onSync,
   disabled,
+  progress,
 }: SyncButtonProps) {
   const [syncing, setSyncing] = useState(false);
 
@@ -65,9 +82,11 @@ export default function SyncButton({
           className={`h-3.5 w-3.5 ${isSyncing ? "animate-spin" : ""}`}
         />
         {isSyncing
-          ? isInitial
-            ? "Initial sync..."
-            : "Syncing..."
+          ? progress
+            ? getProgressText(progress)
+            : isInitial
+              ? "Initial sync..."
+              : "Syncing..."
           : "Sync"}
       </button>
     </div>

@@ -1,9 +1,21 @@
 import { Router, Request, Response } from "express";
 import GymSession, { IGymTrade } from "../models/gym-session";
 import HistoricalDataCache from "../models/historical-data-cache";
+import { requireAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 import axios from "axios";
 
 const router: Router = Router();
+
+// All gym routes require authentication
+router.use(requireAuth);
+
+// Helper: Calculate percentage PnL
+function calcPctPnl(entryPrice: number, exitPrice: number, side: "LONG" | "SHORT"): number {
+  if (side === "LONG") {
+    return +((( exitPrice - entryPrice) / entryPrice) * 100).toFixed(4);
+  }
+  return +(((entryPrice - exitPrice) / entryPrice) * 100).toFixed(4);
+}
 
 // Supported symbols for gym practice
 const SUPPORTED_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"];
@@ -104,12 +116,9 @@ function obfuscatePrices(
 }
 
 // POST /api/gym/session/new - Create a new gym session
-router.post("/session/new", async (req: Request, res: Response) => {
+router.post("/session/new", async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { userId } = req.body;
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
-    }
+    const userId = req.user!.id;
 
     // Pick random symbol and interval
     const symbol = SUPPORTED_SYMBOLS[Math.floor(Math.random() * SUPPORTED_SYMBOLS.length)];
@@ -168,11 +177,14 @@ router.post("/session/new", async (req: Request, res: Response) => {
 });
 
 // GET /api/gym/session/:id - Get session state
-router.get("/session/:id", async (req: Request, res: Response) => {
+router.get("/session/:id", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const session = await GymSession.findById(req.params.id);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
+    }
+    if (session.userId !== req.user!.id) {
+      return res.status(403).json({ error: "Not authorized" });
     }
 
     const isRevealed = session.status === "REVEALED";
@@ -202,13 +214,16 @@ router.get("/session/:id", async (req: Request, res: Response) => {
 });
 
 // POST /api/gym/session/:id/wait - Advance time (reveal more candles)
-router.post("/session/:id/wait", async (req: Request, res: Response) => {
+router.post("/session/:id/wait", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { candlesToAdvance = 1 } = req.body;
     const session = await GymSession.findById(req.params.id);
-    
+
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
+    }
+    if (session.userId !== req.user!.id) {
+      return res.status(403).json({ error: "Not authorized" });
     }
     if (session.status !== "ACTIVE") {
       return res.status(400).json({ error: "Session is not active" });
@@ -221,21 +236,21 @@ router.post("/session/:id/wait", async (req: Request, res: Response) => {
 
     // Check if any open trades hit SL/TP during the new candles
     const newCandles = session.candles.slice(session.currentCandleIndex, newIndex);
-    
+
     for (const trade of session.trades) {
       if (trade.status !== "OPEN") continue;
 
       for (let i = 0; i < newCandles.length; i++) {
         const candle = newCandles[i];
         const candleIndex = session.currentCandleIndex + i;
-        
+
         if (trade.side === "LONG") {
           // Check SL hit (low <= stopLoss)
           if (candle.low <= trade.stopLoss) {
             trade.status = "STOPPED_OUT";
             trade.exitCandle = candleIndex;
             trade.exitPrice = trade.stopLoss;
-            trade.pnl = trade.stopLoss - trade.entryPrice;
+            trade.pnl = calcPctPnl(trade.entryPrice, trade.stopLoss, "LONG");
             session.totalPnl += trade.pnl;
             break;
           }
@@ -244,7 +259,7 @@ router.post("/session/:id/wait", async (req: Request, res: Response) => {
             trade.status = "TARGET_HIT";
             trade.exitCandle = candleIndex;
             trade.exitPrice = trade.takeProfit;
-            trade.pnl = trade.takeProfit - trade.entryPrice;
+            trade.pnl = calcPctPnl(trade.entryPrice, trade.takeProfit, "LONG");
             session.totalPnl += trade.pnl;
             break;
           }
@@ -255,7 +270,7 @@ router.post("/session/:id/wait", async (req: Request, res: Response) => {
             trade.status = "STOPPED_OUT";
             trade.exitCandle = candleIndex;
             trade.exitPrice = trade.stopLoss;
-            trade.pnl = trade.entryPrice - trade.stopLoss;
+            trade.pnl = calcPctPnl(trade.entryPrice, trade.stopLoss, "SHORT");
             session.totalPnl += trade.pnl;
             break;
           }
@@ -264,7 +279,7 @@ router.post("/session/:id/wait", async (req: Request, res: Response) => {
             trade.status = "TARGET_HIT";
             trade.exitCandle = candleIndex;
             trade.exitPrice = trade.takeProfit;
-            trade.pnl = trade.entryPrice - trade.takeProfit;
+            trade.pnl = calcPctPnl(trade.entryPrice, trade.takeProfit, "SHORT");
             session.totalPnl += trade.pnl;
             break;
           }
@@ -285,6 +300,7 @@ router.post("/session/:id/wait", async (req: Request, res: Response) => {
       success: true,
       session: {
         id: session._id,
+        interval: session.interval,
         currentCandleIndex: session.currentCandleIndex,
         totalCandles: session.candles.length,
         candles: session.candles.slice(0, session.currentCandleIndex),
@@ -300,10 +316,10 @@ router.post("/session/:id/wait", async (req: Request, res: Response) => {
 });
 
 // POST /api/gym/session/:id/trade - Open a new trade
-router.post("/session/:id/trade", async (req: Request, res: Response) => {
+router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { side, stopLoss, takeProfit } = req.body;
-    
+
     if (!side || !["LONG", "SHORT"].includes(side)) {
       return res.status(400).json({ error: "side must be 'LONG' or 'SHORT'" });
     }
@@ -315,6 +331,9 @@ router.post("/session/:id/trade", async (req: Request, res: Response) => {
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
     }
+    if (session.userId !== req.user!.id) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
     if (session.status !== "ACTIVE") {
       return res.status(400).json({ error: "Session is not active" });
     }
@@ -323,6 +342,10 @@ router.post("/session/:id/trade", async (req: Request, res: Response) => {
     const hasOpenTrade = session.trades.some((t) => t.status === "OPEN");
     if (hasOpenTrade) {
       return res.status(400).json({ error: "Close existing trade before opening a new one" });
+    }
+
+    if (session.currentCandleIndex <= 0) {
+      return res.status(400).json({ error: "No candles revealed yet" });
     }
 
     // Get current price (close of last visible candle)
@@ -377,11 +400,14 @@ router.post("/session/:id/trade", async (req: Request, res: Response) => {
 });
 
 // POST /api/gym/session/:id/close - Close open trade at current price
-router.post("/session/:id/close", async (req: Request, res: Response) => {
+router.post("/session/:id/close", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const session = await GymSession.findById(req.params.id);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
+    }
+    if (session.userId !== req.user!.id) {
+      return res.status(403).json({ error: "Not authorized" });
     }
 
     const openTrade = session.trades.find((t) => t.status === "OPEN");
@@ -389,17 +415,16 @@ router.post("/session/:id/close", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "No open trade to close" });
     }
 
+    if (session.currentCandleIndex <= 0) {
+      return res.status(400).json({ error: "No candles revealed yet" });
+    }
+
     // Close at current price
     const currentCandle = session.candles[session.currentCandleIndex - 1];
     openTrade.exitCandle = session.currentCandleIndex - 1;
     openTrade.exitPrice = currentCandle.close;
     openTrade.status = "CLOSED";
-
-    if (openTrade.side === "LONG") {
-      openTrade.pnl = openTrade.exitPrice - openTrade.entryPrice;
-    } else {
-      openTrade.pnl = openTrade.entryPrice - openTrade.exitPrice;
-    }
+    openTrade.pnl = calcPctPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side);
 
     session.totalPnl += openTrade.pnl;
     await session.save();
@@ -420,31 +445,29 @@ router.post("/session/:id/close", async (req: Request, res: Response) => {
 });
 
 // POST /api/gym/session/:id/reveal - Reveal actual symbol and date
-router.post("/session/:id/reveal", async (req: Request, res: Response) => {
+router.post("/session/:id/reveal", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const session = await GymSession.findById(req.params.id);
     if (!session) {
       return res.status(404).json({ error: "Session not found" });
     }
+    if (session.userId !== req.user!.id) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
 
     // Close any open trades at current price before reveal
     const openTrade = session.trades.find((t) => t.status === "OPEN");
-    if (openTrade) {
+    if (openTrade && session.currentCandleIndex > 0) {
       const currentCandle = session.candles[session.currentCandleIndex - 1];
       openTrade.exitCandle = session.currentCandleIndex - 1;
       openTrade.exitPrice = currentCandle.close;
       openTrade.status = "CLOSED";
-
-      if (openTrade.side === "LONG") {
-        openTrade.pnl = openTrade.exitPrice - openTrade.entryPrice;
-      } else {
-        openTrade.pnl = openTrade.entryPrice - openTrade.exitPrice;
-      }
-
+      openTrade.pnl = calcPctPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side);
       session.totalPnl += openTrade.pnl;
     }
 
     session.status = "REVEALED";
+    session.currentCandleIndex = session.candles.length; // Show all candles
     await session.save();
 
     return res.json({
@@ -455,6 +478,9 @@ router.post("/session/:id/reveal", async (req: Request, res: Response) => {
         actualStartTimestamp: session.actualStartTimestamp,
         interval: session.interval,
         priceMultiplier: session.priceMultiplier,
+        currentCandleIndex: session.currentCandleIndex,
+        totalCandles: session.candles.length,
+        candles: session.candles, // All candles after reveal
         trades: session.trades,
         totalPnl: session.totalPnl,
         status: session.status,
@@ -467,12 +493,10 @@ router.post("/session/:id/reveal", async (req: Request, res: Response) => {
 });
 
 // GET /api/gym/sessions - Get user's session history
-router.get("/sessions", async (req: Request, res: Response) => {
+router.get("/sessions", async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { userId, limit = 10 } = req.query;
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
-    }
+    const { limit = 10 } = req.query;
+    const userId = req.user!.id;
 
     const sessions = await GymSession.find({ userId })
       .select("_id interval status totalPnl createdAt actualSymbol")

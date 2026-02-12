@@ -42,6 +42,14 @@ export interface SyncResult {
   syncDurationMs: number;
 }
 
+export type SyncProgressEvent =
+  | { stage: "discovering" }
+  | { stage: "fetching"; symbol: string; symbolIndex: number; totalSymbols: number }
+  | { stage: "processing"; totalFills: number }
+  | { stage: "persisting" }
+  | { stage: "done"; result: SyncResult }
+  | { stage: "error"; error: string };
+
 // ── Constants ──────────────────────────────────────────
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -394,11 +402,14 @@ async function fetchAllFills(
   symbols: string[],
   startTime: number,
   endTime: number,
+  onProgress?: (event: SyncProgressEvent) => void,
 ): Promise<BinanceFill[]> {
   const windows = generateWindows(startTime, endTime);
   const allFills: BinanceFill[] = [];
 
-  for (const symbol of symbols) {
+  for (let si = 0; si < symbols.length; si++) {
+    const symbol = symbols[si];
+    onProgress?.({ stage: "fetching", symbol, symbolIndex: si + 1, totalSymbols: symbols.length });
     for (const window of windows) {
       try {
         const fills = await fetchFillsForWindow(
@@ -462,6 +473,7 @@ export async function syncAccount(
   accountId: string,
   userId: string,
   service: BinanceService,
+  onProgress?: (event: SyncProgressEvent) => void,
 ): Promise<SyncResult> {
   const startMs = Date.now();
 
@@ -507,6 +519,7 @@ export async function syncAccount(
     }
 
     // Discover symbols
+    onProgress?.({ stage: "discovering" });
     const openTrades = await JournalTrade.find({ accountId, status: "OPEN" });
     const openSymbols = [...new Set(openTrades.map((t) => t.symbol))];
     const discoveredSymbols = await discoverSymbols(service, startTime, now);
@@ -535,7 +548,7 @@ export async function syncAccount(
     }
 
     // Fetch fills
-    const allFills = await fetchAllFills(service, allSymbols, startTime, now);
+    const allFills = await fetchAllFills(service, allSymbols, startTime, now, onProgress);
     console.log(`Journal sync [${accountId}]: Fetched ${allFills.length} total fills`);
 
     // Filter out already-consumed fills from open trades
@@ -556,6 +569,7 @@ export async function syncAccount(
     }
 
     // Rebuild states from open trades
+    onProgress?.({ stage: "processing", totalFills: newFills.length });
     const existingStates = rebuildStatesFromOpenTrades(openTrades);
 
     // Process fills through round-trip grouper
@@ -567,6 +581,7 @@ export async function syncAccount(
     );
 
     // Persist completed trades
+    onProgress?.({ stage: "persisting" });
     if (completedTrades.length > 0) {
       await JournalTrade.insertMany(completedTrades);
     }
@@ -611,9 +626,11 @@ export async function syncAccount(
       `${result.openTradesUpdated} open trades, ${result.fillsProcessed} fills processed ` +
       `in ${(result.syncDurationMs / 1000).toFixed(1)}s`,
     );
+    onProgress?.({ stage: "done", result });
     return result;
   } catch (err: any) {
     // Mark sync as errored
+    onProgress?.({ stage: "error", error: err?.message || "Unknown sync error" });
     syncState.syncStatus = "error";
     syncState.lastError = err?.message || "Unknown sync error";
     await syncState.save();

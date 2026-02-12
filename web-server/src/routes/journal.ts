@@ -4,7 +4,7 @@ import { getAccountById } from "../models/account";
 import { demoAccountService } from "../lib/demo-account-service";
 import JournalTrade from "../models/journal-trade";
 import JournalSync from "../models/journal-sync";
-import { syncAccount } from "../lib/journal-sync-service";
+import { syncAccount, SyncProgressEvent } from "../lib/journal-sync-service";
 
 const router: Router = Router();
 
@@ -67,6 +67,67 @@ router.post("/sync", async (req: Request, res: Response) => {
     console.error("Journal sync error:", error);
     return res.status(500).json({
       error: "Failed to sync journal",
+      details: error.message,
+    });
+  }
+});
+
+// ── GET /api/journal/sync/stream (SSE) ─────────────────
+
+router.get("/sync/stream", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { accountId } = req.query;
+    if (!accountId) {
+      res.status(400).json({ error: "accountId is required" });
+      return;
+    }
+
+    const { account, userId } = await resolveAccount(accountId as string);
+    if (account.accountType !== "binance") {
+      res.status(400).json({ error: "Only Binance accounts are supported" });
+      return;
+    }
+    const tradingSegment = account.metadata?.tradingSegment || "spot";
+    if (tradingSegment !== "usdm") {
+      res.status(400).json({
+        error: "Journal sync is only available for Binance Futures accounts",
+      });
+      return;
+    }
+
+    const service = initBinanceService(account);
+
+    // Set SSE headers
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    const send = (event: SyncProgressEvent) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    try {
+      await syncAccount(accountId as string, userId, service, send);
+    } catch {
+      // error event already sent by syncAccount via onProgress
+    }
+
+    res.end();
+  } catch (error: any) {
+    // If headers already sent (unlikely but defensive), just end
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    if (error.message === "Sync already in progress for this account") {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    console.error("Journal sync stream error:", error);
+    res.status(500).json({
+      error: "Failed to start sync stream",
       details: error.message,
     });
   }

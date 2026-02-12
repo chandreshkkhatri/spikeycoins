@@ -10,6 +10,7 @@ import { PAGE_ROUTES } from "@/lib/constants";
 import {
   ArrowRight,
   BookOpen,
+  Coins,
   Dumbbell,
   LayoutDashboard,
   LineChart,
@@ -38,6 +39,13 @@ export default function DashboardPage() {
       icon: BookOpen,
       href: PAGE_ROUTES.ANALYST_DESK,
       gradient: "from-emerald-600 to-teal-600",
+    },
+    {
+      title: "Market Watch",
+      description: "Track crypto markets, top movers, and price trends",
+      icon: Coins,
+      href: PAGE_ROUTES.CRYPTO,
+      gradient: "from-cyan-600 to-blue-600",
     },
     {
       title: "Portfolio",

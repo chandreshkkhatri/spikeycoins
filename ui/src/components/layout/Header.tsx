@@ -175,6 +175,7 @@ export function Header() {
                     src={user.avatar}
                     alt={user.name}
                     className="h-6 w-6 rounded-full"
+                    referrerPolicy="no-referrer"
                   />
                 ) : (
                   <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center">
@@ -297,6 +298,7 @@ export function Header() {
                       src={user.avatar}
                       alt={user.name}
                       className="h-10 w-10 rounded-full"
+                      referrerPolicy="no-referrer"
                     />
                   ) : (
                     <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
