@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import axios, { AxiosInstance } from "axios";
+import Bottleneck from "bottleneck";
 
 /**
  * Binance Service - Unified service for Spot and USD(S)-M Futures trading
@@ -19,11 +20,23 @@ export class BinanceService {
   private static spotExchangeInfoCacheTime: number = 0;
   private static readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
-  // Rate limiting to prevent IP bans - STATIC (Shared)
-  private static requestCount: number = 0;
-  private static requestWindowStart: number = Date.now();
-  private static readonly REQUEST_WINDOW = 60 * 1000; // 1 minute window
-  private static readonly MAX_REQUESTS_PER_WINDOW = 1200; // Conservative limit
+  // ── Rate Limiting (shared across all instances) ──────────────
+  private static readonly WEIGHT_LIMIT = 1200; // Binance 1-min IP weight limit
+  private static readonly WEIGHT_WARN_THRESHOLD = 0.8; // Log warning at 80%
+
+  static readonly limiter = new Bottleneck({
+    reservoir: 1200,
+    reservoirRefreshAmount: 1200,
+    reservoirRefreshInterval: 60 * 1000,
+    maxConcurrent: 10,
+    minTime: 50,
+  });
+
+  // ── Monitoring State ─────────────────────────────────────────
+  private static lastReportedWeight: number = 0;
+  private static weightByEndpoint: Map<string, number> = new Map();
+  private static lastWeightLogTime: number = 0;
+  private static readonly WEIGHT_LOG_INTERVAL = 30_000;
 
   // Base URLs
   private readonly SPOT_BASE_URL = "https://api.binance.com";
@@ -68,6 +81,7 @@ export class BinanceService {
         "X-MBX-APIKEY": apiKey,
       },
     });
+    this.attachInterceptors(this.spotClient);
 
     this.futuresClient = axios.create({
       baseURL: futuresBaseURL,
@@ -76,36 +90,132 @@ export class BinanceService {
         "X-MBX-APIKEY": apiKey,
       },
     });
+    this.attachInterceptors(this.futuresClient);
   }
 
   /**
-   * Check and enforce rate limits
+   * Attach rate-limit response interceptors to an axios instance.
    */
-  private checkRateLimit(): void {
-    const now = Date.now();
+  private attachInterceptors(client: AxiosInstance): void {
+    client.interceptors.response.use(
+      (response) => {
+        const endpoint = response.config.url?.split("?")[0] || "unknown";
+        BinanceService.trackWeight(
+          endpoint,
+          response.headers as Record<string, string>,
+        );
+        return response;
+      },
+      async (error) => {
+        if (
+          error.response?.status === 429 ||
+          error.response?.status === 418
+        ) {
+          const retryAfter = parseInt(
+            error.response.headers?.["retry-after"] || "0",
+            10,
+          );
+          const endpoint = error.config?.url?.split("?")[0] || "unknown";
+          const waitMs =
+            retryAfter > 0 ? retryAfter * 1000 : 60_000;
 
-    // Reset counter if we're in a new window
-    if (
-      now - BinanceService.requestWindowStart >=
-      BinanceService.REQUEST_WINDOW
-    ) {
-      BinanceService.requestCount = 0;
-      BinanceService.requestWindowStart = now;
+          console.warn(
+            `[BinanceRateLimit] 429 received on ${endpoint}. ` +
+              `Pausing reservoir for ${waitMs}ms. Retry-After: ${retryAfter}s`,
+          );
+
+          // Drain reservoir to stop all outgoing requests
+          BinanceService.limiter.updateSettings({ reservoir: 0 });
+
+          // Restore after cooldown
+          setTimeout(() => {
+            console.log(
+              `[BinanceRateLimit] Restoring reservoir after 429 cooldown`,
+            );
+            BinanceService.limiter.updateSettings({
+              reservoir: BinanceService.WEIGHT_LIMIT,
+            });
+          }, waitMs);
+        }
+
+        return Promise.reject(error);
+      },
+    );
+  }
+
+  /**
+   * Extract and log Binance rate limit headers from a response.
+   */
+  private static trackWeight(
+    endpoint: string,
+    headers: Record<string, string>,
+  ): void {
+    const usedWeight = parseInt(
+      headers["x-mbx-used-weight-1m"] ||
+        headers["x-mbx-used-weight"] ||
+        "0",
+      10,
+    );
+    const orderCount = parseInt(
+      headers["x-mbx-order-count-1m"] || "0",
+      10,
+    );
+
+    if (usedWeight > 0) {
+      BinanceService.lastReportedWeight = usedWeight;
+
+      // Track per-endpoint usage
+      const current = BinanceService.weightByEndpoint.get(endpoint) || 0;
+      BinanceService.weightByEndpoint.set(endpoint, current + 1);
+
+      // Dynamically sync reservoir with actual Binance-reported weight
+      const remaining = BinanceService.WEIGHT_LIMIT - usedWeight;
+      if (remaining >= 0) {
+        BinanceService.limiter.updateSettings({ reservoir: remaining });
+      }
+
+      // Warn at threshold
+      const usageRatio = usedWeight / BinanceService.WEIGHT_LIMIT;
+      if (usageRatio >= BinanceService.WEIGHT_WARN_THRESHOLD) {
+        console.warn(
+          `[BinanceRateLimit] WARNING: Weight ${usedWeight}/${BinanceService.WEIGHT_LIMIT} ` +
+            `(${(usageRatio * 100).toFixed(0)}%) - endpoint: ${endpoint}`,
+        );
+      }
+
+      // Periodic summary log
+      const now = Date.now();
+      if (
+        now - BinanceService.lastWeightLogTime >
+        BinanceService.WEIGHT_LOG_INTERVAL
+      ) {
+        BinanceService.lastWeightLogTime = now;
+        const topEndpoints = [...BinanceService.weightByEndpoint.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([ep, count]) => `${ep}:${count}`)
+          .join(", ");
+        console.log(
+          `[BinanceRateLimit] Weight: ${usedWeight}/${BinanceService.WEIGHT_LIMIT} | ` +
+            `Orders: ${orderCount} | Top endpoints: ${topEndpoints}`,
+        );
+        BinanceService.weightByEndpoint.clear();
+      }
     }
+  }
 
-    // Check if we've exceeded the limit
-    if (BinanceService.requestCount >= BinanceService.MAX_REQUESTS_PER_WINDOW) {
-      const waitTime =
-        BinanceService.REQUEST_WINDOW -
-        (now - BinanceService.requestWindowStart);
-      throw new Error(
-        `Rate limit exceeded. Please wait ${Math.ceil(
-          waitTime / 1000,
-        )}s before making more requests. Use websocket streams for live price updates.`,
-      );
-    }
-
-    BinanceService.requestCount++;
+  /**
+   * Get current rate limit status (useful for health checks or logging).
+   */
+  static getRateLimitStatus() {
+    return {
+      lastReportedWeight: BinanceService.lastReportedWeight,
+      weightLimit: BinanceService.WEIGHT_LIMIT,
+      usagePercent: (
+        (BinanceService.lastReportedWeight / BinanceService.WEIGHT_LIMIT) *
+        100
+      ).toFixed(1),
+    };
   }
 
   /**
@@ -144,10 +254,9 @@ export class BinanceService {
    */
   async getSpotAccount() {
     try {
-      this.checkRateLimit();
       const signedParams = this.signRequest();
-      const response = await this.spotClient.get(
-        `/api/v3/account?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.spotClient.get(`/api/v3/account?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -185,8 +294,8 @@ export class BinanceService {
     try {
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
-      const response = await this.spotClient.get(
-        `/api/v3/openOrders?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.spotClient.get(`/api/v3/openOrders?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -206,8 +315,8 @@ export class BinanceService {
   async getSpotAllOrders(symbol: string, limit: number = 500) {
     try {
       const signedParams = this.signRequest({ symbol, limit });
-      const response = await this.spotClient.get(
-        `/api/v3/allOrders?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.spotClient.get(`/api/v3/allOrders?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -234,10 +343,9 @@ export class BinanceService {
     timeInForce?: "GTC" | "IOC" | "FOK";
   }) {
     try {
-      this.checkRateLimit();
       const signedParams = this.signRequest(params);
-      const response = await this.spotClient.post(
-        `/api/v3/order?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.spotClient.post(`/api/v3/order?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -257,8 +365,8 @@ export class BinanceService {
   async cancelSpotOrder(symbol: string, orderId: number) {
     try {
       const signedParams = this.signRequest({ symbol, orderId });
-      const response = await this.spotClient.delete(
-        `/api/v3/order?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.spotClient.delete(`/api/v3/order?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -279,10 +387,9 @@ export class BinanceService {
    */
   async getFuturesAccount() {
     try {
-      this.checkRateLimit();
       const signedParams = this.signRequest();
-      const response = await this.futuresClient.get(
-        `/fapi/v2/account?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v2/account?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -302,8 +409,8 @@ export class BinanceService {
   async getFuturesBalance() {
     try {
       const signedParams = this.signRequest();
-      const response = await this.futuresClient.get(
-        `/fapi/v2/balance?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v2/balance?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -323,8 +430,8 @@ export class BinanceService {
   async getFuturesPositions() {
     try {
       const signedParams = this.signRequest();
-      const response = await this.futuresClient.get(
-        `/fapi/v2/positionRisk?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v2/positionRisk?${signedParams}`),
       );
       // Filter out positions with no quantity
       return response.data.filter(
@@ -347,11 +454,10 @@ export class BinanceService {
    */
   async getFuturesOpenOrders(symbol?: string) {
     try {
-      this.checkRateLimit();
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
-      const response = await this.futuresClient.get(
-        `/fapi/v1/openOrders?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v1/openOrders?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -372,14 +478,13 @@ export class BinanceService {
    */
   async getFuturesOpenAlgoOrders(symbol?: string) {
     try {
-      this.checkRateLimit();
       const params: Record<string, unknown> = {};
       if (symbol) {
         params.symbol = symbol;
       }
       const signedParams = this.signRequest(params);
-      const response = await this.futuresClient.get(
-        `/fapi/v1/openAlgoOrders?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v1/openAlgoOrders?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -413,8 +518,8 @@ export class BinanceService {
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
-      const response = await this.futuresClient.get(
-        `/fapi/v1/allOrders?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v1/allOrders?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -448,8 +553,8 @@ export class BinanceService {
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
-      const response = await this.futuresClient.get(
-        `/fapi/v1/userTrades?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v1/userTrades?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -484,8 +589,8 @@ export class BinanceService {
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
-      const response = await this.futuresClient.get(
-        `/fapi/v1/income?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v1/income?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -525,7 +630,6 @@ export class BinanceService {
     closePosition?: boolean; // When true, closes entire position (mutually exclusive with reduceOnly)
   }) {
     try {
-      this.checkRateLimit();
       // Ensure boolean flags are included correctly
       const apiParams: Record<string, unknown> = { ...params };
       if (typeof apiParams["closePosition"] === "boolean") {
@@ -535,8 +639,8 @@ export class BinanceService {
           : false;
       }
       const signedParams = this.signRequest(apiParams as Record<string, any>);
-      const response = await this.futuresClient.post(
-        `/fapi/v1/order?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.post(`/fapi/v1/order?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -575,8 +679,6 @@ export class BinanceService {
     priceProtect?: boolean;
   }) {
     try {
-      this.checkRateLimit();
-
       // Build API params
       const apiParams: Record<string, unknown> = {
         algoType: "CONDITIONAL", // Required for conditional orders
@@ -614,8 +716,8 @@ export class BinanceService {
       console.log("Placing Binance Algo Order:", apiParams);
 
       const signedParams = this.signRequest(apiParams as Record<string, any>);
-      const response = await this.futuresClient.post(
-        `/fapi/v1/algoOrder?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.post(`/fapi/v1/algoOrder?${signedParams}`),
       );
       console.log("Binance Algo Order response:", response.data);
       return response.data;
@@ -637,8 +739,8 @@ export class BinanceService {
   async cancelFuturesOrder(symbol: string, orderId: number) {
     try {
       const signedParams = this.signRequest({ symbol, orderId });
-      const response = await this.futuresClient.delete(
-        `/fapi/v1/order?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.delete(`/fapi/v1/order?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -658,10 +760,9 @@ export class BinanceService {
    */
   async cancelFuturesAlgoOrder(symbol: string, algoId: number) {
     try {
-      this.checkRateLimit();
       const signedParams = this.signRequest({ symbol, algoId });
-      const response = await this.futuresClient.delete(
-        `/fapi/v1/algoOrder?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.delete(`/fapi/v1/algoOrder?${signedParams}`),
       );
       console.log("Binance Algo Order cancel response:", response.data);
       return response.data;
@@ -682,10 +783,9 @@ export class BinanceService {
    */
   async cancelAllFuturesOrders(symbol: string) {
     try {
-      this.checkRateLimit();
       const signedParams = this.signRequest({ symbol });
-      const response = await this.futuresClient.delete(
-        `/fapi/v1/allOpenOrders?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.delete(`/fapi/v1/allOpenOrders?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -766,10 +866,11 @@ export class BinanceService {
    */
   async getFuturesMarkPrice(symbol: string): Promise<number> {
     try {
-      this.checkRateLimit();
-      const response = await this.futuresClient.get(`/fapi/v1/premiumIndex`, {
-        params: { symbol },
-      });
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v1/premiumIndex`, {
+          params: { symbol },
+        }),
+      );
       return parseFloat(response.data.markPrice);
     } catch (error: any) {
       console.error(
@@ -788,10 +889,9 @@ export class BinanceService {
    */
   async changeFuturesLeverage(symbol: string, leverage: number) {
     try {
-      this.checkRateLimit();
       const signedParams = this.signRequest({ symbol, leverage });
-      const response = await this.futuresClient.post(
-        `/fapi/v1/leverage?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.post(`/fapi/v1/leverage?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -814,10 +914,9 @@ export class BinanceService {
     marginType: "ISOLATED" | "CROSSED",
   ) {
     try {
-      this.checkRateLimit();
       const signedParams = this.signRequest({ symbol, marginType });
-      const response = await this.futuresClient.post(
-        `/fapi/v1/marginType?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.post(`/fapi/v1/marginType?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -843,11 +942,10 @@ export class BinanceService {
    */
   async getFuturesLeverageBrackets(symbol?: string) {
     try {
-      this.checkRateLimit();
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
-      const response = await this.futuresClient.get(
-        `/fapi/v1/leverageBracket?${signedParams}`,
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v1/leverageBracket?${signedParams}`),
       );
       return response.data;
     } catch (error: any) {
@@ -880,8 +978,8 @@ export class BinanceService {
     try {
       // Exchange info is public, no need for signature
       // Using generic futures client to avoid need for credentials if not set
-      const response = await axios.get(
-        `${this.FUTURES_BASE_URL}/fapi/v1/exchangeInfo`,
+      const response = await BinanceService.limiter.schedule(() =>
+        axios.get(`${this.FUTURES_BASE_URL}/fapi/v1/exchangeInfo`),
       );
 
       // Update cache
@@ -904,9 +1002,9 @@ export class BinanceService {
   async getFuturesPremiumIndex(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      const response = await this.futuresClient.get(`/fapi/v1/premiumIndex`, {
-        params,
-      });
+      const response = await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get(`/fapi/v1/premiumIndex`, { params }),
+      );
       return response.data;
     } catch (error: any) {
       console.error(
@@ -925,7 +1023,9 @@ export class BinanceService {
    */
   async testSpotConnectivity() {
     try {
-      const response = await this.spotClient.get("/api/v3/ping");
+      await BinanceService.limiter.schedule(() =>
+        this.spotClient.get("/api/v3/ping"),
+      );
       return { status: "ok", latency: "unknown" };
     } catch (error: any) {
       throw new Error(`Spot connectivity failed: ${error.message}`);
@@ -938,7 +1038,9 @@ export class BinanceService {
   async testFuturesConnectivity() {
     try {
       const start = Date.now();
-      await this.futuresClient.get("/fapi/v1/ping");
+      await BinanceService.limiter.schedule(() =>
+        this.futuresClient.get("/fapi/v1/ping"),
+      );
       const latency = Date.now() - start;
       return { status: "ok", latency: `${latency}ms` };
     } catch (error: any) {
@@ -967,6 +1069,18 @@ export class BinanceService {
     };
   }
 }
+
+// Retry on 429 with exponential backoff (handled by Bottleneck)
+BinanceService.limiter.on("failed", async (error, jobInfo) => {
+  if (error?.response?.status === 429 && jobInfo.retryCount < 2) {
+    const waitMs = Math.min(5000 * Math.pow(2, jobInfo.retryCount), 60000);
+    console.warn(
+      `[BinanceRateLimit] Retrying job after ${waitMs}ms (attempt ${jobInfo.retryCount + 1})`,
+    );
+    return waitMs;
+  }
+  return undefined;
+});
 
 // Export singleton instance - DEPRECATED: Do not use for authenticated concurrent requests
 // Keeping for backward compatibility until all consumers are updated

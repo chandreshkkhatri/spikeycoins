@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import Account from "../models/account";
 import connectDB from "./mongodb";
 import { sendOrderNotification } from "./push-notification-service";
+import { BinanceService } from "./binance-service";
 
 /**
  * Binance Order Monitor Service
@@ -221,7 +222,9 @@ class BinanceOrderMonitor {
       });
 
       // Get listenKey
-      const response = await client.post("/fapi/v1/listenKey");
+      const response = await BinanceService.limiter.schedule(() =>
+        client.post("/fapi/v1/listenKey"),
+      );
       conn.listenKey = response.data.listenKey;
 
       console.log(`[OrderMonitor] Got listenKey for account ${conn.accountId}`);
@@ -446,8 +449,8 @@ class BinanceOrderMonitor {
 
       // Get open orders for the symbol
       const openOrdersParams = signRequest({ symbol });
-      const ordersResponse = await client.get(
-        `/fapi/v1/openOrders?${openOrdersParams}`,
+      const ordersResponse = await BinanceService.limiter.schedule(() =>
+        client.get(`/fapi/v1/openOrders?${openOrdersParams}`),
       );
       const openOrders = ordersResponse.data;
 
@@ -455,8 +458,8 @@ class BinanceOrderMonitor {
       const algoOrdersParams = signRequest({ symbol });
       let algoOrders: any[] = [];
       try {
-        const algoResponse = await client.get(
-          `/fapi/v1/openAlgoOrders?${algoOrdersParams}`,
+        const algoResponse = await BinanceService.limiter.schedule(() =>
+          client.get(`/fapi/v1/openAlgoOrders?${algoOrdersParams}`),
         );
         algoOrders = algoResponse.data?.orders || [];
       } catch (e) {
@@ -478,7 +481,9 @@ class BinanceOrderMonitor {
               symbol,
               orderId: order.orderId,
             });
-            await client.delete(`/fapi/v1/order?${cancelParams}`);
+            await BinanceService.limiter.schedule(() =>
+              client.delete(`/fapi/v1/order?${cancelParams}`),
+            );
             console.log(
               `[OrderMonitor] Cancelled ${order.type} order ${order.orderId} for ${symbol}`,
             );
@@ -498,7 +503,9 @@ class BinanceOrderMonitor {
         if (typesToCancel.includes(orderType)) {
           try {
             const cancelParams = signRequest({ symbol, algoId: order.algoId });
-            await client.delete(`/fapi/v1/algoOrder?${cancelParams}`);
+            await BinanceService.limiter.schedule(() =>
+              client.delete(`/fapi/v1/algoOrder?${cancelParams}`),
+            );
             console.log(
               `[OrderMonitor] Cancelled ${orderType} algo order ${order.algoId} for ${symbol}`,
             );
@@ -554,8 +561,8 @@ class BinanceOrderMonitor {
 
       // Re-verify position is actually 0 before proceeding to cleanup
       const posParams = signRequest();
-      const posResponse = await client.get(
-        `/fapi/v2/positionRisk?${posParams}`,
+      const posResponse = await BinanceService.limiter.schedule(() =>
+        client.get(`/fapi/v2/positionRisk?${posParams}`),
       );
       const position = (posResponse.data || []).find(
         (p: any) => p.symbol === symbol,
@@ -575,8 +582,8 @@ class BinanceOrderMonitor {
 
       // Get all open orders
       const ordersParams = signRequest({ symbol });
-      const ordersResponse = await client.get(
-        `/fapi/v1/openOrders?${ordersParams}`,
+      const ordersResponse = await BinanceService.limiter.schedule(() =>
+        client.get(`/fapi/v1/openOrders?${ordersParams}`),
       );
       const openOrders = ordersResponse.data || [];
 
@@ -622,7 +629,9 @@ class BinanceOrderMonitor {
               symbol: order.symbol,
               orderId: order.orderId,
             });
-            await client.delete(`/fapi/v1/order?${cancelParams}`);
+            await BinanceService.limiter.schedule(() =>
+              client.delete(`/fapi/v1/order?${cancelParams}`),
+            );
             console.log(
               `[OrderMonitor] Cleanup: Cancelled ${order.type} for ${order.symbol}`,
             );
@@ -638,8 +647,8 @@ class BinanceOrderMonitor {
       // Also check and cancel Algo orders
       try {
         const algoParams = signRequest({ symbol });
-        const algoResponse = await client.get(
-          `/fapi/v1/openAlgoOrders?${algoParams}`,
+        const algoResponse = await BinanceService.limiter.schedule(() =>
+          client.get(`/fapi/v1/openAlgoOrders?${algoParams}`),
         );
         // Binance Algo API returns Array directly
         const algoOrders = Array.isArray(algoResponse.data)
@@ -662,7 +671,9 @@ class BinanceOrderMonitor {
                 symbol: order.symbol,
                 algoId: order.algoId,
               });
-              await client.delete(`/fapi/v1/algoOrder?${cancelParams}`);
+              await BinanceService.limiter.schedule(() =>
+                client.delete(`/fapi/v1/algoOrder?${cancelParams}`),
+              );
               console.log(
                 `[OrderMonitor] Cleanup: Cancelled algo ${orderType} for ${order.symbol}`,
               );
@@ -709,9 +720,11 @@ class BinanceOrderMonitor {
         headers: { "X-MBX-APIKEY": conn.apiKey },
       });
 
-      await client.put("/fapi/v1/listenKey", null, {
-        params: { listenKey: conn.listenKey },
-      });
+      await BinanceService.limiter.schedule(() =>
+        client.put("/fapi/v1/listenKey", null, {
+          params: { listenKey: conn.listenKey },
+        }),
+      );
 
       console.log(
         `[OrderMonitor] Renewed listenKey for account ${conn.accountId}`,
@@ -796,9 +809,11 @@ class BinanceOrderMonitor {
           headers: { "X-MBX-APIKEY": conn.apiKey },
         });
 
-        await client.delete("/fapi/v1/listenKey", {
-          params: { listenKey: conn.listenKey },
-        });
+        await BinanceService.limiter.schedule(() =>
+          client.delete("/fapi/v1/listenKey", {
+            params: { listenKey: conn.listenKey },
+          }),
+        );
       } catch (e) {
         // Ignore delete errors
       }
@@ -823,7 +838,8 @@ class BinanceOrderMonitor {
    */
   private async pollOrphanedOrders(): Promise<void> {
     console.log(
-      `[OrderMonitor] Polling heartbeat - checking at ${new Date().toISOString()}`,
+      `[OrderMonitor] Polling heartbeat at ${new Date().toISOString()} | ` +
+        `Rate limit: ${BinanceService.getRateLimitStatus().usagePercent}%`,
     );
     for (const [accountId, conn] of this.connections) {
       try {
@@ -854,8 +870,8 @@ class BinanceOrderMonitor {
 
         // Get current positions
         const posParams = signRequest();
-        const posResponse = await client.get(
-          `/fapi/v2/positionRisk?${posParams}`,
+        const posResponse = await BinanceService.limiter.schedule(() =>
+          client.get(`/fapi/v2/positionRisk?${posParams}`),
         );
         const positions = posResponse.data || [];
 
@@ -870,8 +886,8 @@ class BinanceOrderMonitor {
 
         // Get all open orders (regular orders)
         const ordersParams = signRequest();
-        const ordersResponse = await client.get(
-          `/fapi/v1/openOrders?${ordersParams}`,
+        const ordersResponse = await BinanceService.limiter.schedule(() =>
+          client.get(`/fapi/v1/openOrders?${ordersParams}`),
         );
         const openOrders = ordersResponse.data || [];
 
@@ -879,8 +895,8 @@ class BinanceOrderMonitor {
         let algoOrders: any[] = [];
         try {
           const algoParams = signRequest();
-          const algoResponse = await client.get(
-            `/fapi/v1/openAlgoOrders?${algoParams}`,
+          const algoResponse = await BinanceService.limiter.schedule(() =>
+            client.get(`/fapi/v1/openAlgoOrders?${algoParams}`),
           );
           // Binance Algo API returns Array directly
           algoOrders = Array.isArray(algoResponse.data)

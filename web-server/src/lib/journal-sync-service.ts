@@ -56,16 +56,11 @@ const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const SIX_MONTHS_MS = 180 * 24 * 60 * 60 * 1000;
 const INCOME_CHUNK_MS = 90 * 24 * 60 * 60 * 1000; // Income history ~3 month limit per call
 const SYNC_OVERLAP_MS = 60_000; // 60s overlap for clock skew
-const API_DELAY_MS = 100; // delay between API calls
 const MAX_FILLS_PER_REQUEST = 1000;
 const MAX_SYMBOLS = 20;
 const STALE_SYNC_MS = 5 * 60 * 1000; // 5 min — assume crashed if stuck longer
 
 // ── Helpers ────────────────────────────────────────────
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function stateKey(symbol: string, positionSide: string): string {
   return `${symbol}:${positionSide}`;
@@ -159,7 +154,6 @@ async function discoverSymbols(
       );
     }
     chunkStart = chunkEnd;
-    await delay(API_DELAY_MS);
   }
 
   if (symbols.size > 0) {
@@ -204,15 +198,12 @@ async function fetchFillsForWindow(
     start,
     end,
   );
-  await delay(API_DELAY_MS);
 
   if (fills.length >= MAX_FILLS_PER_REQUEST && end - start > 1000) {
-    // Might have missed fills — subdivide
+    // Might have missed fills — subdivide (sequential to avoid deep queue fan-out)
     const mid = Math.floor((start + end) / 2);
-    const [first, second] = await Promise.all([
-      fetchFillsForWindow(service, symbol, start, mid),
-      fetchFillsForWindow(service, symbol, mid, end),
-    ]);
+    const first = await fetchFillsForWindow(service, symbol, start, mid);
+    const second = await fetchFillsForWindow(service, symbol, mid, end);
     // Deduplicate by id
     const seen = new Set<number>();
     const combined: BinanceFill[] = [];
