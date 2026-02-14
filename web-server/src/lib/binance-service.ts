@@ -37,6 +37,7 @@ export class BinanceService {
   private static weightByEndpoint: Map<string, number> = new Map();
   private static lastWeightLogTime: number = 0;
   private static readonly WEIGHT_LOG_INTERVAL = 30_000;
+  private static cooldownEndTime: number = 0;
 
   // Base URLs
   private readonly SPOT_BASE_URL = "https://api.binance.com";
@@ -68,7 +69,6 @@ export class BinanceService {
     this.apiSecret = apiSecret;
     this.testnet = testnet;
 
-    // Update base URLs based on testnet flag
     const spotBaseURL = testnet ? this.SPOT_TESTNET_URL : this.SPOT_BASE_URL;
     const futuresBaseURL = testnet
       ? this.FUTURES_TESTNET_URL
@@ -77,20 +77,33 @@ export class BinanceService {
     this.spotClient = axios.create({
       baseURL: spotBaseURL,
       timeout: 10000,
-      headers: {
-        "X-MBX-APIKEY": apiKey,
-      },
+      headers: { "X-MBX-APIKEY": apiKey },
     });
     this.attachInterceptors(this.spotClient);
 
     this.futuresClient = axios.create({
       baseURL: futuresBaseURL,
       timeout: 10000,
-      headers: {
-        "X-MBX-APIKEY": apiKey,
-      },
+      headers: { "X-MBX-APIKEY": apiKey },
     });
     this.attachInterceptors(this.futuresClient);
+  }
+
+  /**
+   * Schedule a request through the shared rate limiter.
+   * Fails fast with a user-friendly message if currently in cooldown.
+   */
+  static scheduleRequest<T>(fn: () => Promise<T>): Promise<T> {
+    const remaining = BinanceService.cooldownEndTime - Date.now();
+    if (remaining > 0) {
+      const waitSec = Math.ceil(remaining / 1000);
+      return Promise.reject(
+        new Error(
+          `Rate limited by Binance. Please wait ${waitSec}s before retrying.`,
+        ),
+      );
+    }
+    return BinanceService.limiter.schedule(fn);
   }
 
   /**
@@ -107,6 +120,15 @@ export class BinanceService {
         return response;
       },
       async (error) => {
+        // Track weight even from error responses (Binance sends headers on 429)
+        if (error.response?.headers) {
+          const endpoint = error.config?.url?.split("?")[0] || "unknown";
+          BinanceService.trackWeight(
+            endpoint,
+            error.response.headers as Record<string, string>,
+          );
+        }
+
         if (
           error.response?.status === 429 ||
           error.response?.status === 418
@@ -116,13 +138,16 @@ export class BinanceService {
             10,
           );
           const endpoint = error.config?.url?.split("?")[0] || "unknown";
-          const waitMs =
-            retryAfter > 0 ? retryAfter * 1000 : 60_000;
+          const waitMs = retryAfter > 0 ? retryAfter * 1000 : 60_000;
+          const waitSec = Math.ceil(waitMs / 1000);
 
           console.warn(
             `[BinanceRateLimit] 429 received on ${endpoint}. ` +
-              `Pausing reservoir for ${waitMs}ms. Retry-After: ${retryAfter}s`,
+              `Pausing for ${waitSec}s. Retry-After: ${retryAfter}s`,
           );
+
+          // Set cooldown so scheduleRequest() fails fast with wait time
+          BinanceService.cooldownEndTime = Date.now() + waitMs;
 
           // Drain reservoir to stop all outgoing requests
           BinanceService.limiter.updateSettings({ reservoir: 0 });
@@ -132,10 +157,16 @@ export class BinanceService {
             console.log(
               `[BinanceRateLimit] Restoring reservoir after 429 cooldown`,
             );
+            BinanceService.cooldownEndTime = 0;
             BinanceService.limiter.updateSettings({
               reservoir: BinanceService.WEIGHT_LIMIT,
             });
           }, waitMs);
+
+          // Override error message so it surfaces the wait time to the user
+          if (error.response?.data) {
+            error.response.data.msg = `Rate limited by Binance. Please wait ${waitSec}s before retrying.`;
+          }
         }
 
         return Promise.reject(error);
@@ -164,7 +195,6 @@ export class BinanceService {
     if (usedWeight > 0) {
       BinanceService.lastReportedWeight = usedWeight;
 
-      // Track per-endpoint usage
       const current = BinanceService.weightByEndpoint.get(endpoint) || 0;
       BinanceService.weightByEndpoint.set(endpoint, current + 1);
 
@@ -208,6 +238,10 @@ export class BinanceService {
    * Get current rate limit status (useful for health checks or logging).
    */
   static getRateLimitStatus() {
+    const cooldownRemaining = Math.max(
+      0,
+      BinanceService.cooldownEndTime - Date.now(),
+    );
     return {
       lastReportedWeight: BinanceService.lastReportedWeight,
       weightLimit: BinanceService.WEIGHT_LIMIT,
@@ -215,6 +249,7 @@ export class BinanceService {
         (BinanceService.lastReportedWeight / BinanceService.WEIGHT_LIMIT) *
         100
       ).toFixed(1),
+      cooldownRemainingSec: Math.ceil(cooldownRemaining / 1000),
     };
   }
 
@@ -255,7 +290,7 @@ export class BinanceService {
   async getSpotAccount() {
     try {
       const signedParams = this.signRequest();
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.spotClient.get(`/api/v3/account?${signedParams}`),
       );
       return response.data;
@@ -294,7 +329,7 @@ export class BinanceService {
     try {
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.spotClient.get(`/api/v3/openOrders?${signedParams}`),
       );
       return response.data;
@@ -315,7 +350,7 @@ export class BinanceService {
   async getSpotAllOrders(symbol: string, limit: number = 500) {
     try {
       const signedParams = this.signRequest({ symbol, limit });
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.spotClient.get(`/api/v3/allOrders?${signedParams}`),
       );
       return response.data;
@@ -344,7 +379,7 @@ export class BinanceService {
   }) {
     try {
       const signedParams = this.signRequest(params);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.spotClient.post(`/api/v3/order?${signedParams}`),
       );
       return response.data;
@@ -365,7 +400,7 @@ export class BinanceService {
   async cancelSpotOrder(symbol: string, orderId: number) {
     try {
       const signedParams = this.signRequest({ symbol, orderId });
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.spotClient.delete(`/api/v3/order?${signedParams}`),
       );
       return response.data;
@@ -388,7 +423,7 @@ export class BinanceService {
   async getFuturesAccount() {
     try {
       const signedParams = this.signRequest();
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v2/account?${signedParams}`),
       );
       return response.data;
@@ -409,7 +444,7 @@ export class BinanceService {
   async getFuturesBalance() {
     try {
       const signedParams = this.signRequest();
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v2/balance?${signedParams}`),
       );
       return response.data;
@@ -430,7 +465,7 @@ export class BinanceService {
   async getFuturesPositions() {
     try {
       const signedParams = this.signRequest();
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v2/positionRisk?${signedParams}`),
       );
       // Filter out positions with no quantity
@@ -456,7 +491,7 @@ export class BinanceService {
     try {
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v1/openOrders?${signedParams}`),
       );
       return response.data;
@@ -483,7 +518,7 @@ export class BinanceService {
         params.symbol = symbol;
       }
       const signedParams = this.signRequest(params);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v1/openAlgoOrders?${signedParams}`),
       );
       return response.data;
@@ -518,7 +553,7 @@ export class BinanceService {
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v1/allOrders?${signedParams}`),
       );
       return response.data;
@@ -553,7 +588,7 @@ export class BinanceService {
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v1/userTrades?${signedParams}`),
       );
       return response.data;
@@ -589,7 +624,7 @@ export class BinanceService {
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
       const signedParams = this.signRequest(params);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v1/income?${signedParams}`),
       );
       return response.data;
@@ -633,13 +668,12 @@ export class BinanceService {
       // Ensure boolean flags are included correctly
       const apiParams: Record<string, unknown> = { ...params };
       if (typeof apiParams["closePosition"] === "boolean") {
-        // leave as boolean; URLSearchParams will stringify it
         apiParams["closePosition"] = (apiParams["closePosition"] as boolean)
           ? true
           : false;
       }
       const signedParams = this.signRequest(apiParams as Record<string, any>);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.post(`/fapi/v1/order?${signedParams}`),
       );
       return response.data;
@@ -716,7 +750,7 @@ export class BinanceService {
       console.log("Placing Binance Algo Order:", apiParams);
 
       const signedParams = this.signRequest(apiParams as Record<string, any>);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.post(`/fapi/v1/algoOrder?${signedParams}`),
       );
       console.log("Binance Algo Order response:", response.data);
@@ -739,7 +773,7 @@ export class BinanceService {
   async cancelFuturesOrder(symbol: string, orderId: number) {
     try {
       const signedParams = this.signRequest({ symbol, orderId });
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.delete(`/fapi/v1/order?${signedParams}`),
       );
       return response.data;
@@ -761,7 +795,7 @@ export class BinanceService {
   async cancelFuturesAlgoOrder(symbol: string, algoId: number) {
     try {
       const signedParams = this.signRequest({ symbol, algoId });
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.delete(`/fapi/v1/algoOrder?${signedParams}`),
       );
       console.log("Binance Algo Order cancel response:", response.data);
@@ -784,7 +818,7 @@ export class BinanceService {
   async cancelAllFuturesOrders(symbol: string) {
     try {
       const signedParams = this.signRequest({ symbol });
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.delete(`/fapi/v1/allOpenOrders?${signedParams}`),
       );
       return response.data;
@@ -866,7 +900,7 @@ export class BinanceService {
    */
   async getFuturesMarkPrice(symbol: string): Promise<number> {
     try {
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v1/premiumIndex`, {
           params: { symbol },
         }),
@@ -890,7 +924,7 @@ export class BinanceService {
   async changeFuturesLeverage(symbol: string, leverage: number) {
     try {
       const signedParams = this.signRequest({ symbol, leverage });
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.post(`/fapi/v1/leverage?${signedParams}`),
       );
       return response.data;
@@ -915,7 +949,7 @@ export class BinanceService {
   ) {
     try {
       const signedParams = this.signRequest({ symbol, marginType });
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.post(`/fapi/v1/marginType?${signedParams}`),
       );
       return response.data;
@@ -944,7 +978,7 @@ export class BinanceService {
     try {
       const params = symbol ? { symbol } : {};
       const signedParams = this.signRequest(params);
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v1/leverageBracket?${signedParams}`),
       );
       return response.data;
@@ -978,7 +1012,7 @@ export class BinanceService {
     try {
       // Exchange info is public, no need for signature
       // Using generic futures client to avoid need for credentials if not set
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         axios.get(`${this.FUTURES_BASE_URL}/fapi/v1/exchangeInfo`),
       );
 
@@ -1002,7 +1036,7 @@ export class BinanceService {
   async getFuturesPremiumIndex(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         this.futuresClient.get(`/fapi/v1/premiumIndex`, { params }),
       );
       return response.data;
@@ -1023,7 +1057,7 @@ export class BinanceService {
    */
   async testSpotConnectivity() {
     try {
-      await BinanceService.limiter.schedule(() =>
+      await BinanceService.scheduleRequest(() =>
         this.spotClient.get("/api/v3/ping"),
       );
       return { status: "ok", latency: "unknown" };
@@ -1038,7 +1072,7 @@ export class BinanceService {
   async testFuturesConnectivity() {
     try {
       const start = Date.now();
-      await BinanceService.limiter.schedule(() =>
+      await BinanceService.scheduleRequest(() =>
         this.futuresClient.get("/fapi/v1/ping"),
       );
       const latency = Date.now() - start;

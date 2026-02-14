@@ -222,7 +222,7 @@ class BinanceOrderMonitor {
       });
 
       // Get listenKey
-      const response = await BinanceService.limiter.schedule(() =>
+      const response = await BinanceService.scheduleRequest(() =>
         client.post("/fapi/v1/listenKey"),
       );
       conn.listenKey = response.data.listenKey;
@@ -449,7 +449,7 @@ class BinanceOrderMonitor {
 
       // Get open orders for the symbol
       const openOrdersParams = signRequest({ symbol });
-      const ordersResponse = await BinanceService.limiter.schedule(() =>
+      const ordersResponse = await BinanceService.scheduleRequest(() =>
         client.get(`/fapi/v1/openOrders?${openOrdersParams}`),
       );
       const openOrders = ordersResponse.data;
@@ -458,7 +458,7 @@ class BinanceOrderMonitor {
       const algoOrdersParams = signRequest({ symbol });
       let algoOrders: any[] = [];
       try {
-        const algoResponse = await BinanceService.limiter.schedule(() =>
+        const algoResponse = await BinanceService.scheduleRequest(() =>
           client.get(`/fapi/v1/openAlgoOrders?${algoOrdersParams}`),
         );
         algoOrders = algoResponse.data?.orders || [];
@@ -481,7 +481,7 @@ class BinanceOrderMonitor {
               symbol,
               orderId: order.orderId,
             });
-            await BinanceService.limiter.schedule(() =>
+            await BinanceService.scheduleRequest(() =>
               client.delete(`/fapi/v1/order?${cancelParams}`),
             );
             console.log(
@@ -503,7 +503,7 @@ class BinanceOrderMonitor {
         if (typesToCancel.includes(orderType)) {
           try {
             const cancelParams = signRequest({ symbol, algoId: order.algoId });
-            await BinanceService.limiter.schedule(() =>
+            await BinanceService.scheduleRequest(() =>
               client.delete(`/fapi/v1/algoOrder?${cancelParams}`),
             );
             console.log(
@@ -561,7 +561,7 @@ class BinanceOrderMonitor {
 
       // Re-verify position is actually 0 before proceeding to cleanup
       const posParams = signRequest();
-      const posResponse = await BinanceService.limiter.schedule(() =>
+      const posResponse = await BinanceService.scheduleRequest(() =>
         client.get(`/fapi/v2/positionRisk?${posParams}`),
       );
       const position = (posResponse.data || []).find(
@@ -582,7 +582,7 @@ class BinanceOrderMonitor {
 
       // Get all open orders
       const ordersParams = signRequest({ symbol });
-      const ordersResponse = await BinanceService.limiter.schedule(() =>
+      const ordersResponse = await BinanceService.scheduleRequest(() =>
         client.get(`/fapi/v1/openOrders?${ordersParams}`),
       );
       const openOrders = ordersResponse.data || [];
@@ -629,7 +629,7 @@ class BinanceOrderMonitor {
               symbol: order.symbol,
               orderId: order.orderId,
             });
-            await BinanceService.limiter.schedule(() =>
+            await BinanceService.scheduleRequest(() =>
               client.delete(`/fapi/v1/order?${cancelParams}`),
             );
             console.log(
@@ -647,7 +647,7 @@ class BinanceOrderMonitor {
       // Also check and cancel Algo orders
       try {
         const algoParams = signRequest({ symbol });
-        const algoResponse = await BinanceService.limiter.schedule(() =>
+        const algoResponse = await BinanceService.scheduleRequest(() =>
           client.get(`/fapi/v1/openAlgoOrders?${algoParams}`),
         );
         // Binance Algo API returns Array directly
@@ -671,7 +671,7 @@ class BinanceOrderMonitor {
                 symbol: order.symbol,
                 algoId: order.algoId,
               });
-              await BinanceService.limiter.schedule(() =>
+              await BinanceService.scheduleRequest(() =>
                 client.delete(`/fapi/v1/algoOrder?${cancelParams}`),
               );
               console.log(
@@ -720,7 +720,7 @@ class BinanceOrderMonitor {
         headers: { "X-MBX-APIKEY": conn.apiKey },
       });
 
-      await BinanceService.limiter.schedule(() =>
+      await BinanceService.scheduleRequest(() =>
         client.put("/fapi/v1/listenKey", null, {
           params: { listenKey: conn.listenKey },
         }),
@@ -809,7 +809,7 @@ class BinanceOrderMonitor {
           headers: { "X-MBX-APIKEY": conn.apiKey },
         });
 
-        await BinanceService.limiter.schedule(() =>
+        await BinanceService.scheduleRequest(() =>
           client.delete("/fapi/v1/listenKey", {
             params: { listenKey: conn.listenKey },
           }),
@@ -870,7 +870,7 @@ class BinanceOrderMonitor {
 
         // Get current positions
         const posParams = signRequest();
-        const posResponse = await BinanceService.limiter.schedule(() =>
+        const posResponse = await BinanceService.scheduleRequest(() =>
           client.get(`/fapi/v2/positionRisk?${posParams}`),
         );
         const positions = posResponse.data || [];
@@ -886,7 +886,7 @@ class BinanceOrderMonitor {
 
         // Get all open orders (regular orders)
         const ordersParams = signRequest();
-        const ordersResponse = await BinanceService.limiter.schedule(() =>
+        const ordersResponse = await BinanceService.scheduleRequest(() =>
           client.get(`/fapi/v1/openOrders?${ordersParams}`),
         );
         const openOrders = ordersResponse.data || [];
@@ -895,7 +895,7 @@ class BinanceOrderMonitor {
         let algoOrders: any[] = [];
         try {
           const algoParams = signRequest();
-          const algoResponse = await BinanceService.limiter.schedule(() =>
+          const algoResponse = await BinanceService.scheduleRequest(() =>
             client.get(`/fapi/v1/openAlgoOrders?${algoParams}`),
           );
           // Binance Algo API returns Array directly
