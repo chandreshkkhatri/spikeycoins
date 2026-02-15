@@ -6,6 +6,7 @@
 import axios from 'axios';
 import logger from '../utils/logger';
 import DatabaseConnection from './DatabaseConnection';
+import { BinanceService } from '../../lib/binance-service';
 
 interface MarketOverviewData {
   symbol: string;
@@ -184,16 +185,19 @@ class MarketOverviewService {
     try {
       const symbolsQuery = this.MAJOR_SYMBOLS.map(s => `"${s}"`).join(',');
       const binanceUrl = `https://api.binance.com/api/v3/ticker/24hr?symbols=[${symbolsQuery}]`;
-      
+
       logger.info(`MarketOverviewService: Fetching from ${binanceUrl}`);
-      
-      const response = await axios.get(binanceUrl, {
-        timeout: 15000,
-        headers: { 
-          'User-Agent': 'SpikeCoins/1.0',
-          'Accept': 'application/json'
-        }
-      });
+
+      // Route through BinanceService rate limiter
+      const response = await BinanceService.scheduleRequest(() =>
+        axios.get(binanceUrl, {
+          timeout: 15000,
+          headers: {
+            'User-Agent': 'SpikeCoins/1.0',
+            'Accept': 'application/json'
+          }
+        })
+      );
 
       if (!response.data || !Array.isArray(response.data)) {
         logger.error('MarketOverviewService: Invalid Binance API response format', response.data);
