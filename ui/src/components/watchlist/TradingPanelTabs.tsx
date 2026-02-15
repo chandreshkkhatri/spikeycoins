@@ -143,10 +143,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
   // Read config from localStorage
   const defaultRiskPercent = parseFloat(
-    localStorage.getItem("openMandi_defaultRiskPercent") || "1"
+    localStorage.getItem("spikeyCoins_defaultRiskPercent") || "1"
   );
   const defaultTakeProfitPercent = parseFloat(
-    localStorage.getItem("openMandi_defaultTakeProfitPercent") || "2"
+    localStorage.getItem("spikeyCoins_defaultTakeProfitPercent") || "2"
   );
 
   // State for SL/TP inputs (now includes quantity)

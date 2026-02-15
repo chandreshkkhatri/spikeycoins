@@ -105,7 +105,7 @@ app.use(cookieParser());
 // Session middleware
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "open-mandi-secret-key",
+    secret: process.env.SESSION_SECRET || "spikey-coins-secret-key",
     resave: false,
     saveUninitialized: false,
     cookie: {

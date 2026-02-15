@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: open-mandi-express-backend
+    name: spikey-coins-express-backend
     runtime: node
     rootDir: web-server
     buildCommand: npm install && npm run build

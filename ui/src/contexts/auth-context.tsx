@@ -18,7 +18,7 @@ import api, {
 } from "@/lib/api";
 
 // Storage keys (must match api.ts)
-const USER_KEY = "openMandi_user";
+const USER_KEY = "spikeyCoins_user";
 
 export interface User {
   _id: string;

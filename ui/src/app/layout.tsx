@@ -3,7 +3,7 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Open Mandi | Trading Platform",
+  title: "Spikey Coins | Trading Platform",
   description: "Multi-broker trading platform with real-time data",
   icons: {
     icon: "/logo.svg",

@@ -11,8 +11,8 @@ import api from "./api";
 
 // Settings keys in localStorage
 const THEME_KEY = "theme";
-const CHART_SETTINGS_KEY = "openMandi_chartSettings";
-const WATCHLIST_SETTINGS_KEY = "openMandi_watchlistSettings";
+const CHART_SETTINGS_KEY = "spikeyCoins_chartSettings";
+const WATCHLIST_SETTINGS_KEY = "spikeyCoins_watchlistSettings";
 
 export interface CloudSettings {
   theme: "light" | "dark" | "system";
@@ -57,7 +57,7 @@ class SettingsSyncService {
       return this.getDefaultSettings();
     }
 
-    const token = localStorage.getItem("openMandi_accessToken");
+    const token = localStorage.getItem("spikeyCoins_accessToken");
 
     if (token) {
       try {
@@ -121,7 +121,7 @@ class SettingsSyncService {
   private async syncToServer(): Promise<void> {
     if (typeof window === "undefined") return;
 
-    const token = localStorage.getItem("openMandi_accessToken");
+    const token = localStorage.getItem("spikeyCoins_accessToken");
 
     if (
       !token ||
@@ -238,7 +238,7 @@ class SettingsSyncService {
   async migrateLocalSettingsToServer(): Promise<void> {
     if (typeof window === "undefined") return;
 
-    const token = localStorage.getItem("openMandi_accessToken");
+    const token = localStorage.getItem("spikeyCoins_accessToken");
     if (!token) return;
 
     try {

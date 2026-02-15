@@ -8,7 +8,7 @@ dotenv.config({ path: path.join(__dirname, '../web-server/.env') });
 
 async function runsync() {
   console.log('Connecting to MongoDB...');
-  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/openmandi');
+  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/spikeycoins');
   console.log('Connected.');
 
   console.log('Importing CoinGeckoSyncService...');

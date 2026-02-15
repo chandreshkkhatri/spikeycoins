@@ -99,11 +99,11 @@ export function Header() {
             <div className="flex items-center gap-2 px-2">
               <img
                 src={isDark ? "/logo_dark.png" : "/logo.png"}
-                alt="Open Mandi"
+                alt="Spikey Coins"
                 className="h-12 w-12 rounded-md object-contain"
               />
               <span className="hidden md:block font-bold text-lg">
-                Open Mandi
+                Spikey Coins
               </span>
             </div>
           </Link>
