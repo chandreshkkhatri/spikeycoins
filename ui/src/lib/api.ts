@@ -10,9 +10,9 @@ const IS_LOCALHOST_URL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(EN
 const API_BASE_URL = ENV_API_URL && !IS_LOCALHOST_URL ? ENV_API_URL : '';
 
 // Storage keys (must match auth-context.tsx)
-const ACCESS_TOKEN_KEY = "openMandi_accessToken";
-const REFRESH_TOKEN_KEY = "openMandi_refreshToken";
-const USER_KEY = "openMandi_user";
+const ACCESS_TOKEN_KEY = "spikeyCoins_accessToken";
+const REFRESH_TOKEN_KEY = "spikeyCoins_refreshToken";
+const USER_KEY = "spikeyCoins_user";
 
 // Create axios instance with base URL
 const api = axios.create({

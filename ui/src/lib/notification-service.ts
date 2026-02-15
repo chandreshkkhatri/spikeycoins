@@ -3,7 +3,7 @@
 import api from "./api";
 
 // Storage key for notification permission status
-const NOTIFICATION_PERMISSION_KEY = "openMandi_notificationPermission";
+const NOTIFICATION_PERMISSION_KEY = "spikeyCoins_notificationPermission";
 
 /**
  * Check if push notifications are supported in this browser

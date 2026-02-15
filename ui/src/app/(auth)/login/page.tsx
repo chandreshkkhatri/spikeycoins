@@ -99,11 +99,11 @@ function LoginForm() {
         <div className="text-center">
           <img
             src={isDark ? "/logo_dark.png" : "/logo.png"}
-            alt="Open Mandi"
+            alt="Spikey Coins"
             className="h-48 w-48 mx-auto mb-0 rounded-lg object-contain"
           />
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            Open Mandi
+            Spikey Coins
           </h1>
 
           <p className="mt-2 text-sm text-muted-foreground">

@@ -1,6 +1,6 @@
-# Open Mandi Express Backend
+# Spikey Coins Express Backend
 
-Express backend for the Open Mandi trading platform.
+Express backend for the Spikey Coins trading platform.
 
 ## Features
 

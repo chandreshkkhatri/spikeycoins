@@ -65,12 +65,12 @@ interface RetryState {
 }
 
 const DETAILS_REFRESH_INTERVAL = 60000; // 60 seconds between automatic refreshes
-const EXPONENTIAL_SLIDER_STORAGE_KEY = "openMandi_isExponentialSlider";
-const DEFAULT_RISK_PERCENT_STORAGE_KEY = "openMandi_defaultRiskPercent";
-const DEFAULT_TP_PERCENT_STORAGE_KEY = "openMandi_defaultTakeProfitPercent";
-const USER_MAX_LEVERAGE_STORAGE_KEY = "openMandi_userMaxLeverage";
-const USE_SL_TP_SLIDER_STORAGE_KEY = "openMandi_useSlTpSlider";
-const SYMBOL_LEVERAGES_STORAGE_KEY = "openMandi_symbolLeverages";
+const EXPONENTIAL_SLIDER_STORAGE_KEY = "spikeyCoins_isExponentialSlider";
+const DEFAULT_RISK_PERCENT_STORAGE_KEY = "spikeyCoins_defaultRiskPercent";
+const DEFAULT_TP_PERCENT_STORAGE_KEY = "spikeyCoins_defaultTakeProfitPercent";
+const USER_MAX_LEVERAGE_STORAGE_KEY = "spikeyCoins_userMaxLeverage";
+const USE_SL_TP_SLIDER_STORAGE_KEY = "spikeyCoins_useSlTpSlider";
+const SYMBOL_LEVERAGES_STORAGE_KEY = "spikeyCoins_symbolLeverages";
 
 const TradingWindow = memo(function TradingWindow({
   symbol,

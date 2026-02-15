@@ -6,7 +6,7 @@ import connectDB from "./mongodb";
 // Generate with: npx web-push generate-vapid-keys
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@openmandi.com";
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@spikeycoins.com";
 
 // Initialize web-push with VAPID keys
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {

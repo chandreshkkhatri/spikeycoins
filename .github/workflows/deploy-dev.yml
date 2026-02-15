@@ -26,7 +26,7 @@ jobs:
             source ~/.bashrc 2>/dev/null || source ~/.profile 2>/dev/null || true
 
             echo "📦 Pulling latest code..."
-            cd ~/deployments/dev/openmandi
+            cd ~/deployments/dev/spikeycoins
             git fetch origin development
             git reset --hard origin/development
             cd web-server
@@ -38,7 +38,7 @@ jobs:
             pnpm build
 
             echo "🚀 Restarting server..."
-            pm2 restart openmandi-backend
+            pm2 restart spikeycoins-backend
 
             echo "✅ Deployment complete!"
             pm2 status

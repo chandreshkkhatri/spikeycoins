@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# EC2 Setup Script for Open Mandi Backend
+# EC2 Setup Script for Spikey Coins Backend
 
 set -e # Exit on error
 
-echo "🚀 Starting Open Mandi EC2 Setup..."
+echo "🚀 Starting Spikey Coins EC2 Setup..."
 
 # Detect OS
 if [ -f /etc/os-release ]; then
@@ -70,8 +70,8 @@ NODE_ENV=development
 
 # URLs
 BASE_URL=http://localhost:8000
-FRONTEND_URL=https://dev.openmandi.com
-ALLOWED_ORIGINS=https://dev.openmandi.com,http://localhost:3000
+FRONTEND_URL=https://dev.spikeycoins.com
+ALLOWED_ORIGINS=https://dev.spikeycoins.com,http://localhost:3000
 
 # Auth
 # NOTE: YOU MUST SET THESE MANUALLY
@@ -90,7 +90,7 @@ ENCRYPTION_KEY=change_this_to_random_string
 # Generated automatically, replace if you have existing keys
 VAPID_PUBLIC_KEY=BPFVtOPGg8bWhfBfh69g_LgrcobbLh4nMnpD0N6li8o3yTD5ax6oiupvNXIM27emesk7bsDqx7zv5qMlYYD0rfE
 VAPID_PRIVATE_KEY=ePJyxjiZhi0k_TVYQfo2PeIcg5BJG1lC-zlFVIXgHoM
-VAPID_SUBJECT=mailto:admin@openmandi.com
+VAPID_SUBJECT=mailto:admin@spikeycoins.com
 EOF
     fi
     echo "⚠️  IMPORTANT: .env created. Please edit it and set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET!"

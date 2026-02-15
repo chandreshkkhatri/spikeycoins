@@ -1,4 +1,4 @@
-# Quick Start Guide - Open Mandi Express Backend
+# Quick Start Guide - Spikey Coins Express Backend
 
 ## 1. Install Dependencies
 

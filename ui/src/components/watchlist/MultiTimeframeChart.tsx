@@ -64,7 +64,7 @@ const DEFAULT_TIMEFRAMES = [
   { interval: "5m", label: "5 Minutes", index: 3 },
 ];
 
-const CHART_SETTINGS_KEY = "openMandi_chartSettings";
+const CHART_SETTINGS_KEY = "spikeyCoins_chartSettings";
 const CHART_SETTINGS_VERSION = 2; // Increment when schema changes
 
 interface ChartSettings {
