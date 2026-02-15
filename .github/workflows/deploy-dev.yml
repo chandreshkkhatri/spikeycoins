@@ -38,7 +38,7 @@ jobs:
             pnpm build
 
             echo "🚀 Restarting server..."
-            pm2 restart spikeycoins-backend
+            pm2 restart spikey-coins-backend
 
             echo "✅ Deployment complete!"
             pm2 status

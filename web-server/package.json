@@ -1,5 +1,5 @@
 {
-  "name": "open-mandi-express-backend",
+  "name": "spikey-coins-express-backend",
   "version": "1.0.0",
   "description": "Express backend for Spikey Coins trading platform",
   "main": "dist/server.js",

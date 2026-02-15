@@ -181,7 +181,7 @@ Build output will be in the `dist/` directory.
 | ----------------- | -------------------------------------- | ------------------------------------------- |
 | `PORT`            | Server port                            | 3001                                        |
 | `NODE_ENV`        | Environment                            | development                                 |
-| `MONGODB_URI`     | MongoDB connection string              | mongodb://localhost:27017/open-mandi         |
+| `MONGODB_URI`     | MongoDB connection string              | mongodb://localhost:27017/spikey-coins         |
 | `ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | http://localhost:3000,http://localhost:5173 |
 | `SESSION_SECRET`  | Session encryption secret              | (required)                                  |
 
