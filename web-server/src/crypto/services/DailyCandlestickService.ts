@@ -8,6 +8,7 @@ import DatabaseConnection from "./DatabaseConnection";
 import DataManager from "../core/DataManager";
 import { CandlestickModel } from "../models/Candlestick";
 import logger from "../utils/logger";
+import { BinanceService } from "../../lib/binance-service";
 
 interface DailyCandle {
   symbol: string;
@@ -211,14 +212,16 @@ class DailyCandlestickService {
       const axios = (await import('axios')).default;
       
       // Fetch last 10 days of daily candles
-      const response = await axios.get('https://api.binance.com/api/v3/klines', {
-        params: {
-          symbol: symbol,
-          interval: '1d',
-          limit: this.DAYS_TO_KEEP,
-        },
-        timeout: 5000,
-      });
+      const response = await BinanceService.scheduleRequest(() => 
+        axios.get('https://api.binance.com/api/v3/klines', {
+          params: {
+            symbol: symbol,
+            interval: '1d',
+            limit: this.DAYS_TO_KEEP,
+          },
+          timeout: 5000,
+        })
+      );
 
       if (response.data && response.data.length > 0) {
         const candles = response.data.map((kline: any) => ({

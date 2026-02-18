@@ -27,7 +27,7 @@ interface ResearchResult {
   timeframe: '24h' | '7d';
   researchContent: string;
   sources: {
-    type: 'reddit' | 'news' | 'forum' | 'twitter' | 'other';
+    type: string;
     url: string;
     title?: string;
     summary?: string;

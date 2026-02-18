@@ -12,7 +12,7 @@ export interface IResearch extends Document {
   timeframe: '24h' | '7d';
   researchContent: string;
   sources: {
-    type: 'reddit' | 'news' | 'forum' | 'twitter' | 'other';
+    type: string;
     url: string;
     title?: string;
     summary?: string;
@@ -34,7 +34,7 @@ export interface Research {
   timeframe: '24h' | '7d';
   researchContent: string;
   sources: {
-    type: 'reddit' | 'news' | 'forum' | 'twitter' | 'other';
+    type: string;
     url: string;
     title?: string;
     summary?: string;
@@ -75,7 +75,6 @@ const researchSchema = new Schema<IResearch>({
   sources: [{
     type: {
       type: String,
-      enum: ['reddit', 'news', 'forum', 'twitter', 'other'],
       required: true,
     },
     url: {

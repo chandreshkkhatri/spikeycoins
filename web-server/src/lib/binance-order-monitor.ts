@@ -84,6 +84,7 @@ class BinanceOrderMonitor {
   private connections: Map<string, AccountConnection> = new Map();
   private pollingInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
+  private isPolling = false;
 
   // Constants
   private readonly LISTEN_KEY_RENEWAL_MS = 30 * 60 * 1000; // 30 minutes
@@ -523,6 +524,91 @@ class BinanceOrderMonitor {
   }
 
   /**
+   * Optimized cleanup for SL/TP orders using already fetched data
+   */
+  private async cleanupOrdersForSymbolOptimized(
+    conn: AccountConnection,
+    symbol: string,
+    currentAmt: number,
+    openOrders: any[],
+    algoOrders: any[]
+  ): Promise<void> {
+    try {
+      const axios = (await import("axios")).default;
+      const crypto = (await import("crypto")).default;
+
+      const baseUrl = conn.testnet
+        ? "https://testnet.binancefuture.com"
+        : "https://fapi.binance.com";
+
+      const client = axios.create({
+        baseURL: baseUrl,
+        headers: { "X-MBX-APIKEY": conn.apiKey },
+      });
+
+      const signRequest = (params: Record<string, any> = {}) => {
+        const timestamp = Date.now();
+        params.timestamp = timestamp;
+        const queryString = new URLSearchParams(
+          Object.entries(params).map(([k, v]) => [k, String(v)]),
+        ).toString();
+        const signature = crypto
+          .createHmac("sha256", conn.apiSecret)
+          .update(queryString)
+          .digest("hex");
+        return `${queryString}&signature=${signature}`;
+      };
+
+      if (currentAmt !== 0) {
+        console.log(`[OrderMonitor] Cleanup aborted for ${symbol}: Position is not 0 (${currentAmt})`);
+        return;
+      }
+
+      // Check for pending entry orders (reduceOnly = false)
+      const hasPendingEntryOrder = openOrders.some((o: any) => {
+        const isReduceOnly = o.reduceOnly === true || o.reduceOnly === "true";
+        const isClosePosition = o.closePosition === true || o.closePosition === "true";
+        return !isReduceOnly && !isClosePosition;
+      });
+
+      if (hasPendingEntryOrder) {
+        console.log(`[OrderMonitor] Cleanup aborted for ${symbol}: Found pending entry order(s). SL/TP orders preserved.`);
+        return;
+      }
+
+      const conditionalTypes = ["STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"];
+      
+      // Cancel SL/TP orders
+      for (const order of openOrders) {
+        if (conditionalTypes.includes(order.type)) {
+          try {
+            const cancelParams = signRequest({ symbol: order.symbol, orderId: order.orderId });
+            await BinanceService.scheduleRequest(() => client.delete(`/fapi/v1/order?${cancelParams}`));
+            console.log(`[OrderMonitor] Cleanup: Cancelled ${order.type} for ${order.symbol}`);
+          } catch (e: any) {
+            console.error(`[OrderMonitor] Cleanup: Failed to cancel ${order.orderId}:`, e.message);
+          }
+        }
+      }
+
+      for (const order of algoOrders) {
+        const orderType = order.orderType || order.type;
+        if (conditionalTypes.includes(orderType)) {
+          try {
+            const cancelParams = signRequest({ symbol: order.symbol, algoId: order.algoId });
+            await BinanceService.scheduleRequest(() => client.delete(`/fapi/v1/algoOrder?${cancelParams}`));
+            console.log(`[OrderMonitor] Cleanup: Cancelled algo ${orderType} for ${order.symbol}`);
+          } catch (e: any) {
+            console.error(`[OrderMonitor] Cleanup: Failed to cancel algo ${order.algoId}:`, e.message);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[OrderMonitor] Error in optimized cleanup for ${symbol}:`, error);
+    }
+  }
+
+  /**
    * Clean up all SL/TP orders for a specific symbol (used when position is closed)
    */
   private async cleanupOrdersForSymbol(
@@ -837,120 +923,96 @@ class BinanceOrderMonitor {
    * Poll for orphaned SL/TP orders (no corresponding position)
    */
   private async pollOrphanedOrders(): Promise<void> {
-    console.log(
-      `[OrderMonitor] Polling heartbeat at ${new Date().toISOString()} | ` +
-        `Rate limit: ${BinanceService.getRateLimitStatus().usagePercent}%`,
-    );
-    for (const [accountId, conn] of this.connections) {
-      try {
-        const axios = (await import("axios")).default;
-        const crypto = (await import("crypto")).default;
+    if (this.isPolling) return;
+    this.isPolling = true;
 
-        const baseUrl = conn.testnet
-          ? "https://testnet.binancefuture.com"
-          : "https://fapi.binance.com";
-
-        const client = axios.create({
-          baseURL: baseUrl,
-          headers: { "X-MBX-APIKEY": conn.apiKey },
-        });
-
-        const signRequest = (params: Record<string, any> = {}) => {
-          const timestamp = Date.now();
-          params.timestamp = timestamp;
-          const queryString = new URLSearchParams(
-            Object.entries(params).map(([k, v]) => [k, String(v)]),
-          ).toString();
-          const signature = crypto
-            .createHmac("sha256", conn.apiSecret)
-            .update(queryString)
-            .digest("hex");
-          return `${queryString}&signature=${signature}`;
-        };
-
-        // Get current positions
-        const posParams = signRequest();
-        const posResponse = await BinanceService.scheduleRequest(() =>
-          client.get(`/fapi/v2/positionRisk?${posParams}`),
-        );
-        const positions = posResponse.data || [];
-
-        // Build set of symbols with open positions
-        const symbolsWithPosition = new Set<string>();
-        for (const pos of positions) {
-          const amt = parseFloat(pos.positionAmt);
-          if (amt !== 0) {
-            symbolsWithPosition.add(pos.symbol);
-          }
-        }
-
-        // Get all open orders (regular orders)
-        const ordersParams = signRequest();
-        const ordersResponse = await BinanceService.scheduleRequest(() =>
-          client.get(`/fapi/v1/openOrders?${ordersParams}`),
-        );
-        const openOrders = ordersResponse.data || [];
-
-        // Also get Algo orders (conditional orders like STOP_MARKET, TAKE_PROFIT_MARKET)
-        let algoOrders: any[] = [];
+    try {
+      console.log(
+        `[OrderMonitor] Polling heartbeat at ${new Date().toISOString()} | ` +
+          `Rate limit: ${BinanceService.getRateLimitStatus().usagePercent}%`,
+      );
+      for (const [accountId, conn] of this.connections) {
         try {
-          const algoParams = signRequest();
-          const algoResponse = await BinanceService.scheduleRequest(() =>
-            client.get(`/fapi/v1/openAlgoOrders?${algoParams}`),
-          );
-          // Binance Algo API returns Array directly
-          algoOrders = Array.isArray(algoResponse.data)
-            ? algoResponse.data
-            : [];
-        } catch (e) {
-          // Algo orders endpoint might fail, continue with regular orders
-          console.warn(
-            `[OrderMonitor] Could not fetch algo orders for account ${accountId}`,
-          );
-        }
+          const axios = (await import("axios")).default;
+          const crypto = (await import("crypto")).default;
 
-        // Find symbols that have open orders but no position
-        const allSymbolsWithOrders = new Set<string>();
-        for (const order of openOrders) {
-          allSymbolsWithOrders.add(order.symbol);
-        }
-        // Include symbols from Algo orders as well
-        for (const order of algoOrders) {
-          allSymbolsWithOrders.add(order.symbol);
-        }
+          const baseUrl = conn.testnet
+            ? "https://testnet.binancefuture.com"
+            : "https://fapi.binance.com";
 
-        if (allSymbolsWithOrders.size > 0 || symbolsWithPosition.size > 0) {
-          console.log(
-            `[OrderMonitor] Polling account ${accountId}: ${
-              symbolsWithPosition.size
-            } positions [${Array.from(symbolsWithPosition).join(
-              ", ",
-            )}], ${allSymbolsWithOrders.size} symbols with orders [${Array.from(
-              allSymbolsWithOrders,
-            ).join(", ")}]`,
+          const client = axios.create({
+            baseURL: baseUrl,
+            headers: { "X-MBX-APIKEY": conn.apiKey },
+          });
+
+          const signRequest = (params: Record<string, any> = {}) => {
+            const timestamp = Date.now();
+            params.timestamp = timestamp;
+            const queryString = new URLSearchParams(
+              Object.entries(params).map(([k, v]) => [k, String(v)]),
+            ).toString();
+            const signature = crypto
+              .createHmac("sha256", conn.apiSecret)
+              .update(queryString)
+              .digest("hex");
+            return `${queryString}&signature=${signature}`;
+          };
+
+          // Get current positions
+          const posParams = signRequest();
+          const posResponse = await BinanceService.scheduleRequest(() =>
+            client.get(`/fapi/v2/positionRisk?${posParams}`),
           );
-        }
+          const positions = posResponse.data || [];
 
-        // Clean up symbols that have orders but no position
-        for (const symbol of allSymbolsWithOrders) {
-          if (!symbolsWithPosition.has(symbol)) {
-            console.log(
-              `[OrderMonitor] Found orphaned orders for ${symbol}, cleaning up...`,
-            );
-            await this.cleanupOrdersForSymbol(conn, symbol);
+          // Build map of symbol -> positionAmt
+          const symbolPositions = new Map<string, number>();
+          for (const pos of positions) {
+            symbolPositions.set(pos.symbol, parseFloat(pos.positionAmt));
           }
-        }
 
-        // Note: The previous implementation iterated over orders directly.
-        // The cleanupOrdersForSymbol method re-fetches orders, which is slightly inefficient if we already have them.
-        // However, for code consistency and since this is a fallback poller (every 30s), it is acceptable.
-        // If optimization is needed, we could pass the orders list to cleanupOrdersForSymbol, but that would complicate the signature.
-      } catch (error) {
-        console.error(
-          `[OrderMonitor] Polling error for account ${accountId}:`,
-          error,
-        );
+          // Get all open orders (regular orders)
+          const ordersParams = signRequest();
+          const ordersResponse = await BinanceService.scheduleRequest(() =>
+            client.get(`/fapi/v1/openOrders?${ordersParams}`),
+          );
+          const openOrders = ordersResponse.data || [];
+
+          // Also get Algo orders
+          let algoOrders: any[] = [];
+          try {
+            const algoParams = signRequest();
+            const algoResponse = await BinanceService.scheduleRequest(() =>
+              client.get(`/fapi/v1/openAlgoOrders?${algoParams}`),
+            );
+            algoOrders = Array.isArray(algoResponse.data) ? algoResponse.data : [];
+          } catch (e) {
+            console.warn(`[OrderMonitor] Could not fetch algo orders for account ${accountId}`);
+          }
+
+          // Find symbols that have open orders but no position
+          const symbolsWithOrders = new Set<string>();
+          for (const order of openOrders) symbolsWithOrders.add(order.symbol);
+          for (const order of algoOrders) symbolsWithOrders.add(order.symbol);
+
+          for (const symbol of symbolsWithOrders) {
+            const currentAmt = symbolPositions.get(symbol) || 0;
+            if (currentAmt === 0) {
+              const symbolOpenOrders = openOrders.filter((o: any) => o.symbol === symbol);
+              const symbolAlgoOrders = algoOrders.filter((o: any) => o.symbol === symbol);
+              
+              if (symbolOpenOrders.length > 0 || symbolAlgoOrders.length > 0) {
+                console.log(`[OrderMonitor] Found orphaned orders for ${symbol}, cleaning up...`);
+                await this.cleanupOrdersForSymbolOptimized(conn, symbol, currentAmt, symbolOpenOrders, symbolAlgoOrders);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`[OrderMonitor] Polling error for account ${accountId}:`, error);
+        }
       }
+    } finally {
+      this.isPolling = false;
     }
   }
 
