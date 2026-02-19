@@ -13,7 +13,7 @@ import api from "@/lib/api";
 import { useTradingData } from "@/contexts/trading-data-context";
 import { useAuth } from "@/contexts/auth-context";
 import { useDebouncedCallback } from "@/lib/use-debounce";
-import { AlertTriangle, ChevronDown, ChevronUp, HelpCircle, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, HelpCircle, RefreshCw, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
 import MultiTimeframeChart from "./MultiTimeframeChart";
@@ -150,8 +150,6 @@ const TradingWindow = memo(function TradingWindow({
   // isRefreshingDetails replaced with contextLoading from useTradingData
   const isRefreshingDetails = contextLoading;
   const [orderBookPrice, setOrderBookPrice] = useState<string | null>(null);
-  const [isInfoPanelCollapsed, setIsInfoPanelCollapsed] = useState(true);
-  const [isOrderBookCollapsed, setIsOrderBookCollapsed] = useState(true);
   const [existingPosition, setExistingPosition] = useState<{
     size: number;
     entryPrice: number;
@@ -1670,6 +1668,9 @@ const TradingWindow = memo(function TradingWindow({
               </div>
             </div>
 
+            {/* Unified 3-Column Layout: Order Fields | SL-TP-Summary | Config-Account */}
+            <div className="unified-form-layout">
+              <div className="unified-form-main">
             {/* Two Column Grid */}
             <div className="form-grid">
 
@@ -1963,347 +1964,297 @@ const TradingWindow = memo(function TradingWindow({
                 Sign in to enable demo trading with testnet funds
               </div>
             )}
+              </div>
+
+              {/* Column 3: Config & Account Info */}
+              <div className="unified-form-sidebar">
+                <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
+                  <div className="font-medium text-muted-foreground mb-2 text-[1rem]">
+                    Config
+                  </div>
+                  <div className="space-y-3">
+                    {/* Leverage Slider */}
+                    <div className="form-group mb-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[10px] text-muted-foreground mb-0">
+                          Leverage
+                        </label>
+                        <span className="text-[10px] font-medium text-primary">
+                          {orderForm.leverage}x
+                        </span>
+                      </div>
+                      <Slider
+                        value={[parseInt(orderForm.leverage) || 1]}
+                        min={1}
+                        max={maxLeverage}
+                        step={1}
+                        onValueChange={(value) =>
+                          handleInputChange("leverage", String(value[0]))
+                        }
+                        className="w-full"
+                      />
+                      <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
+                        <span>1x</span>
+                        <span>{maxLeverage}x</span>
+                      </div>
+                    </div>
+
+                    <div className="form-group mb-0">
+                      <div className="flex items-center gap-1 mb-1">
+                        <span className="text-[10px] text-muted-foreground">
+                          Max Lev. Global
+                        </span>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[200px]">
+                              <p className="text-xs">
+                                <strong>Maximum Leverage</strong>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                The maximum leverage multiplier to use for your
+                                trades. Higher leverage = higher risk.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <input
+                        type="number"
+                        value={draftUserMaxLeverage}
+                        onChange={(e) =>
+                          handleUserMaxLeverageChange(parseInt(e.target.value) || 1)
+                        }
+                        className="form-input w-full text-left px-2 py-1 h-7 text-xs"
+                        min="1"
+                        max="125"
+                        step="1"
+                      />
+                    </div>
+                    <div className="form-group mb-0">
+                      <div className="flex items-center gap-1 mb-1">
+                        <span className="text-[10px] text-muted-foreground">
+                          Def. Risk (%)
+                        </span>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[200px]">
+                              <p className="text-xs">
+                                <strong>Default Risk Percentage</strong>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                The percentage of your account balance you're
+                                willing to risk per trade. Used to auto-calculate
+                                stop loss price.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={draftDefaultRiskPercent}
+                          onChange={(e) => handleDefaultRiskChange(e.target.value)}
+                          className="form-input w-full text-left px-2 py-1 h-7 text-xs"
+                          placeholder="1"
+                          min="0.1"
+                          max="100"
+                          step="0.1"
+                        />
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          {defaultRiskAmount !== null
+                            ? `≈ $${defaultRiskAmount.toFixed(2)}`
+                            : ""}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="form-group mb-0">
+                      <div className="flex items-center gap-1 mb-1">
+                        <span className="text-[10px] text-muted-foreground">
+                          Def. TP (%)
+                        </span>
+                        <TooltipProvider delayDuration={100}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[200px]">
+                              <p className="text-xs">
+                                <strong>Default Take Profit %</strong>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Optional: Percentage of your available balance you
+                                want to target as profit per trade. Auto-calculates
+                                TP price from entry and position size. Leave empty
+                                to disable.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        <input
+                          type="number"
+                          value={draftDefaultTakeProfitPercent}
+                          onChange={(e) =>
+                            handleDefaultTakeProfitChange(e.target.value)
+                          }
+                          className="form-input w-full text-left px-2 py-1 h-7 text-xs"
+                          placeholder="e.g. 2"
+                          min="0"
+                          max="100"
+                          step="0.5"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleDefaultTakeProfitChange("")}
+                          className="text-muted-foreground hover:text-destructive text-xs px-1"
+                          title="Clear TP value"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* SL/TP Slider Toggle */}
+                    <div className="form-group mb-0 pt-2 border-t border-border/50">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-muted-foreground">
+                            Use SL/TP Sliders
+                          </span>
+                          <TooltipProvider delayDuration={100}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-[200px]">
+                                <p className="text-xs">
+                                  <strong>SL/TP Slider Mode</strong>
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  When enabled, use sliders to set Stop Loss and
+                                  Take Profit as percentages from entry price.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={useSlTpSlider}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setUseSlTpSlider(checked);
+                            try {
+                              localStorage.setItem(
+                                USE_SL_TP_SLIDER_STORAGE_KEY,
+                                String(checked)
+                              );
+                            } catch {
+                              // ignore
+                            }
+                          }}
+                          className="form-checkbox w-3.5 h-3.5"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2 h-7 text-xs"
+                    disabled={!isConfigDirty}
+                    onClick={() => {
+                      applyConfig();
+                      const toast = document.createElement("div");
+                      toast.className =
+                        "fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md text-sm z-50 animate-fade-in";
+                      toast.textContent = "Config saved!";
+                      document.body.appendChild(toast);
+                      setTimeout(() => toast.remove(), 2000);
+                    }}
+                  >
+                    Save Config
+                  </Button>
+                </div>
+
+                {/* Account Details */}
+                {accountDetails && (
+                  <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
+                    <div className="font-medium text-muted-foreground mb-1 text-[1rem]">
+                      Account Info
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Margin Ratio</span>
+                      <span
+                        className={
+                          accountDetails.marginRatio > 80
+                            ? "text-red-500 font-medium"
+                            : "text-green-500 font-medium"
+                        }
+                      >
+                        {formatPercent(accountDetails.marginRatio)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Maint. Margin</span>
+                      <span>${formatPrice(accountDetails.maintenanceMargin)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Equity</span>
+                      <span className="font-medium">
+                        ${formatPrice(accountDetails.equity)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Available</span>
+                      <span>${formatPrice(accountDetails.availableBalance)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Position Value</span>
+                      <span>${formatPrice(accountDetails.positionValue)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Actual Leverage</span>
+                      <span>{accountDetails.actualLeverage?.toFixed(2)}x</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Unrealized PNL</span>
+                      <span
+                        className={
+                          accountDetails.unrealizedPNL >= 0
+                            ? "text-green-500"
+                            : "text-red-500"
+                        }
+                      >
+                        ${formatPrice(accountDetails.unrealizedPNL)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </TooltipProvider>
 
-        {/* Right Side - Account Info and Position Details */}
-        <div
-          className={`trading-info-panel ${isInfoPanelCollapsed ? "collapsed" : ""
-            }`}
-        >
-          {/* Mobile Toggle Button */}
-          <button
-            className="info-panel-toggle md:hidden"
-            onClick={() => setIsInfoPanelCollapsed(!isInfoPanelCollapsed)}
-          >
-            <span className="text-sm font-medium">
-              {isInfoPanelCollapsed
-                ? "Show Config & Account Info"
-                : "Hide Config & Account Info"}
-            </span>
-            {isInfoPanelCollapsed ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronUp className="h-4 w-4" />
-            )}
-          </button>
-
-          {/* Collapsible Content */}
-          <div
-            className={`info-panel-content ${isInfoPanelCollapsed ? "hidden md:block" : ""
-              }`}
-          >
-
-
-            {/* Config Section */}
-            <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
-              <div className="font-medium text-muted-foreground mb-2 text-[1rem]">
-                Config
-              </div>
-              <div className="space-y-3">
-                {/* Leverage Slider */}
-                <div className="form-group mb-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[10px] text-muted-foreground mb-0">
-                      Leverage
-                    </label>
-                    <span className="text-[10px] font-medium text-primary">
-                      {orderForm.leverage}x
-                    </span>
-                  </div>
-                  <Slider
-                    value={[parseInt(orderForm.leverage) || 1]}
-                    min={1}
-                    max={maxLeverage}
-                    step={1}
-                    onValueChange={(value) =>
-                      handleInputChange("leverage", String(value[0]))
-                    }
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-                    <span>1x</span>
-                    <span>{maxLeverage}x</span>
-                  </div>
-                </div>
-
-                <div className="form-group mb-0">
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-[10px] text-muted-foreground">
-                      Max Lev. Global
-                    </span>
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[200px]">
-                          <p className="text-xs">
-                            <strong>Maximum Leverage</strong>
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            The maximum leverage multiplier to use for your
-                            trades. Higher leverage = higher risk.
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  <input
-                    type="number"
-                    value={draftUserMaxLeverage}
-                    onChange={(e) =>
-                      handleUserMaxLeverageChange(parseInt(e.target.value) || 1)
-                    }
-                    className="form-input w-full text-left px-2 py-1 h-7 text-xs"
-                    min="1"
-                    max="125"
-                    step="1"
-                  />
-                </div>
-                <div className="form-group mb-0">
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-[10px] text-muted-foreground">
-                      Def. Risk (%)
-                    </span>
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[200px]">
-                          <p className="text-xs">
-                            <strong>Default Risk Percentage</strong>
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            The percentage of your account balance you're
-                            willing to risk per trade. Used to auto-calculate
-                            stop loss price.
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={draftDefaultRiskPercent}
-                      onChange={(e) => handleDefaultRiskChange(e.target.value)}
-                      className="form-input w-full text-left px-2 py-1 h-7 text-xs"
-                      placeholder="1"
-                      min="0.1"
-                      max="100"
-                      step="0.1"
-                    />
-                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                      {defaultRiskAmount !== null
-                        ? `≈ $${defaultRiskAmount.toFixed(2)}`
-                        : ""}
-                    </span>
-                  </div>
-                </div>
-                <div className="form-group mb-0">
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-[10px] text-muted-foreground">
-                      Def. TP (%)
-                    </span>
-                    <TooltipProvider delayDuration={100}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[200px]">
-                          <p className="text-xs">
-                            <strong>Default Take Profit %</strong>
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Optional: Percentage of your available balance you
-                            want to target as profit per trade. Auto-calculates
-                            TP price from entry and position size. Leave empty
-                            to disable.
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="number"
-                      value={draftDefaultTakeProfitPercent}
-                      onChange={(e) =>
-                        handleDefaultTakeProfitChange(e.target.value)
-                      }
-                      className="form-input w-full text-left px-2 py-1 h-7 text-xs"
-                      placeholder="e.g. 2"
-                      min="0"
-                      max="100"
-                      step="0.5"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleDefaultTakeProfitChange("")}
-                      className="text-muted-foreground hover:text-destructive text-xs px-1"
-                      title="Clear TP value"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-
-                {/* SL/TP Slider Toggle */}
-                <div className="form-group mb-0 pt-2 border-t border-border/50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-muted-foreground">
-                        Use SL/TP Sliders
-                      </span>
-                      <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <HelpCircle className="h-3 w-3 cursor-help text-muted-foreground/60 hover:text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-[200px]">
-                            <p className="text-xs">
-                              <strong>SL/TP Slider Mode</strong>
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              When enabled, use sliders to set Stop Loss and
-                              Take Profit as percentages from entry price.
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={useSlTpSlider}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setUseSlTpSlider(checked);
-                        try {
-                          localStorage.setItem(
-                            USE_SL_TP_SLIDER_STORAGE_KEY,
-                            String(checked)
-                          );
-                        } catch {
-                          // ignore
-                        }
-                      }}
-                      className="form-checkbox w-3.5 h-3.5"
-                    />
-                  </div>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full mt-2 h-7 text-xs"
-                disabled={!isConfigDirty}
-                onClick={() => {
-                  applyConfig();
-                  const toast = document.createElement("div");
-                  toast.className =
-                    "fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded-md text-sm z-50 animate-fade-in";
-                  toast.textContent = "Config saved!";
-                  document.body.appendChild(toast);
-                  setTimeout(() => toast.remove(), 2000);
-                }}
-              >
-                Save Config
-              </Button>
-            </div>
-
-            {/* Account Details */}
-            {accountDetails && (
-              <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
-                <div className="font-medium text-muted-foreground mb-1 text-[1rem]">
-                  Account Info
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Margin Ratio</span>
-                  <span
-                    className={
-                      accountDetails.marginRatio > 80
-                        ? "text-red-500 font-medium"
-                        : "text-green-500 font-medium"
-                    }
-                  >
-                    {formatPercent(accountDetails.marginRatio)}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Maint. Margin</span>
-                  <span>${formatPrice(accountDetails.maintenanceMargin)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Equity</span>
-                  <span className="font-medium">
-                    ${formatPrice(accountDetails.equity)}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Available</span>
-                  <span>${formatPrice(accountDetails.availableBalance)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Position Value</span>
-                  <span>${formatPrice(accountDetails.positionValue)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Actual Leverage</span>
-                  <span>{accountDetails.actualLeverage?.toFixed(2)}x</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">Unrealized PNL</span>
-                  <span
-                    className={
-                      accountDetails.unrealizedPNL >= 0
-                        ? "text-green-500"
-                        : "text-red-500"
-                    }
-                  >
-                    ${formatPrice(accountDetails.unrealizedPNL)}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Order Book - Rightmost Column */}
-        <div
-          className={`market-depth-panel ${isOrderBookCollapsed ? "collapsed" : ""
-            }`}
-        >
-          {/* Mobile Toggle Button */}
-          <button
-            className="orderbook-toggle md:hidden"
-            onClick={() => setIsOrderBookCollapsed(!isOrderBookCollapsed)}
-          >
-            <span className="text-sm font-medium">
-              {isOrderBookCollapsed ? "Show Order Book" : "Hide Order Book"}
-            </span>
-            {isOrderBookCollapsed ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronUp className="h-4 w-4" />
-            )}
-          </button>
-
-          <div
-            className={`orderbook-content ${isOrderBookCollapsed ? "hidden md:block" : ""
-              }`}
-          >
-            <MarketDepth
-              symbol={symbol}
-              currentPrice={currentPrice}
-              onPriceSelect={handleOrderBookPriceSelect}
-              accountType={selectedAccount?.accountType}
-              marketType={
-                marketType === "futures" ? "binance-futures" : "binance-spot"
-              }
-            />
-          </div>
+        {/* Order Book - Right Column */}
+        <div className="market-depth-panel">
+          <MarketDepth
+            symbol={symbol}
+            currentPrice={currentPrice}
+            onPriceSelect={handleOrderBookPriceSelect}
+            accountType={selectedAccount?.accountType}
+            marketType={
+              marketType === "futures" ? "binance-futures" : "binance-spot"
+            }
+          />
         </div>
       </div>
 
@@ -2415,24 +2366,6 @@ const TradingWindow = memo(function TradingWindow({
           background: #ffffff;
         }
 
-        .orderbook-toggle {
-          display: none;
-          width: calc(100% - 16px);
-          padding: 12px;
-          background: #f1f5f9;
-          border: 1px solid #e2e8f0;
-          border-radius: 6px;
-          cursor: pointer;
-          align-items: center;
-          justify-content: space-between;
-          margin: 8px;
-        }
-
-        .dark .orderbook-toggle {
-          background: #27272a;
-          border-color: #3f3f46;
-        }
-
         .dark .market-depth-panel {
           border-left: 1px solid #27272a;
           background: #09090b;
@@ -2440,15 +2373,32 @@ const TradingWindow = memo(function TradingWindow({
 
         .trading-form {
           flex: 1;
-          min-width: 320px;
+          min-width: 0;
           padding: 16px;
           background: #ffffff;
-          border-right: 1px solid #e9ecef;
         }
 
         .dark .trading-form {
           background: #09090b !important;
-          border-right: 1px solid #27272a;
+        }
+
+        .unified-form-layout {
+          display: flex;
+          gap: 16px;
+          align-items: flex-start;
+        }
+
+        .unified-form-main {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .unified-form-sidebar {
+          flex: 0 0 220px;
+          max-width: 220px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
         }
 
         .existing-position-warning {
@@ -2478,45 +2428,7 @@ const TradingWindow = memo(function TradingWindow({
           background: linear-gradient(135deg, #b45309 0%, #92400e 100%);
         }
 
-        .trading-info-panel {
-          flex: 0 0 240px;
-          max-width: 240px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          padding: 16px;
-          background: #f8f9fa;
-          border-right: 1px solid #e9ecef;
-        }
-
-        .info-panel-toggle {
-          display: none;
-          width: calc(100% - 16px);
-          padding: 12px;
-          background: #f1f5f9;
-          border: 1px solid #e2e8f0;
-          border-radius: 6px;
-          cursor: pointer;
-          align-items: center;
-          justify-content: space-between;
-          margin: 8px;
-        }
-
-        .dark .info-panel-toggle {
-          background: #27272a;
-          border-color: #3f3f46;
-        }
-
-        .info-panel-content {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .dark .trading-info-panel {
-          background: #18181b;
-          border-right: 1px solid #27272a;
-        }
+        /* trading-info-panel styles removed - merged into unified-form-sidebar */
 
         .max-lev-group {
           display: flex;
@@ -2791,12 +2703,17 @@ const TradingWindow = memo(function TradingWindow({
             flex: 3;
             min-width: 0;
             max-width: none;
-            border-right: none;
             padding: 8px;
           }
 
-          .trading-info-panel {
-            display: none;
+          .unified-form-layout {
+            flex-direction: column;
+          }
+
+          .unified-form-sidebar {
+            flex: none;
+            max-width: none;
+            width: 100%;
           }
 
           .market-depth-panel {
@@ -2809,14 +2726,6 @@ const TradingWindow = memo(function TradingWindow({
 
           .dark .market-depth-panel {
             border-left: 1px solid #27272a;
-          }
-
-          .market-depth-panel.collapsed .orderbook-content {
-            display: block;
-          }
-
-          .orderbook-toggle {
-            display: none !important;
           }
 
           .form-grid {
