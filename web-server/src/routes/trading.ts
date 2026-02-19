@@ -7,6 +7,38 @@ import { demoAccountService } from "../lib/demo-account-service";
 
 const router: Router = Router();
 
+// ============================================================================
+// In-Memory Response Cache (deduplicates rapid requests from multiple tabs)
+// ============================================================================
+interface CachedResponse {
+  data: any;
+  timestamp: number;
+}
+const SUMMARY_RESPONSE_CACHE = new Map<string, CachedResponse>();
+const SUMMARY_CACHE_TTL = 10_000; // 10 seconds
+
+function getCachedSummary(key: string): any | null {
+  const cached = SUMMARY_RESPONSE_CACHE.get(key);
+  if (cached && Date.now() - cached.timestamp < SUMMARY_CACHE_TTL) {
+    return cached.data;
+  }
+  SUMMARY_RESPONSE_CACHE.delete(key);
+  return null;
+}
+
+function setCachedSummary(key: string, data: any): void {
+  SUMMARY_RESPONSE_CACHE.set(key, { data, timestamp: Date.now() });
+  // Evict stale entries periodically
+  if (SUMMARY_RESPONSE_CACHE.size > 100) {
+    const now = Date.now();
+    for (const [k, v] of SUMMARY_RESPONSE_CACHE) {
+      if (now - v.timestamp > SUMMARY_CACHE_TTL) {
+        SUMMARY_RESPONSE_CACHE.delete(k);
+      }
+    }
+  }
+}
+
 // Helper to convert values to numbers safely
 const toNumber = (value: unknown, fallback: number = 0): number => {
   if (value === null || value === undefined) return fallback;
@@ -70,6 +102,17 @@ router.get("/summary", async (req: Request, res: Response) => {
 
     if (!accountId) {
       return res.status(400).json({ error: "accountId is required" });
+    }
+
+    // Check in-memory cache first (deduplicates multi-tab/rapid requests)
+    const cacheKey = `summary-${accountId}-${symbol || ""}`;
+    const cached = getCachedSummary(cacheKey);
+    if (cached) {
+      res.set({
+        "Cache-Control": "private, max-age=5, stale-while-revalidate=10",
+        "X-Cache": "HIT",
+      });
+      return res.json(cached);
     }
 
     let account;
@@ -322,6 +365,9 @@ router.get("/summary", async (req: Request, res: Response) => {
     res.set({
       "Cache-Control": "private, max-age=5, stale-while-revalidate=10",
     });
+
+    // Cache response in memory for server-side deduplication
+    setCachedSummary(cacheKey, response);
 
     return res.json(response);
   } catch (error: any) {

@@ -273,7 +273,7 @@ const MarketDepth = memo(function MarketDepth({
                     pendingDataRef.current = null;
                   }
                   throttleTimeoutRef.current = null;
-                }, 1000);
+                }, 250);
               }
             }
           } catch (err) {
@@ -549,11 +549,12 @@ const MarketDepth = memo(function MarketDepth({
         @media (max-width: 768px) {
           .market-depth {
             width: 100%;
-            border-left: none;
-            border-top: 1px solid #e5e5e5;
+            border-left: 1px solid #e5e5e5;
+            border-top: none;
           }
           .dark .market-depth {
-            border-top: 1px solid #27272a;
+            border-left: 1px solid #27272a;
+            border-top: none;
           }
         }
       `}</style>

@@ -184,6 +184,37 @@ router.get("/ticker", async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/binance/exchange-info - Get all symbols and their rules
+// IMPORTANT: Uses static cache in service to avoid rate limits
+router.get("/exchange-info", async (req: Request, res: Response) => {
+  try {
+    const { segment } = req.query;
+    const tradingSegment = (segment as string) || "usdm";
+
+    // Only supporting USD-M futures for now as that's what the service methods focused on
+    if (tradingSegment !== "usdm") {
+         // Fallback or error?
+         // For now, let's just return futures info as that's the main usage.
+    }
+
+    const binanceService = new BinanceService();
+    // No credentials needed for public info
+    const info = await binanceService.getFuturesExchangeInfo();
+
+    return res.json({
+      success: true,
+      data: info,
+      segment: tradingSegment,
+    });
+  } catch (error: any) {
+    console.error("Error fetching exchange info:", error);
+    return res.status(500).json({
+      error: "Failed to fetch exchange info",
+      details: error.message,
+    });
+  }
+});
+
 // GET /api/binance/test - Test connectivity
 router.get("/test", async (req: Request, res: Response) => {
   try {

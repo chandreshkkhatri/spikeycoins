@@ -132,6 +132,52 @@ const DEFAULT_SYMBOL_INFO: SymbolInfo = {
   maxLeverage: 125,
 };
 
+// ============================================================================
+// Local Storage Cache
+// ============================================================================
+
+const localCache = {
+  get: <T,>(key: string): T | null => {
+    try {
+      if (typeof window === 'undefined') return null;
+      const item = window.localStorage.getItem(key);
+      if (!item) return null;
+      
+      const parsed = JSON.parse(item);
+      if (!parsed || !parsed.timestamp) return null;
+      
+      // Check TTL if specified in the stored object (optional)
+      if (parsed.expiry && Date.now() > parsed.expiry) {
+        window.localStorage.removeItem(key);
+        return null;
+      }
+      
+      return parsed.data as T;
+    } catch (e) {
+      console.warn('Failed to read from local storage:', e);
+      return null;
+    }
+  },
+  
+  set: <T,>(key: string, data: T, ttlMs?: number) => {
+    try {
+      if (typeof window === 'undefined') return;
+      const payload: { data: T; timestamp: number; expiry?: number } = {
+        data,
+        timestamp: Date.now(),
+      };
+      
+      if (ttlMs) {
+        payload.expiry = Date.now() + ttlMs;
+      }
+      
+      window.localStorage.setItem(key, JSON.stringify(payload));
+    } catch (e) {
+      console.warn('Failed to write to local storage:', e);
+    }
+  }
+};
+
 export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ children }) => {
   const { selectedAccount } = useAccount();
   const { isLoggedIn } = useAuth();
@@ -605,6 +651,124 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
     DATA_PROMISE_CACHE.set(cacheKey, promise);
     return promise;
   }, []);
+
+
+
+  // ============================================================================
+  // Local Storage Persistence
+  // ============================================================================
+
+  // Hydrate from local storage on mount or account/symbol change
+  useEffect(() => {
+    if (!selectedAccount) return;
+
+    const accountId = selectedAccount._id;
+    const cacheKey = `spikeyCoins_tradingData_${accountId}`;
+    
+    // Load cached data immediately
+    const cachedData = localCache.get<{
+      positions: Position[];
+      orders: Order[];
+      accountDetails: AccountDetails | null;
+      symbolInfo: SymbolInfo;
+    }>(cacheKey);
+
+    if (cachedData) {
+      setPositions(cachedData.positions || []);
+      setOrders(cachedData.orders || []);
+      setAccountDetails(cachedData.accountDetails);
+      // Only restore symbolInfo if it matches the active symbol (since it's symbol-specific)
+      // Actually, symbolInfo is per-symbol, so we might want to cache it separately or just use defaults until fetch
+      // For now, let's trust the cache if we just loaded the page and activeSymbol matches what was cached? 
+      // Simpler: Just rely on the separate symbolInfo cache we'll build in Phase 3. 
+      // For this phase, let's persist the basic account data.
+    }
+    
+    // Also try to load symbol-specific info if available
+    if (activeSymbol) {
+      const symbolCacheKey = `spikeyCoins_symbolInfo_${activeSymbol}`;
+      const cachedSymbolInfo = localCache.get<SymbolInfo>(symbolCacheKey);
+      if (cachedSymbolInfo) {
+        setSymbolInfo(cachedSymbolInfo);
+      }
+    }
+  }, [selectedAccount, selectedAccount?._id, activeSymbol]);
+
+  // Save to local storage whenever data changes
+  useEffect(() => {
+    if (!selectedAccount) return;
+
+    const accountId = selectedAccount._id;
+    const cacheKey = `spikeyCoins_tradingData_${accountId}`;
+    
+    // Debounce save slightly to avoid thrashing
+    const timeoutId = setTimeout(() => {
+      localCache.set(cacheKey, {
+        positions,
+        orders,
+        accountDetails, // accountDetails is global for the account
+        // We don't save symbolInfo here as it's specific to activeSymbol, saved separately below
+      }, 5 * 60 * 1000); // 5 minute TTL for trading data
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [positions, orders, accountDetails, selectedAccount, selectedAccount?._id]);
+
+  // Save symbol info separately
+  useEffect(() => {
+    if (activeSymbol && symbolInfo && symbolInfo.tickSize !== DEFAULT_SYMBOL_INFO.tickSize) {
+      const symbolCacheKey = `spikeyCoins_symbolInfo_${activeSymbol}`;
+      localCache.set(symbolCacheKey, symbolInfo, 24 * 60 * 60 * 1000); // 24h TTL for symbol info
+    }
+  }, [activeSymbol, symbolInfo]);
+
+  // ============================================================================
+  // Background Sync
+  // ============================================================================
+
+  const prefetchSymbolInfo = useCallback(async () => {
+    // Check if we've already prefetched recently (24h cache for this check)
+    if (localCache.get('spikeyCoins_lastSymbolInfoPrefetch')) {
+      return;
+    }
+
+    try {
+      const response = await api.get('/binance/exchange-info');
+      if (response.data.success && response.data.data.symbols) {
+        const symbols = response.data.data.symbols;
+        let count = 0;
+        
+        symbols.forEach((s: any) => {
+          const priceFilter = s.filters?.find((f: any) => f.filterType === 'PRICE_FILTER');
+          const lotSizeFilter = s.filters?.find((f: any) => f.filterType === 'LOT_SIZE');
+          const minNotionalFilter = s.filters?.find((f: any) => f.filterType === 'MIN_NOTIONAL');
+          
+          const info: SymbolInfo = {
+            tickSize: priceFilter?.tickSize || '0.01',
+            stepSize: lotSizeFilter?.stepSize || '0.001',
+            minQty: lotSizeFilter?.minQty ? parseFloat(lotSizeFilter.minQty) : 0,
+            minNotional: minNotionalFilter ? parseFloat(minNotionalFilter.notional || '5') : 5,
+            maxLeverage: 20 // Default safe value
+          };
+          
+          // Cache individual symbol info
+          localCache.set(`spikeyCoins_symbolInfo_${s.symbol}`, info, 24 * 60 * 60 * 1000);
+          count++;
+        });
+        
+        // Mark prefetch as done
+        localCache.set('spikeyCoins_lastSymbolInfoPrefetch', { timestamp: Date.now() }, 24 * 60 * 60 * 1000);
+        console.log(`[TradingDataContext] Pre-warmed cache for ${count} symbols`);
+      }
+    } catch (e) {
+      console.warn('Failed to prefetch symbol info', e);
+    }
+  }, []);
+
+  // Run prefetch on mount
+  useEffect(() => {
+    prefetchSymbolInfo();
+  }, [prefetchSymbolInfo]);
 
   // ============================================================================
   // Main Refresh

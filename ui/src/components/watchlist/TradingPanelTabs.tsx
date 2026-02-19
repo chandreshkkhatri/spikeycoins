@@ -100,10 +100,13 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   orderBookPrice,
   onOrderBookPriceApplied,
 }: TradingPanelTabsProps) {
-  // Use shared trading data context to avoid duplicate fetches
+  // Use shared trading data context — positions/orders come from here
+  // instead of making separate API calls (rate-limit optimization)
   const {
+    positions: contextPositions,
     orders: contextOrders,
     accountDetails: contextAccountDetails,
+    refreshAll: contextRefreshAll,
   } = useTradingData();
 
   const HISTORY_PAGE_SIZE = 50;
@@ -384,62 +387,73 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     }
   };
 
+  // Sync positions from TradingDataContext (no separate API call needed)
+  useEffect(() => {
+    if (contextPositions && contextPositions.length >= 0) {
+      setPositions(
+        contextPositions.map((p) => ({
+          id: p.id || p.symbol,
+          symbol: p.symbol,
+          quantity: Math.abs(p.size),
+          averagePrice: p.entryPrice,
+          lastPrice: p.entryPrice, // Will be updated by WebSocket
+          pnl: p.pnl || 0,
+          pnlPercentage: 0,
+          side: p.size > 0 ? "LONG" : "SHORT",
+          leverage: p.leverage,
+          liquidationPrice: p.liquidationPrice,
+          breakEvenPrice: p.breakEvenPrice,
+          margin: p.margin,
+          marginType: p.marginType,
+        }))
+      );
+    }
+  }, [contextPositions]);
+
+  // fetchData now only fetches history data — positions/orders come from context
   const fetchData = useCallback(async () => {
     if (!selectedAccount) return;
 
+    // For positions and orders tabs, data comes from TradingDataContext.
+    // Just trigger a context refresh.
+    if (activeTab === "positions" || activeTab === "orders") {
+      contextRefreshAll();
+      return;
+    }
+
+    // Only fetch from API for history tab
     setLoading(true);
     setError(null);
 
     try {
-      const cacheKey = `${selectedAccount._id}-${activeTab}-${symbol || ""
-        }-${historyTimeframe}-${activeTab === "history" ? historyPage : 0}`;
+      const cacheKey = `${selectedAccount._id}-history-${historyTimeframe}-${historyPage}`;
       let promise = TABS_DATA_CACHE.get(cacheKey);
 
       if (!promise) {
         promise = (async () => {
           try {
-            // Fetch based on active tab
-            if (activeTab === "positions") {
-              const response = await api.get(
-                `/positions?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
-              );
-              return { type: "positions", data: response.data };
-            } else if (activeTab === "orders") {
-              const response = await api.get(
-                `/orders?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`
-              );
-              return { type: "orders", data: response.data };
-            } else if (activeTab === "history") {
-              // History endpoints only available for Binance accounts
-              if (selectedAccount.accountType === "binance") {
-                // Fetch both order history and trade history with timeframe
-                // Don't filter by symbol - show all symbols like positions/orders tabs
-                const timeframeQuery = `&timeframe=${historyTimeframe}`;
-                const pageQuery = `&page=${historyPage}&pageSize=${HISTORY_PAGE_SIZE}`;
-                const [orderRes, tradeRes] = await Promise.all([
-                  api.get(
-                    `/binance/order-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
-                  ),
-                  api.get(
-                    `/binance/trade-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
-                  ),
-                ]);
-                return {
-                  type: "history",
-                  orderData: orderRes.data,
-                  tradeData: tradeRes.data,
-                };
-              } else {
-                // Return empty history for non-Binance accounts
-                return {
-                  type: "history",
-                  orderData: { success: true, orders: [] },
-                  tradeData: { success: true, trades: [] },
-                };
-              }
+            if (selectedAccount.accountType === "binance") {
+              const timeframeQuery = `&timeframe=${historyTimeframe}`;
+              const pageQuery = `&page=${historyPage}&pageSize=${HISTORY_PAGE_SIZE}`;
+              const [orderRes, tradeRes] = await Promise.all([
+                api.get(
+                  `/binance/order-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
+                ),
+                api.get(
+                  `/binance/trade-history?accountId=${selectedAccount._id}${timeframeQuery}${pageQuery}`
+                ),
+              ]);
+              return {
+                orderData: orderRes.data,
+                tradeData: tradeRes.data,
+              };
+            } else {
+              return {
+                orderData: { success: true, orders: [] },
+                tradeData: { success: true, trades: [] },
+              };
             }
           } finally {
-            // Clear cache after 2 seconds
             setTimeout(() => {
               TABS_DATA_CACHE.delete(cacheKey);
             }, 2000);
@@ -450,103 +464,50 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
       const result = await promise;
 
-      if (activeTab === "positions" && result?.type === "positions") {
-        if (result.data?.success) {
-          const posData = result.data.data || result.data.positions || [];
-          // Filter to only show positions with non-zero quantity
-          setPositions(
-            posData
-              .filter((p: any) => Math.abs(p.quantity) > 0)
-              .map((p: any) => ({
-                id: p.id || p.symbol,
-                symbol: p.symbol,
-                quantity: Math.abs(p.quantity),
-                averagePrice: p.averagePrice || p.entryPrice,
-                lastPrice: p.lastPrice || p.markPrice,
-                pnl: p.pnl || p.unrealizedPnl || 0,
-                pnlPercentage: p.pnlPercentage || 0,
-                side: p.quantity > 0 ? "LONG" : "SHORT",
-                leverage: p.leverage,
-                liquidationPrice: p.liquidationPrice,
-                breakEvenPrice: p.breakEvenPrice,
-                margin: p.margin,
-                marginType: p.marginType,
-              }))
-          );
+      if (result?.orderData?.success) {
+        setHistoryHasMore((prev) => ({
+          ...prev,
+          orders: !!result.orderData?.hasMore,
+        }));
+        setOrderHistory(
+          (result.orderData.orders || []).map(
+            (o: Record<string, unknown>) => ({
+              id: o.id,
+              symbol: o.symbol,
+              side: o.side,
+              type: o.type,
+              quantity: o.quantity,
+              executedQty: o.executedQty,
+              price: o.price,
+              avgPrice: o.avgPrice,
+              status: o.status,
+              time: o.time,
+            })
+          )
+        );
+      } else {
+        setHistoryHasMore((prev) => ({ ...prev, orders: false }));
+      }
 
-          // NOTE: Orders and account equity are now synced from TradingDataContext
-          // via useEffect hooks above, eliminating duplicate API calls.
-        }
-      } else if (activeTab === "orders" && result?.type === "orders") {
-        if (result.data?.success) {
-          // Filter to only open orders - check both 'orders' and 'data' arrays
-          const ordersArray = result.data.orders || result.data.data || [];
-          setOrders(
-            ordersArray
-              .filter(
-                (o: any) =>
-                  o.status === "NEW" || o.status === "PARTIALLY_FILLED"
-              )
-              .map((o: any) => ({
-                id: o.id || o.orderId,
-                symbol: o.symbol,
-                quantity: o.quantity || o.origQty,
-                price: o.price,
-                stopPrice: parseFloat(o.stopPrice) || 0,
-                orderType: o.orderType || o.type,
-                side: o.transactionType || o.side,
-                status: o.status,
-                filledQuantity: o.filledQuantity || o.executedQty || 0,
-                timestamp: o.timestamp || o.time,
-              }))
-          );
-        }
-      } else if (activeTab === "history" && result?.type === "history") {
-        if (result.orderData?.success) {
-          setHistoryHasMore((prev) => ({
-            ...prev,
-            orders: !!result.orderData?.hasMore,
-          }));
-          setOrderHistory(
-            (result.orderData.orders || []).map(
-              (o: Record<string, unknown>) => ({
-                id: o.id,
-                symbol: o.symbol,
-                side: o.side,
-                type: o.type,
-                quantity: o.quantity,
-                executedQty: o.executedQty,
-                price: o.price,
-                avgPrice: o.avgPrice,
-                status: o.status,
-                time: o.time,
-              })
-            )
-          );
-        } else {
-          setHistoryHasMore((prev) => ({ ...prev, orders: false }));
-        }
-
-        if (result.tradeData?.success) {
-          setHistoryHasMore((prev) => ({
-            ...prev,
-            trades: !!result.tradeData?.hasMore,
-          }));
-          setTrades(
-            (result.tradeData.trades || []).map((t: Record<string, unknown>) => ({
-              id: t.id,
-              symbol: t.symbol,
-              quantity: t.qty,
-              price: t.price,
-              side: t.side,
-              realizedPnl: t.realizedPnl || 0,
-              commission: t.commission || 0,
-              timestamp: t.time,
-            }))
-          );
-        } else {
-          setHistoryHasMore((prev) => ({ ...prev, trades: false }));
-        }
+      if (result?.tradeData?.success) {
+        setHistoryHasMore((prev) => ({
+          ...prev,
+          trades: !!result.tradeData?.hasMore,
+        }));
+        setTrades(
+          (result.tradeData.trades || []).map((t: Record<string, unknown>) => ({
+            id: t.id,
+            symbol: t.symbol,
+            quantity: t.qty,
+            price: t.price,
+            side: t.side,
+            realizedPnl: t.realizedPnl || 0,
+            commission: t.commission || 0,
+            timestamp: t.time,
+          }))
+        );
+      } else {
+        setHistoryHasMore((prev) => ({ ...prev, trades: false }));
       }
     } catch (err: unknown) {
       const errorMessage =
@@ -558,10 +519,10 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   }, [
     selectedAccount,
     activeTab,
-    symbol,
     historyTimeframe,
     historyPage,
     HISTORY_PAGE_SIZE,
+    contextRefreshAll,
   ]);
 
   useEffect(() => {
@@ -570,8 +531,11 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
   }, [activeTab, selectedAccount?._id, historyTimeframe]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData, refreshTrigger]);
+    // Only auto-fetch for history tab; positions/orders come from context
+    if (activeTab === "history") {
+      fetchData();
+    }
+  }, [fetchData, refreshTrigger, activeTab]);
 
   const handleCancelOrder = async (orderId: string, orderSymbol: string) => {
     if (!selectedAccount) return;

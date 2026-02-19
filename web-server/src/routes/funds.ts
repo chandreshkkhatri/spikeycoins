@@ -7,6 +7,10 @@ import { demoAccountService } from "../lib/demo-account-service";
 
 const router: Router = Router();
 
+// In-memory response cache (10s TTL) to deduplicate rapid requests
+const FUNDS_RESPONSE_CACHE = new Map<string, { data: unknown; timestamp: number }>();
+const FUNDS_CACHE_TTL = 10_000;
+
 // GET /api/funds - Get funds/margins for an account
 router.get("/", async (req: Request, res: Response) => {
   try {
@@ -14,6 +18,13 @@ router.get("/", async (req: Request, res: Response) => {
 
     if (!accountId) {
       return res.status(400).json({ error: "accountId is required" });
+    }
+
+    // Check in-memory cache first
+    const cacheKey = `funds-${accountId}`;
+    const cached = FUNDS_RESPONSE_CACHE.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < FUNDS_CACHE_TTL) {
+      return res.json(cached.data);
     }
 
     let account;
@@ -113,11 +124,16 @@ router.get("/", async (req: Request, res: Response) => {
       details: funds,
     };
 
-    return res.json({
+    const responseData = {
       success: true,
       funds: unifiedFunds,
       accountType: account.accountType,
-    });
+    };
+
+    // Cache the response
+    FUNDS_RESPONSE_CACHE.set(cacheKey, { data: responseData, timestamp: Date.now() });
+
+    return res.json(responseData);
   } catch (error: any) {
     console.error("Error fetching funds:", error);
     return res.status(500).json({

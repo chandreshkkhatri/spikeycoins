@@ -38,6 +38,40 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 // Global promise cache to deduplicate simultaneous fetches
 const CHART_PROMISE_CACHE = new Map<string, Promise<CandlestickData[]>>();
 
+const localCache = {
+  get: <T,>(key: string): T | null => {
+    try {
+      if (typeof window === 'undefined') return null;
+      const item = window.localStorage.getItem(key);
+      if (!item) return null;
+      const parsed = JSON.parse(item);
+      // Basic validity check
+      if (!parsed || !parsed.timestamp) return null;
+      // Expiry check (24h default for charts if not specified)
+      if (Date.now() - parsed.timestamp > 24 * 60 * 60 * 1000) {
+        window.localStorage.removeItem(key);
+        return null;
+      }
+      return parsed.data as T;
+    } catch {
+      return null;
+    }
+  },
+  set: <T,>(key: string, data: T) => {
+    try {
+      if (typeof window === 'undefined') return;
+      // aggressively prune old keys if space is tight? 
+      // For now, simple set. 
+      window.localStorage.setItem(key, JSON.stringify({
+        data,
+        timestamp: Date.now(),
+      }));
+    } catch (e) {
+      console.warn('LocalStorage full or error', e);
+    }
+  }
+};
+
 interface PriceLine {
   price: number;
   color: string;
@@ -843,7 +877,21 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           }
         })();
 
+
+
         CHART_PROMISE_CACHE.set(cacheKey, promise);
+        
+        // Cache the result when promise resolves
+        promise.then(data => {
+            if (data && data.length > 0) {
+                // Keep only the last 1000 candles to save localStorage space
+                const dataToCache = data.length > 1000 ? data.slice(-1000) : data;
+                localCache.set(cacheKey, dataToCache);
+            }
+        }).catch(() => {
+            // Ignore errors
+        });
+        
         return promise;
       },
       [displaySymbol, accountId, accountType, marketType]
@@ -1319,6 +1367,19 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               // Unsubscribe old handler if exists
               if (chartRef.visibleRangeHandler) {
                 chartRef.chart.timeScale().unsubscribeVisibleLogicalRangeChange(chartRef.visibleRangeHandler);
+              }
+
+              // Try to load from cache first for instant render
+              const cacheKey = `${displaySymbol}-${accountId || ''}-${accountType || ''}-${marketType || ''}-${timeframe}`;
+              const cachedData = localCache.get<CandlestickData[]>(cacheKey);
+              
+              if (cachedData && cachedData.length > 0 && chartRef.series) {
+                 chartRef.series.setData(cachedData);
+                 if (runIdRef.current === thisRun) {
+                     chartRef.oldestTimestamp = (cachedData[0].time as number) * 1000;
+                     // Don't set scroll handler yet, wait for fresh data or set it now? 
+                     // Setting it now is fine, it will be reset when fresh data comes.
+                 }
               }
 
               const data = await fetchChartData(timeframe);

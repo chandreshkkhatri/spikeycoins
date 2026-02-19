@@ -88,7 +88,7 @@ class BinanceOrderMonitor {
 
   // Constants
   private readonly LISTEN_KEY_RENEWAL_MS = 30 * 60 * 1000; // 30 minutes
-  private readonly POLLING_INTERVAL_MS = 30 * 1000; // 30 seconds
+  private readonly POLLING_INTERVAL_MS = 120 * 1000; // 2 minutes (was 30s — reduced to cut rate limit usage)
   private readonly RECONNECT_DELAY_MS = 5000; // 5 seconds
   private readonly WS_BASE_URL = "wss://fstream.binance.com";
   private readonly WS_TESTNET_URL = "wss://stream.binancefuture.com";
@@ -931,6 +931,17 @@ class BinanceOrderMonitor {
         `[OrderMonitor] Polling heartbeat at ${new Date().toISOString()} | ` +
           `Rate limit: ${BinanceService.getRateLimitStatus().usagePercent}%`,
       );
+
+      // Skip polling if all WebSocket connections are healthy
+      // (real-time events come via User Data Stream — polling is only a fallback)
+      const allWsHealthy = Array.from(this.connections.values()).every(
+        (conn) => conn.ws && conn.ws.readyState === WebSocket.OPEN,
+      );
+      if (allWsHealthy && this.connections.size > 0) {
+        console.log(`[OrderMonitor] All WebSockets healthy, skipping poll`);
+        this.isPolling = false;
+        return;
+      }
       for (const [accountId, conn] of this.connections) {
         try {
           const axios = (await import("axios")).default;

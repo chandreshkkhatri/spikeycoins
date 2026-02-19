@@ -42,6 +42,34 @@ const saveWatchlistSettings = (settings: WatchlistSettings) => {
   }
 };
 
+const WATCHLIST_PRICES_KEY = "spikeyCoins_watchlistPrices";
+
+const getStoredWatchlistPrices = (accountId: string): Record<string, WatchlistItem> | null => {
+  try {
+    if (typeof window === 'undefined') return null;
+    const key = `${WATCHLIST_PRICES_KEY}_${accountId}`;
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveWatchlistPrices = (accountId: string, items: WatchlistItem[]) => {
+  try {
+    if (typeof window === 'undefined') return;
+    const key = `${WATCHLIST_PRICES_KEY}_${accountId}`;
+    // Convert array to map for faster lookup on load
+    const pricesMap = items.reduce((acc, item) => {
+      acc[item.symbol] = item;
+      return acc;
+    }, {} as Record<string, WatchlistItem>);
+    localStorage.setItem(key, JSON.stringify(pricesMap));
+  } catch {
+    // Ignore
+  }
+};
+
 export interface WatchlistItem {
   symbol: string;
   lastPrice: number;
@@ -219,6 +247,17 @@ const Watchlist = memo(function Watchlist({
     });
   }, [sortConfig, selectedSymbol]);
 
+  // Persist watchlist prices/data to localStorage
+  useEffect(() => {
+    if (!selectedAccount || watchlistItems.length === 0) return;
+    
+    const timeoutId = setTimeout(() => {
+      saveWatchlistPrices(selectedAccount._id, watchlistItems);
+    }, 2000); // Debounce save every 2 seconds
+    
+    return () => clearTimeout(timeoutId);
+  }, [watchlistItems, selectedAccount]);
+
   // Ensure selected symbol stays valid based on available symbols
   useEffect(() => {
     if (watchlistSymbols.length === 0) {
@@ -364,17 +403,27 @@ const Watchlist = memo(function Watchlist({
             setWatchlistSymbols(finalSymbols);
             setWatchlistItemsData(finalItems); // Store full item data
 
-            // Initialize watchlist items with zeros first
+            // Initialize watchlist items with cached data if available, otherwise zeros
+            const cachedPrices = selectedAccount ? getStoredWatchlistPrices(selectedAccount._id) : null;
+            
             const initialData: WatchlistItem[] = finalSymbols.map(
-              (symbol: string) => ({
-                symbol,
-                lastPrice: 0,
-                priceChange: 0,
-                priceChangePercent: 0,
-                volume: 0,
-                high24h: 0,
-                low24h: 0,
-              })
+              (symbol: string) => {
+                const cached = cachedPrices ? cachedPrices[symbol] : null;
+                // Use cached data if it exists and looks valid (non-zero price)
+                if (cached && cached.lastPrice > 0) {
+                  return cached;
+                }
+                
+                return {
+                  symbol,
+                  lastPrice: 0,
+                  priceChange: 0,
+                  priceChangePercent: 0,
+                  volume: 0,
+                  high24h: 0,
+                  low24h: 0,
+                };
+              }
             );
 
             setWatchlistItems(initialData);

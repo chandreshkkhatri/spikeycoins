@@ -7,6 +7,10 @@ import { demoAccountService } from "../lib/demo-account-service";
 
 const router: Router = Router();
 
+// In-memory response cache (10s TTL) to deduplicate rapid requests
+const POSITIONS_RESPONSE_CACHE = new Map<string, { data: unknown; timestamp: number }>();
+const POSITIONS_CACHE_TTL = 10_000;
+
 const setNoCacheHeaders = (response: Response) => {
   response.set({
     "Cache-Control": "no-store, no-cache, must-revalidate",
@@ -179,6 +183,13 @@ router.get("/", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "accountId is required" });
     }
 
+    // Check in-memory cache first
+    const cacheKey = `positions-${accountId}`;
+    const cached = POSITIONS_RESPONSE_CACHE.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < POSITIONS_CACHE_TTL) {
+      return res.json(cached.data);
+    }
+
     let account;
     if (demoAccountService.isDemoAccountId(accountId as string)) {
       account = demoAccountService.getDemoAccount(true);
@@ -259,11 +270,16 @@ router.get("/", async (req: Request, res: Response) => {
         )
       : [];
 
-    return res.json({
+    const responseData = {
       success: true,
       data: unifiedPositions,
       accountType: account.accountType,
-    });
+    };
+
+    // Cache the response
+    POSITIONS_RESPONSE_CACHE.set(cacheKey, { data: responseData, timestamp: Date.now() });
+
+    return res.json(responseData);
   } catch (error: any) {
     console.error("Error fetching positions:", error);
     // Return consistent structure even on error

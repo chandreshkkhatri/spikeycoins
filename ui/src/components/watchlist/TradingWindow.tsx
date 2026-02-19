@@ -1374,98 +1374,111 @@ const TradingWindow = memo(function TradingWindow({
   }
 
   // Build price lines for the chart
-  const chartPriceLines = [];
+  const chartPriceLines = useMemo(() => {
+    const lines = [];
 
-  // Current Price (LTP) line
-  if (currentPrice > 0) {
-    chartPriceLines.push({
-      price: currentPrice,
-      color: "#64748b", // slate-500
-      lineWidth: 1,
-      lineStyle: 1, // Dotted
-      axis: "right" as const,
-      axisLabelVisible: true,
-      title: "LTP",
-    });
-  }
-
-  // Order price line (for limit orders)
-  if (orderForm.type === "LIMIT" && orderForm.price) {
-    const price = parseFloat(orderForm.price);
-    if (price > 0) {
-      chartPriceLines.push({
-        price,
-        color: orderForm.side === "BUY" ? "#22c55e" : "#ef4444", // Green for buy, red for sell
+    // Current Price (LTP) line
+    if (currentPrice > 0) {
+      lines.push({
+        price: currentPrice,
+        color: "#64748b", // slate-500
         lineWidth: 1,
+        lineStyle: 1, // Dotted
+        axis: "right" as const,
+        axisLabelVisible: true,
+        title: "LTP",
+      });
+    }
+
+    // Order price line (for limit orders)
+    if (orderForm.type === "LIMIT" && orderForm.price) {
+      const price = parseFloat(orderForm.price);
+      if (price > 0) {
+        lines.push({
+          price,
+          color: orderForm.side === "BUY" ? "#22c55e" : "#ef4444", // Green for buy, red for sell
+          lineWidth: 1,
+          lineStyle: 0, // Solid
+          title: `${orderForm.side} @ ${formatPrice(price, "$")}`,
+          axis: "left" as const,
+          axisLabelVisible: false,
+        });
+      }
+    }
+
+    // Stop Loss line
+    if (orderForm.stopLoss) {
+      const slPrice = parseFloat(orderForm.stopLoss);
+      if (slPrice > 0) {
+        lines.push({
+          price: slPrice,
+          color: "#ec4899", // Pink/Magenta for better distinction
+          lineWidth: 1,
+          lineStyle: 2, // Dashed
+        });
+      }
+    }
+
+    // Take Profit line
+    if (orderForm.takeProfit) {
+      const tpPrice = parseFloat(orderForm.takeProfit);
+      if (tpPrice > 0) {
+        lines.push({
+          price: tpPrice,
+          color: "#3b82f6", // Blue
+          lineWidth: 1,
+          lineStyle: 2, // Dashed
+        });
+      }
+    }
+
+    // Existing position entry price line
+    if (existingPosition && existingPosition.entryPrice > 0) {
+      lines.push({
+        price: existingPosition.entryPrice,
+        color: "#f59e0b", // Amber/Orange for position
+        lineWidth: 2,
         lineStyle: 0, // Solid
-        title: `${orderForm.side} @ ${formatPrice(price, "$")}`,
-        axis: "left" as const,
-        axisLabelVisible: false,
       });
     }
-  }
 
-  // Stop Loss line
-  if (orderForm.stopLoss) {
-    const slPrice = parseFloat(orderForm.stopLoss);
-    if (slPrice > 0) {
-      chartPriceLines.push({
-        price: slPrice,
-        color: "#ec4899", // Pink/Magenta for better distinction
-        lineWidth: 1,
-        lineStyle: 2, // Dashed
-      });
-    }
-  }
+    // Open orders price lines
+    openOrders.forEach((order) => {
+      // Use stopPrice for stop orders, otherwise use price
+      const orderPrice = order.stopPrice && order.stopPrice > 0 ? order.stopPrice : order.price;
+      if (orderPrice > 0) {
+        const isBuy = order.transactionType === "BUY";
+        const isSL = order.orderType.includes("STOP");
+        const isTP = order.orderType.includes("TAKE_PROFIT");
+        const isStopOrder = isSL || isTP;
+        
+        let color = isBuy ? "#86efac" : "#fca5a5"; // Light green for buy, light red for sell
+        if (isSL) color = "#ec4899"; // SL color
+        if (isTP) color = "#3b82f6"; // TP color
 
-  // Take Profit line
-  if (orderForm.takeProfit) {
-    const tpPrice = parseFloat(orderForm.takeProfit);
-    if (tpPrice > 0) {
-      chartPriceLines.push({
-        price: tpPrice,
-        color: "#3b82f6", // Blue
-        lineWidth: 1,
-        lineStyle: 2, // Dashed
-      });
-    }
-  }
-
-  // Existing position entry price line
-  if (existingPosition && existingPosition.entryPrice > 0) {
-    chartPriceLines.push({
-      price: existingPosition.entryPrice,
-      color: "#f59e0b", // Amber/Orange for position
-      lineWidth: 2,
-      lineStyle: 0, // Solid
+        lines.push({
+          price: orderPrice,
+          color: color,
+          lineWidth: 1,
+          lineStyle: isStopOrder ? 1 : 0, // Dotted for stop orders, solid for limit
+          title: isStopOrder ? (isSL ? "SL" : "TP") : undefined,
+        });
+      }
     });
-  }
 
-  // Open orders price lines
-  openOrders.forEach((order) => {
-    // Use stopPrice for stop orders, otherwise use price
-    const orderPrice = order.stopPrice && order.stopPrice > 0 ? order.stopPrice : order.price;
-    if (orderPrice > 0) {
-      const isBuy = order.transactionType === "BUY";
-      const isSL = order.orderType.includes("STOP");
-      const isTP = order.orderType.includes("TAKE_PROFIT");
-      const isStopOrder = isSL || isTP;
-      
-      let color = isBuy ? "#86efac" : "#fca5a5"; // Light green for buy, light red for sell
-      if (isSL) color = "#ec4899"; // SL color
-      if (isTP) color = "#3b82f6"; // TP color
+    return lines;
+  }, [
+    currentPrice,
+    orderForm.type,
+    orderForm.price,
+    orderForm.side,
+    orderForm.stopLoss,
+    orderForm.takeProfit,
+    existingPosition,
+    openOrders
+  ]);
 
-      chartPriceLines.push({
-        price: orderPrice,
-        color: color,
-        lineWidth: 1,
-        lineStyle: isStopOrder ? 1 : 0, // Dotted for stop orders, solid for limit
-        title: isStopOrder ? (isSL ? "SL" : "TP") : undefined,
-      });
-    }
-  });
-
-  const chartLegend = [
+  const chartLegend = useMemo(() => [
     { label: "LTP", color: "#64748b" },
     { label: "Limit Buy", color: "#22c55e" },
     { label: "Limit Sell", color: "#ef4444" },
@@ -1476,7 +1489,7 @@ const TradingWindow = memo(function TradingWindow({
       { label: "Open Buy Order", color: "#86efac" },
       { label: "Open Sell Order", color: "#fca5a5" },
     ] : []),
-  ];
+  ], [existingPosition, openOrders]);
 
   return (
     <div className="trading-window">
@@ -2770,45 +2783,40 @@ const TradingWindow = memo(function TradingWindow({
         /* Mobile Responsive Styles */
         @media (max-width: 768px) {
           .trading-content {
-            flex-direction: column;
-            align-items: stretch;
+            flex-direction: row;
+            align-items: flex-start;
           }
 
           .trading-form {
-            flex: 1;
-            max-width: 100%;
+            flex: 3;
+            min-width: 0;
+            max-width: none;
             border-right: none;
             padding: 8px;
           }
 
           .trading-info-panel {
-            flex: 1;
-            max-width: 100%;
-            padding: 8px;
-            border-right: none;
-          }
-
-          .trading-info-panel.collapsed .info-panel-content {
             display: none;
-          }
-
-          .info-panel-toggle {
-            display: flex;
           }
 
           .market-depth-panel {
-            flex: 1;
-            max-width: 100%;
-            border-left: none;
-            padding: 8px;
+            flex: 2;
+            min-width: 0;
+            max-width: none;
+            border-left: 1px solid #e9ecef;
+            padding: 0;
+          }
+
+          .dark .market-depth-panel {
+            border-left: 1px solid #27272a;
           }
 
           .market-depth-panel.collapsed .orderbook-content {
-            display: none;
+            display: block;
           }
 
           .orderbook-toggle {
-            display: flex;
+            display: none !important;
           }
 
           .form-grid {
