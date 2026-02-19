@@ -82,6 +82,11 @@ app.use(
         return callback(null, true);
       }
 
+      // Allow Vercel deployments (branch previews, etc.)
+      if (origin.endsWith('.vercel.app')) {
+        return callback(null, true);
+      }
+
       if (allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);
       } else {

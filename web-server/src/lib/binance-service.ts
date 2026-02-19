@@ -97,11 +97,11 @@ export class BinanceService {
     const remaining = BinanceService.cooldownEndTime - Date.now();
     if (remaining > 0) {
       const waitSec = Math.ceil(remaining / 1000);
-      return Promise.reject(
-        new Error(
-          `Rate limited by Binance. Please wait ${waitSec}s before retrying.`,
-        ),
+      const error: any = new Error(
+        `Rate limited by Binance. Please wait ${waitSec}s before retrying.`,
       );
+      error.status = 429;
+      return Promise.reject(error);
     }
     return BinanceService.limiter.schedule(fn);
   }
@@ -1010,10 +1010,9 @@ export class BinanceService {
     }
 
     try {
-      // Exchange info is public, no need for signature
-      // Using generic futures client to avoid need for credentials if not set
+      // Exchange info is public, but we use futuresClient to track rate-limit headers
       const response = await BinanceService.scheduleRequest(() =>
-        axios.get(`${this.FUTURES_BASE_URL}/fapi/v1/exchangeInfo`),
+        this.futuresClient.get('/fapi/v1/exchangeInfo'),
       );
 
       // Update cache
