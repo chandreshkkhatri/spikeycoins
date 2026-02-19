@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   description: "Multi-broker trading platform with real-time data",
   icons: {
     icon: "/logo.svg",
+    apple: "/logo.png",
   },
 };
 
