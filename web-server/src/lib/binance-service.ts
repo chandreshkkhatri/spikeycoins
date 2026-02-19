@@ -50,11 +50,13 @@ export class BinanceService {
       baseURL: this.SPOT_BASE_URL,
       timeout: 10000,
     });
+    this.attachInterceptors(this.spotClient);
 
     this.futuresClient = axios.create({
       baseURL: this.FUTURES_BASE_URL,
       timeout: 10000,
     });
+    this.attachInterceptors(this.futuresClient);
   }
 
   /**
