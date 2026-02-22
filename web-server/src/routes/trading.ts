@@ -11,23 +11,23 @@ const router: Router = Router();
 // In-Memory Response Cache (deduplicates rapid requests from multiple tabs)
 // ============================================================================
 interface CachedResponse {
-  data: any;
+  promise: Promise<any>;
   timestamp: number;
 }
 const SUMMARY_RESPONSE_CACHE = new Map<string, CachedResponse>();
 const SUMMARY_CACHE_TTL = 10_000; // 10 seconds
 
-function getCachedSummary(key: string): any | null {
+function getCachedSummary(key: string): Promise<any> | null {
   const cached = SUMMARY_RESPONSE_CACHE.get(key);
   if (cached && Date.now() - cached.timestamp < SUMMARY_CACHE_TTL) {
-    return cached.data;
+    return cached.promise;
   }
   SUMMARY_RESPONSE_CACHE.delete(key);
   return null;
 }
 
-function setCachedSummary(key: string, data: any): void {
-  SUMMARY_RESPONSE_CACHE.set(key, { data, timestamp: Date.now() });
+function setCachedSummary(key: string, promise: Promise<any>): void {
+  SUMMARY_RESPONSE_CACHE.set(key, { promise, timestamp: Date.now() });
   // Evict stale entries periodically
   if (SUMMARY_RESPONSE_CACHE.size > 100) {
     const now = Date.now();
@@ -128,211 +128,174 @@ router.get("/summary", async (req: Request, res: Response) => {
       }
     }
 
-    // Initialize response structure
-    const response: {
-      success: boolean;
-      positions: any[];
-      orders: any[];
-      accountDetails: any | null;
-      symbolInfo: any | null;
-      accountType: string;
-    } = {
-      success: true,
-      positions: [],
-      orders: [],
-      accountDetails: null,
-      symbolInfo: null,
-      accountType: account.accountType,
-    };
-
-    if (account.accountType === "binance") {
-      const tradingSegment = account.metadata?.tradingSegment || "spot";
-      const isTestnet = account.metadata?.testnet || false;
-
-      const binanceService = new BinanceService();
-      binanceService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isTestnet
-      );
-
-      if (tradingSegment === "usdm") {
-        // Fetch all data in parallel for maximum efficiency
-        const [
-          accountInfo,
-          positions,
-          basicOrders,
-          algoOrders,
-          exchangeInfo,
-          leverageBrackets,
-        ] = await Promise.all([
-          binanceService.getFuturesAccount(),
-          binanceService.getFuturesPositions(),
-          binanceService.getFuturesOpenOrders(),
-          binanceService.getFuturesOpenAlgoOrders(),
-          symbol ? binanceService.getFuturesExchangeInfo() : Promise.resolve(null),
-          symbol ? binanceService.getFuturesLeverageBrackets(symbol as string) : Promise.resolve(null),
-        ]);
-
-        // Process account details
-        const totalMaintMargin = parseFloat(accountInfo.totalMaintMargin);
-        const totalMarginBalance = parseFloat(accountInfo.totalMarginBalance);
-        const availableBalance = parseFloat(accountInfo.availableBalance);
-        const totalUnrealizedProfit = parseFloat(accountInfo.totalUnrealizedProfit);
-
-        response.accountDetails = {
-          equity: totalMarginBalance,
-          availableBalance,
-          totalMargin: totalMaintMargin,
-          unrealizedPnl: totalUnrealizedProfit,
-        };
-
-        // Process positions - only non-zero positions
-        response.positions = (positions || [])
-          .filter((p: any) => Math.abs(toNumber(p.positionAmt)) > 0)
-          .map((p: any) => formatBinanceFuturesPosition(p, account));
-
-        // Process orders - combine basic and algo orders
-        const normalizedBasic = (basicOrders || []).map((o: any) => ({
-          ...o,
-          id: o.orderId?.toString(),
-          orderCategory: "basic",
-          accountId: account._id,
-          vendor: account.accountType,
-        }));
-
-        const normalizedAlgo = (algoOrders || []).map((o: any) => ({
-          id: o.algoId?.toString(),
-          orderId: o.algoId,
-          clientOrderId: o.clientAlgoId,
-          symbol: o.symbol,
-          side: o.side,
-          type: o.orderType,
-          origQty: o.quantity,
-          price: o.price || "0",
-          stopPrice: o.triggerPrice || o.stopPrice,
-          status: o.algoStatus,
-          time: o.createTime,
-          updateTime: o.updateTime,
-          orderCategory: "conditional",
-          accountId: account._id,
-          vendor: account.accountType,
-        }));
-
-        response.orders = [...normalizedBasic, ...normalizedAlgo];
-
-        // Process symbol info if symbol provided
-        if (symbol && exchangeInfo) {
-          const symbolData = exchangeInfo.symbols?.find(
-            (s: any) => s.symbol === symbol
-          );
-          if (symbolData) {
-            const priceFilter = symbolData.filters?.find(
-              (f: any) => f.filterType === "PRICE_FILTER"
-            );
-            const lotSizeFilter = symbolData.filters?.find(
-              (f: any) => f.filterType === "LOT_SIZE"
-            );
-            const minNotionalFilter = symbolData.filters?.find(
-              (f: any) => f.filterType === "MIN_NOTIONAL"
-            );
-
-            // Get max leverage from brackets
-            let maxLeverage = 125;
-            if (leverageBrackets && Array.isArray(leverageBrackets) && leverageBrackets.length > 0) {
-              maxLeverage = leverageBrackets[0]?.initialLeverage || 125;
-            }
-
-            response.symbolInfo = {
-              tickSize: priceFilter?.tickSize || "0.01",
-              stepSize: lotSizeFilter?.stepSize || "0.001",
-              minQty: parseFloat(lotSizeFilter?.minQty || "0"),
-              minNotional: parseFloat(minNotionalFilter?.notional || minNotionalFilter?.minNotional || "0"),
-              maxLeverage,
-            };
-          }
-        }
-      } else {
-        // Spot trading
-        const [accountInfo, spotOrders] = await Promise.all([
-          binanceService.getSpotAccount(),
-          binanceService.getSpotOpenOrders(),
-        ]);
-
-        // Process spot account
-        const usdtBalance = accountInfo.balances?.find(
-          (b: any) => b.asset === "USDT"
-        );
-        response.accountDetails = {
-          equity: parseFloat(usdtBalance?.free || "0") + parseFloat(usdtBalance?.locked || "0"),
-          availableBalance: parseFloat(usdtBalance?.free || "0"),
-        };
-
-        // Process spot orders
-        response.orders = (spotOrders || []).map((o: any) => ({
-          ...o,
-          id: o.orderId?.toString(),
-          orderCategory: "basic",
-          accountId: account._id,
-          vendor: account.accountType,
-        }));
-
-        // Spot doesn't have positions
-        response.positions = [];
-      }
-    } else if (account.accountType === "kite") {
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-      kiteConnectService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret
-      );
-      kiteConnectService.setAccessToken(account.accessToken);
-
-      // Fetch positions and orders in parallel
-      const [positions, orders, margins] = await Promise.all([
-        kiteConnectService.getPositions(),
-        kiteConnectService.getOrders(),
-        kiteConnectService.getMargins(),
-      ]);
-
-      response.positions = (positions || []).map((p: any) => ({
-        ...p,
-        accountId: account._id,
-        vendor: account.accountType,
-      }));
-
-      response.orders = (orders || []).map((o: any) => ({
-        ...o,
-        accountId: account._id,
-        vendor: account.accountType,
-      }));
-
-      // Extract available margin
-      const equity = margins?.equity || {};
-      response.accountDetails = {
-        equity: equity.net || 0,
-        availableBalance: equity.available?.cash || equity.available?.live_balance || 0,
+    const fetchPromise = (async () => {
+      // Initialize response structure
+      const response: {
+        success: boolean;
+        positions: any[];
+        orders: any[];
+        accountDetails: any | null;
+        symbolInfo: any | null;
+        accountType: string;
+      } = {
+        success: true,
+        positions: [],
+        orders: [],
+        accountDetails: null,
+        symbolInfo: null,
+        accountType: account.accountType,
       };
-    } else if (account.accountType === "upstox") {
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-      const isSandbox = account.metadata?.sandbox || false;
-      upstoxService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isSandbox
-      );
-      upstoxService.setAccessToken(account.accessToken);
 
-      // Fetch positions and orders in parallel
-      try {
-        const [positions, orders, funds] = await Promise.all([
-          upstoxService.getPositions().catch(() => []),
-          upstoxService.getOrders().catch(() => []),
-          upstoxService.getFunds().catch(() => null),
+      if (account.accountType === "binance") {
+        const tradingSegment = account.metadata?.tradingSegment || "spot";
+        const isTestnet = account.metadata?.testnet || false;
+
+        const binanceService = new BinanceService();
+        binanceService.initializeWithCredentials(
+          account.apiKey,
+          account.apiSecret,
+          isTestnet
+        );
+
+        if (tradingSegment === "usdm") {
+          // Fetch all data in parallel for maximum efficiency
+          const [
+            accountInfo,
+            positions,
+            basicOrders,
+            algoOrders,
+            exchangeInfo,
+            leverageBrackets,
+          ] = await Promise.all([
+            binanceService.getFuturesAccount(),
+            binanceService.getFuturesPositions(),
+            binanceService.getFuturesOpenOrders(),
+            binanceService.getFuturesOpenAlgoOrders(),
+            symbol ? binanceService.getFuturesExchangeInfo() : Promise.resolve(null),
+            symbol ? binanceService.getFuturesLeverageBrackets(symbol as string) : Promise.resolve(null),
+          ]);
+
+          // Process account details
+          const totalMaintMargin = parseFloat(accountInfo.totalMaintMargin);
+          const totalMarginBalance = parseFloat(accountInfo.totalMarginBalance);
+          const availableBalance = parseFloat(accountInfo.availableBalance);
+          const totalUnrealizedProfit = parseFloat(accountInfo.totalUnrealizedProfit);
+
+          response.accountDetails = {
+            equity: totalMarginBalance,
+            availableBalance,
+            totalMargin: totalMaintMargin,
+            unrealizedPnl: totalUnrealizedProfit,
+          };
+
+          // Process positions - only non-zero positions
+          response.positions = (positions || [])
+            .filter((p: any) => Math.abs(toNumber(p.positionAmt)) > 0)
+            .map((p: any) => formatBinanceFuturesPosition(p, account));
+
+          // Process orders - combine basic and algo orders
+          const normalizedBasic = (basicOrders || []).map((o: any) => ({
+            ...o,
+            id: o.orderId?.toString(),
+            orderCategory: "basic",
+            accountId: account._id,
+            vendor: account.accountType,
+          }));
+
+          const normalizedAlgo = (algoOrders || []).map((o: any) => ({
+            id: o.algoId?.toString(),
+            orderId: o.algoId,
+            clientOrderId: o.clientAlgoId,
+            symbol: o.symbol,
+            side: o.side,
+            type: o.orderType,
+            origQty: o.quantity,
+            price: o.price || "0",
+            stopPrice: o.triggerPrice || o.stopPrice,
+            status: o.algoStatus,
+            time: o.createTime,
+            updateTime: o.updateTime,
+            orderCategory: "conditional",
+            accountId: account._id,
+            vendor: account.accountType,
+          }));
+
+          response.orders = [...normalizedBasic, ...normalizedAlgo];
+
+          // Process symbol info if symbol provided
+          if (symbol && exchangeInfo) {
+            const symbolData = exchangeInfo.symbols?.find(
+              (s: any) => s.symbol === symbol
+            );
+            if (symbolData) {
+              const priceFilter = symbolData.filters?.find(
+                (f: any) => f.filterType === "PRICE_FILTER"
+              );
+              const lotSizeFilter = symbolData.filters?.find(
+                (f: any) => f.filterType === "LOT_SIZE"
+              );
+              const minNotionalFilter = symbolData.filters?.find(
+                (f: any) => f.filterType === "MIN_NOTIONAL"
+              );
+
+              // Get max leverage from brackets
+              let maxLeverage = 125;
+              if (leverageBrackets && Array.isArray(leverageBrackets) && leverageBrackets.length > 0) {
+                maxLeverage = leverageBrackets[0]?.initialLeverage || 125;
+              }
+
+              response.symbolInfo = {
+                tickSize: priceFilter?.tickSize || "0.01",
+                stepSize: lotSizeFilter?.stepSize || "0.001",
+                minQty: parseFloat(lotSizeFilter?.minQty || "0"),
+                minNotional: parseFloat(minNotionalFilter?.notional || minNotionalFilter?.minNotional || "0"),
+                maxLeverage,
+              };
+            }
+          }
+        } else {
+          // Spot trading
+          const [accountInfo, spotOrders] = await Promise.all([
+            binanceService.getSpotAccount(),
+            binanceService.getSpotOpenOrders(),
+          ]);
+
+          // Process spot account
+          const usdtBalance = accountInfo.balances?.find(
+            (b: any) => b.asset === "USDT"
+          );
+          response.accountDetails = {
+            equity: parseFloat(usdtBalance?.free || "0") + parseFloat(usdtBalance?.locked || "0"),
+            availableBalance: parseFloat(usdtBalance?.free || "0"),
+          };
+
+          // Process spot orders
+          response.orders = (spotOrders || []).map((o: any) => ({
+            ...o,
+            id: o.orderId?.toString(),
+            orderCategory: "basic",
+            accountId: account._id,
+            vendor: account.accountType,
+          }));
+
+          // Spot doesn't have positions
+          response.positions = [];
+        }
+      } else if (account.accountType === "kite") {
+        if (!account.accessToken) {
+          throw new Error("Account not authenticated");
+        }
+        kiteConnectService.initializeWithCredentials(
+          account.apiKey,
+          account.apiSecret
+        );
+        kiteConnectService.setAccessToken(account.accessToken);
+
+        // Fetch positions and orders in parallel
+        const [positions, orders, margins] = await Promise.all([
+          kiteConnectService.getPositions(),
+          kiteConnectService.getOrders(),
+          kiteConnectService.getMargins(),
         ]);
 
         response.positions = (positions || []).map((p: any) => ({
@@ -347,31 +310,89 @@ router.get("/summary", async (req: Request, res: Response) => {
           vendor: account.accountType,
         }));
 
-        if (funds) {
-          response.accountDetails = {
-            equity: parseFloat(funds.equity || "0"),
-            availableBalance: parseFloat(funds.available_margin || "0"),
-          };
+        // Extract available margin
+        const equity = margins?.equity || {};
+        response.accountDetails = {
+          equity: equity.net || 0,
+          availableBalance: equity.available?.cash || equity.available?.live_balance || 0,
+        };
+      } else if (account.accountType === "upstox") {
+        if (!account.accessToken) {
+          throw new Error("Account not authenticated");
         }
-      } catch (upstoxError: any) {
-        console.warn("Upstox SDK error:", upstoxError.message);
-        // Return empty arrays for Upstox on error
+        const isSandbox = account.metadata?.sandbox || false;
+        upstoxService.initializeWithCredentials(
+          account.apiKey,
+          account.apiSecret,
+          isSandbox
+        );
+        upstoxService.setAccessToken(account.accessToken);
+
+        // Fetch positions and orders in parallel
+        try {
+          const [positions, orders, funds] = await Promise.all([
+            upstoxService.getPositions().catch(() => []),
+            upstoxService.getOrders().catch(() => []),
+            upstoxService.getFunds().catch(() => null),
+          ]);
+
+          response.positions = (positions || []).map((p: any) => ({
+            ...p,
+            accountId: account._id,
+            vendor: account.accountType,
+          }));
+
+          response.orders = (orders || []).map((o: any) => ({
+            ...o,
+            accountId: account._id,
+            vendor: account.accountType,
+          }));
+
+          if (funds) {
+            response.accountDetails = {
+              equity: parseFloat(funds.equity || "0"),
+              availableBalance: parseFloat(funds.available_margin || "0"),
+            };
+          }
+        } catch (upstoxError: any) {
+          console.warn("Upstox SDK error:", upstoxError.message);
+          // Return empty arrays for Upstox on error
+        }
+      } else {
+        throw new Error("Unsupported account type");
       }
-    } else {
-      return res.status(400).json({ error: "Unsupported account type" });
+
+      return response;
+    })();
+
+    // Cache promise in memory for server-side deduplication
+    setCachedSummary(cacheKey, fetchPromise);
+
+    try {
+      const result = await fetchPromise;
+      // Set cache headers - allow 5 second cache for aggregated data
+      res.set({
+        "Cache-Control": "private, max-age=5, stale-while-revalidate=10",
+      });
+      return res.json(result);
+    } catch (error: any) {
+      // Clear cache on error
+      SUMMARY_RESPONSE_CACHE.delete(cacheKey);
+      throw error;
     }
-
-    // Set cache headers - allow 5 second cache for aggregated data
-    res.set({
-      "Cache-Control": "private, max-age=5, stale-while-revalidate=10",
-    });
-
-    // Cache response in memory for server-side deduplication
-    setCachedSummary(cacheKey, response);
-
-    return res.json(response);
   } catch (error: any) {
     console.error("Error fetching trading summary:", error);
+    
+    // Handle specific auth errors mapped from exceptions
+    if (error.message?.includes("Account not authenticated") || error.message === "Account not found") {
+      const status = error.message === "Account not found" ? 404 : 401;
+      return res.status(status).json({
+        success: false,
+        error: error.message.split(":")[0],
+        details: error.message,
+      });
+    }
+
     return res.status(500).json({
       success: false,
       error: "Failed to fetch trading summary",

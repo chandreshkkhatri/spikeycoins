@@ -8,7 +8,7 @@ import { demoAccountService } from "../lib/demo-account-service";
 const router: Router = Router();
 
 // In-memory response cache (10s TTL) to deduplicate rapid requests
-const POSITIONS_RESPONSE_CACHE = new Map<string, { data: unknown; timestamp: number }>();
+const POSITIONS_RESPONSE_CACHE = new Map<string, { promise: Promise<any>; timestamp: number }>();
 const POSITIONS_CACHE_TTL = 10_000;
 
 const setNoCacheHeaders = (response: Response) => {
@@ -183,105 +183,133 @@ router.get("/", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "accountId is required" });
     }
 
-    // Check in-memory cache first
+    // Check in-memory promise cache first
     const cacheKey = `positions-${accountId}`;
+    
+    // Clean up old entries
+    const now = Date.now();
+    for (const [k, v] of POSITIONS_RESPONSE_CACHE.entries()) {
+      if (now - v.timestamp > POSITIONS_CACHE_TTL) {
+        POSITIONS_RESPONSE_CACHE.delete(k);
+      }
+    }
+
     const cached = POSITIONS_RESPONSE_CACHE.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < POSITIONS_CACHE_TTL) {
-      return res.json(cached.data);
+    if (cached) {
+      const data = await cached.promise;
+      return res.json(data);
     }
 
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId as string)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId as string);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
-    }
-
-    let positions;
-    let tradingSegment: string | undefined;
-
-    if (account.accountType === "kite") {
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-      kiteConnectService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-      );
-      kiteConnectService.setAccessToken(account.accessToken);
-      positions = await kiteConnectService.getPositions();
-    } else if (account.accountType === "upstox") {
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-      const isSandbox = account.metadata?.sandbox || false;
-      upstoxService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isSandbox,
-      );
-      upstoxService.setAccessToken(account.accessToken);
-
-      try {
-        positions = await upstoxService.getPositions();
-      } catch (upstoxError: any) {
-        // Handle Upstox SDK superagent bug - return empty array for now
-        console.warn(
-          "Upstox SDK error (known superagent issue):",
-          upstoxError.message,
-        );
-        positions = [];
-      }
-    } else if (account.accountType === "binance") {
-      tradingSegment = account.metadata?.tradingSegment || "spot";
-      const isTestnet = account.metadata?.testnet || false;
-
-      const binanceService = new BinanceService();
-      binanceService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isTestnet,
-      );
-
-      if (tradingSegment === "usdm") {
-        // USD(S)-M Futures - Get positions
-        positions = await binanceService.getFuturesPositions();
+    const fetchPromise = (async () => {
+      let account;
+      if (demoAccountService.isDemoAccountId(accountId as string)) {
+        account = demoAccountService.getDemoAccount(true);
+        if (!account) {
+          throw new Error("Demo account not configured");
+        }
       } else {
-        // Spot trading doesn't have positions in the traditional sense
-        // Return empty array for spot accounts
-        positions = [];
+        account = await getAccountById(accountId as string);
+        if (!account) {
+          throw new Error("Account not found");
+        }
       }
-    } else {
-      return res
-        .status(400)
-        .json({ error: "Unsupported account type for positions" });
+
+      let positions;
+      let tradingSegment: string | undefined;
+
+      if (account.accountType === "kite") {
+        if (!account.accessToken) {
+          throw new Error("Account not authenticated:kite");
+        }
+        kiteConnectService.initializeWithCredentials(
+          account.apiKey,
+          account.apiSecret,
+        );
+        kiteConnectService.setAccessToken(account.accessToken);
+        positions = await kiteConnectService.getPositions();
+      } else if (account.accountType === "upstox") {
+        if (!account.accessToken) {
+          throw new Error("Account not authenticated:upstox");
+        }
+        const isSandbox = account.metadata?.sandbox || false;
+        upstoxService.initializeWithCredentials(
+          account.apiKey,
+          account.apiSecret,
+          isSandbox,
+        );
+        upstoxService.setAccessToken(account.accessToken);
+
+        try {
+          positions = await upstoxService.getPositions();
+        } catch (upstoxError: any) {
+          // Handle Upstox SDK superagent bug - return empty array for now
+          console.warn(
+            "Upstox SDK error (known superagent issue):",
+            upstoxError.message,
+          );
+          positions = [];
+        }
+      } else if (account.accountType === "binance") {
+        tradingSegment = account.metadata?.tradingSegment || "spot";
+        const isTestnet = account.metadata?.testnet || false;
+
+        const binanceService = new BinanceService();
+        binanceService.initializeWithCredentials(
+          account.apiKey,
+          account.apiSecret,
+          isTestnet,
+        );
+
+        if (tradingSegment === "usdm") {
+          // USD(S)-M Futures - Get positions
+          positions = await binanceService.getFuturesPositions();
+        } else {
+          // Spot trading doesn't have positions in the traditional sense
+          // Return empty array for spot accounts
+          positions = [];
+        }
+      } else {
+        throw new Error("Unsupported account type for positions");
+      }
+
+      // Map positions to unified format
+      const unifiedPositions = Array.isArray(positions)
+        ? positions.map((position: any) =>
+            formatPosition(account, position, { tradingSegment }),
+          )
+        : [];
+
+      return {
+        success: true,
+        data: unifiedPositions,
+        accountType: account.accountType,
+      };
+    })();
+
+    // Store promise in cache
+    POSITIONS_RESPONSE_CACHE.set(cacheKey, { promise: fetchPromise, timestamp: Date.now() });
+
+    try {
+      const responseData = await fetchPromise;
+      return res.json(responseData);
+    } catch (error: any) {
+      // Clean up cache immediately on failure
+      POSITIONS_RESPONSE_CACHE.delete(cacheKey);
+      throw error;
     }
-
-    // Map positions to unified format
-    const unifiedPositions = Array.isArray(positions)
-      ? positions.map((position: any) =>
-          formatPosition(account, position, { tradingSegment }),
-        )
-      : [];
-
-    const responseData = {
-      success: true,
-      data: unifiedPositions,
-      accountType: account.accountType,
-    };
-
-    // Cache the response
-    POSITIONS_RESPONSE_CACHE.set(cacheKey, { data: responseData, timestamp: Date.now() });
-
-    return res.json(responseData);
   } catch (error: any) {
     console.error("Error fetching positions:", error);
+
+    // Handle specific auth errors mapped from exceptions
+    if (error.message?.includes("Account not authenticated") || error.message === "Account not found") {
+      const status = error.message === "Account not found" ? 404 : 401;
+      return res.status(status).json({
+        success: false,
+        error: error.message.split(":")[0],
+        details: error.message,
+        data: [],
+      });
+    }
     // Return consistent structure even on error
     // Include actual error message for better debugging
     const errorMessage = error.message || "Unknown error";
