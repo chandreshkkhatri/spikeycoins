@@ -36,10 +36,15 @@ export class BinanceService {
 
   // ── Monitoring State ─────────────────────────────────────────
   private static lastReportedWeight: number = 0;
+  private static lastWeightUpdateTime: number = 0;
+  private static readonly WEIGHT_STALE_MS = 120_000; // 2 minutes: after this, consider weight stale
   private static weightByEndpoint: Map<string, number> = new Map();
   private static lastWeightLogTime: number = 0;
   private static readonly WEIGHT_LOG_INTERVAL = 30_000;
   private static cooldownEndTime: number = 0;
+
+  // ── Schedule Timeout ─────────────────────────────────────────
+  private static readonly SCHEDULE_TIMEOUT_MS = 15_000; // 15s max for schedule + execution
 
   // Base URLs
   private readonly SPOT_BASE_URL = "https://api.binance.com";
@@ -96,6 +101,7 @@ export class BinanceService {
   /**
    * Schedule a request through the shared rate limiter.
    * Fails fast with a user-friendly message if currently in cooldown.
+   * Includes a safety timeout to prevent indefinite hangs from Bottleneck queue stalls.
    */
   static scheduleRequest<T>(fn: () => Promise<T>): Promise<T> {
     const remaining = BinanceService.cooldownEndTime - Date.now();
@@ -107,7 +113,46 @@ export class BinanceService {
       error.status = 429;
       return Promise.reject(error);
     }
-    return BinanceService.limiter.schedule(fn);
+
+    // If the weight data is stale (no successful Binance call in a while),
+    // reset the reservoir so queued jobs can proceed.
+    const staleness = Date.now() - BinanceService.lastWeightUpdateTime;
+    if (
+      BinanceService.lastWeightUpdateTime > 0 &&
+      staleness > BinanceService.WEIGHT_STALE_MS
+    ) {
+      console.log(
+        `[BinanceRateLimit] Weight data stale (${Math.round(staleness / 1000)}s), resetting reservoir`,
+      );
+      BinanceService.lastReportedWeight = 0;
+      BinanceService.lastWeightUpdateTime = 0;
+      BinanceService.limiter.updateSettings({
+        reservoir: BinanceService.WEIGHT_LIMIT,
+      });
+    }
+
+    // Use Bottleneck's expiration to auto-reject jobs stuck in queue,
+    // and wrap with a timeout for end-to-end safety.
+    const scheduled = BinanceService.limiter.schedule(
+      { expiration: BinanceService.SCHEDULE_TIMEOUT_MS },
+      fn,
+    );
+
+    // Race against a timeout in case both Bottleneck and Axios hang
+    return Promise.race([
+      scheduled,
+      new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => {
+          const err: any = new Error(
+            'Binance API request timed out (rate limiter queue stall)',
+          );
+          err.status = 504;
+          reject(err);
+        }, BinanceService.SCHEDULE_TIMEOUT_MS + 2000); // +2s grace
+        // Ensure the timer doesn't keep the process alive
+        if (timer.unref) timer.unref();
+      }),
+    ]);
   }
 
   /**
@@ -198,6 +243,7 @@ export class BinanceService {
 
     if (usedWeight > 0) {
       BinanceService.lastReportedWeight = usedWeight;
+      BinanceService.lastWeightUpdateTime = Date.now();
 
       const current = BinanceService.weightByEndpoint.get(endpoint) || 0;
       BinanceService.weightByEndpoint.set(endpoint, current + 1);
@@ -246,14 +292,21 @@ export class BinanceService {
       0,
       BinanceService.cooldownEndTime - Date.now(),
     );
+    // If weight data is stale, report 0% instead of misleading stale value
+    const staleness = Date.now() - BinanceService.lastWeightUpdateTime;
+    const isStale =
+      BinanceService.lastWeightUpdateTime > 0 &&
+      staleness > BinanceService.WEIGHT_STALE_MS;
+    const effectiveWeight = isStale ? 0 : BinanceService.lastReportedWeight;
     return {
-      lastReportedWeight: BinanceService.lastReportedWeight,
+      lastReportedWeight: effectiveWeight,
       weightLimit: BinanceService.WEIGHT_LIMIT,
       usagePercent: (
-        (BinanceService.lastReportedWeight / BinanceService.WEIGHT_LIMIT) *
+        (effectiveWeight / BinanceService.WEIGHT_LIMIT) *
         100
       ).toFixed(1),
       cooldownRemainingSec: Math.ceil(cooldownRemaining / 1000),
+      stale: isStale,
     };
   }
 

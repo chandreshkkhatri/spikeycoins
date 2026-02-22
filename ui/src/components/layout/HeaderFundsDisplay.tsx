@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { API_ROUTES, getApiUrl } from "@/lib/constants";
 import { useAccount } from "@/contexts/account-context";
@@ -14,14 +14,65 @@ interface FundsResponse {
     currency: string;
 }
 
+const FUNDS_REQUEST_TIMEOUT = 12_000; // 12s client-side timeout
+const FUNDS_POLL_INTERVAL = 30_000;   // 30s polling
+
 export function HeaderFundsDisplay() {
     const { selectedAccount } = useAccount();
     const { isLoggedIn } = useAuth();
     const [funds, setFunds] = useState<FundsResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
+    const mountedRef = useRef(true);
+    const hasFundsRef = useRef(false);
+
+    const fetchFunds = useCallback(async (signal: AbortSignal) => {
+        if (!selectedAccount) return;
+
+        // Only show loading spinner on first fetch (funds is null)
+        // Subsequent fetches keep showing stale data instead of spinner
+        if (!hasFundsRef.current) setLoading(true);
+        setError(false);
+
+        try {
+            const response = await axios.get(
+                getApiUrl(`${API_ROUTES.funds}?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`),
+                {
+                    signal,
+                    timeout: FUNDS_REQUEST_TIMEOUT,
+                }
+            );
+
+            if (!mountedRef.current) return;
+
+            if (response.data?.success && response.data.funds) {
+                const currency = selectedAccount.accountType === 'binance' ? '$' : '₹';
+                setFunds({
+                    totalBalance: response.data.funds.totalBalance,
+                    availableBalance: response.data.funds.availableBalance,
+                    unrealizedPnl: response.data.funds.unrealizedPnl,
+                    currency
+                });
+                hasFundsRef.current = true;
+                setError(false);
+            } else {
+                console.error("Failed to fetch header funds: API returned success=false", response.data);
+                if (mountedRef.current) setError(true);
+            }
+        } catch (err: any) {
+            if (axios.isCancel(err)) return; // Intentional abort, skip error handling
+            if (!mountedRef.current) return;
+            console.error("Failed to fetch header funds:", err.message || err);
+            setError(true);
+        } finally {
+            if (mountedRef.current) setLoading(false);
+        }
+    }, [selectedAccount]);
 
     useEffect(() => {
+        mountedRef.current = true;
+
         if (!selectedAccount) {
             setFunds(null);
             return;
@@ -33,43 +84,27 @@ export function HeaderFundsDisplay() {
             return;
         }
 
-        const fetchFunds = async () => {
-            setLoading(true);
-            setError(false);
-            try {
-                const response = await axios.get(
-                    getApiUrl(`${API_ROUTES.funds}?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`)
-                );
+        // Abort any previous in-flight request
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
 
-                if (response.data?.success && response.data.funds) {
-                    // Determine currency symbol based on vendor
-                    const currency = selectedAccount.accountType === 'binance' ? '$' : '₹';
+        fetchFunds(controller.signal);
 
-                    setFunds({
-                        totalBalance: response.data.funds.totalBalance,
-                        availableBalance: response.data.funds.availableBalance,
-                        unrealizedPnl: response.data.funds.unrealizedPnl,
-                        currency
-                    });
-                } else {
-                    console.error("Failed to fetch header funds: API returned success=false", response.data);
-                    setError(true);
-                }
-            } catch (err: any) {
-                console.error("Failed to fetch header funds:", err.message || err);
-                setError(true);
-            } finally {
-                setLoading(false);
-            }
+        // Refresh every 30 seconds with a fresh AbortController each time
+        const interval = setInterval(() => {
+            abortControllerRef.current?.abort();
+            const newController = new AbortController();
+            abortControllerRef.current = newController;
+            fetchFunds(newController.signal);
+        }, FUNDS_POLL_INTERVAL);
+
+        return () => {
+            mountedRef.current = false;
+            clearInterval(interval);
+            abortControllerRef.current?.abort();
         };
-
-        fetchFunds();
-
-        // Refresh every 30 seconds
-        const interval = setInterval(fetchFunds, 30000);
-        return () => clearInterval(interval);
-
-    }, [selectedAccount, selectedAccount?._id, isLoggedIn]);
+    }, [selectedAccount, selectedAccount?._id, isLoggedIn, fetchFunds]);
 
     if (!selectedAccount) return null;
 
