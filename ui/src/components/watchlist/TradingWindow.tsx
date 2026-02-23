@@ -112,7 +112,7 @@ const TradingWindow = memo(function TradingWindow({
     takeProfit: "",
   });
 
-  const [positionSizePercentage, setPositionSizePercentage] = useState(0);
+  const [positionSizePercentage, setPositionSizePercentage] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -789,7 +789,17 @@ const TradingWindow = memo(function TradingWindow({
     let percentage = value[0] / 100; // Convert from 0-10000 to 0-100
     if (isExponentialSlider) {
       percentage = 100 * Math.pow(percentage / 100, 2);
-      // No snapping for exponential mode to allow fine control
+      // Snap to nearest anchor on click (not drag)
+      if (!wasDragging) {
+        const anchors = [0, 2, 5, 9, 20, 50, 100];
+        let closest = anchors[0];
+        let minDist = Math.abs(percentage - closest);
+        for (const a of anchors) {
+          const d = Math.abs(percentage - a);
+          if (d < minDist) { closest = a; minDist = d; }
+        }
+        percentage = closest;
+      }
       const rounded = Math.round(percentage * 100) / 100;
       setPositionSizePercentage(rounded);
       setQuickQuantity(rounded);
@@ -1388,25 +1398,9 @@ const TradingWindow = memo(function TradingWindow({
       });
     }
 
-    // Order price line (for limit orders)
-    if (orderForm.type === "LIMIT" && orderForm.price) {
-      const price = parseFloat(orderForm.price);
-      if (price > 0) {
-        lines.push({
-          price,
-          color: orderForm.side === "BUY" ? "#22c55e" : "#ef4444", // Green for buy, red for sell
-          lineWidth: 1,
-          lineStyle: 0, // Solid
-          title: `${orderForm.side} @ ${formatPrice(price, "$")}`,
-          axis: "left" as const,
-          axisLabelVisible: false,
-        });
-      }
-    }
-
     // Stop Loss line
     if (orderForm.stopLoss) {
-      const slPrice = parseFloat(orderForm.stopLoss);
+      const slPrice = parseFloat(String(orderForm.stopLoss).replace(/,/g, ""));
       if (slPrice > 0) {
         lines.push({
           price: slPrice,
@@ -1419,7 +1413,7 @@ const TradingWindow = memo(function TradingWindow({
 
     // Take Profit line
     if (orderForm.takeProfit) {
-      const tpPrice = parseFloat(orderForm.takeProfit);
+      const tpPrice = parseFloat(String(orderForm.takeProfit).replace(/,/g, ""));
       if (tpPrice > 0) {
         lines.push({
           price: tpPrice,
@@ -1440,26 +1434,25 @@ const TradingWindow = memo(function TradingWindow({
       });
     }
 
-    // Open orders price lines
+    // Open stop orders (SL/TP) price lines only
     openOrders.forEach((order) => {
-      // Use stopPrice for stop orders, otherwise use price
+      const isSL = order.orderType.includes("STOP");
+      const isTP = order.orderType.includes("TAKE_PROFIT");
+      const isStopOrder = isSL || isTP;
+      if (!isStopOrder) return;
+
+      // Use stopPrice for stop orders, fallback to price if needed
       const orderPrice = order.stopPrice && order.stopPrice > 0 ? order.stopPrice : order.price;
       if (orderPrice > 0) {
-        const isBuy = order.transactionType === "BUY";
-        const isSL = order.orderType.includes("STOP");
-        const isTP = order.orderType.includes("TAKE_PROFIT");
-        const isStopOrder = isSL || isTP;
-        
-        let color = isBuy ? "#86efac" : "#fca5a5"; // Light green for buy, light red for sell
-        if (isSL) color = "#ec4899"; // SL color
+        let color = "#ec4899"; // SL color
         if (isTP) color = "#3b82f6"; // TP color
 
         lines.push({
           price: orderPrice,
           color: color,
           lineWidth: 1,
-          lineStyle: isStopOrder ? 1 : 0, // Dotted for stop orders, solid for limit
-          title: isStopOrder ? (isSL ? "SL" : "TP") : undefined,
+          lineStyle: 1, // Dotted for stop orders
+          title: isSL ? "SL" : "TP",
         });
       }
     });
@@ -1467,9 +1460,6 @@ const TradingWindow = memo(function TradingWindow({
     return lines;
   }, [
     currentPrice,
-    orderForm.type,
-    orderForm.price,
-    orderForm.side,
     orderForm.stopLoss,
     orderForm.takeProfit,
     existingPosition,
@@ -1478,8 +1468,6 @@ const TradingWindow = memo(function TradingWindow({
 
   const chartLegend = useMemo(() => [
     { label: "LTP", color: "#64748b" },
-    { label: "Limit Buy", color: "#22c55e" },
-    { label: "Limit Sell", color: "#ef4444" },
     { label: "Stop Loss", color: "#ec4899" },
     { label: "Take Profit", color: "#3b82f6" },
     ...(existingPosition ? [{ label: "Position Entry", color: "#f59e0b" }] : []),
@@ -1610,7 +1598,7 @@ const TradingWindow = memo(function TradingWindow({
                     htmlFor="expSlider"
                     className="text-[10px] cursor-pointer text-muted-foreground mb-0"
                   >
-                    Exp. Spacing
+                    Log. Spacing
                   </label>
                 </div>
               </div>
@@ -1629,42 +1617,26 @@ const TradingWindow = memo(function TradingWindow({
                 />
               </div>
               <div className="slider-labels">
-                <span
-                  className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([0])}
-                >
-                  0%
-                </span>
-                <span
-                  className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([2000])}
-                >
-                  {isExponentialSlider ? "4%" : "20%"}
-                </span>
-                <span
-                  className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([4000])}
-                >
-                  {isExponentialSlider ? "16%" : "40%"}
-                </span>
-                <span
-                  className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([6000])}
-                >
-                  {isExponentialSlider ? "36%" : "60%"}
-                </span>
-                <span
-                  className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([8000])}
-                >
-                  {isExponentialSlider ? "64%" : "80%"}
-                </span>
-                <span
-                  className="cursor-pointer hover:text-primary"
-                  onClick={() => handleSliderCommit([10000])}
-                >
-                  100%
-                </span>
+                {isExponentialSlider ? (
+                  <>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => { setPositionSizePercentage(0); setQuickQuantity(0); }}>0%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => { setPositionSizePercentage(2); setQuickQuantity(2); }}>2%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => { setPositionSizePercentage(5); setQuickQuantity(5); }}>5%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => { setPositionSizePercentage(9); setQuickQuantity(9); }}>9%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => { setPositionSizePercentage(20); setQuickQuantity(20); }}>20%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => { setPositionSizePercentage(50); setQuickQuantity(50); }}>50%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => { setPositionSizePercentage(100); setQuickQuantity(100); }}>100%</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => handleSliderCommit([0])}>0%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => handleSliderCommit([2000])}>20%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => handleSliderCommit([4000])}>40%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => handleSliderCommit([6000])}>60%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => handleSliderCommit([8000])}>80%</span>
+                    <span className="cursor-pointer hover:text-primary" onClick={() => handleSliderCommit([10000])}>100%</span>
+                  </>
+                )}
               </div>
             </div>
 
