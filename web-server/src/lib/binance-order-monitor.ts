@@ -91,6 +91,8 @@ class BinanceOrderMonitor {
   private readonly POLLING_INTERVAL_MS = 120 * 1000; // 2 minutes (was 30s — reduced to cut rate limit usage)
   private readonly RECONNECT_BASE_DELAY_MS = 5000; // 5 seconds initial
   private readonly RECONNECT_MAX_DELAY_MS = 120_000; // 2 minutes max
+  private readonly RECONNECT_MAX_ATTEMPTS = 50; // After 50 failures, hibernate
+  private readonly RECONNECT_HIBERNATE_MS = 30 * 60 * 1000; // 30 minutes
   private reconnectAttempts: Map<string, number> = new Map(); // accountId -> attempt count
   private readonly WS_BASE_URL = "wss://fstream.binance.com";
   private readonly WS_TESTNET_URL = "wss://stream.binancefuture.com";
@@ -839,6 +841,24 @@ class BinanceOrderMonitor {
 
     // Exponential backoff: 5s, 10s, 20s, 40s, 80s, 120s (cap)
     const attempts = this.reconnectAttempts.get(conn.accountId) || 0;
+
+    // After too many failures, hibernate to stop flooding the rate limiter
+    if (attempts >= this.RECONNECT_MAX_ATTEMPTS) {
+      console.warn(
+        `[OrderMonitor] Account ${conn.accountId} hit ${attempts} reconnect failures. ` +
+          `Hibernating for ${this.RECONNECT_HIBERNATE_MS / 60000} minutes.`,
+      );
+      conn.reconnectTimeout = setTimeout(() => {
+        conn.reconnectTimeout = null;
+        this.reconnectAttempts.set(conn.accountId, 0); // Reset counter
+        if (this.isRunning) {
+          console.log(`[OrderMonitor] Waking account ${conn.accountId} from hibernation`);
+          this.establishWebSocket(conn);
+        }
+      }, this.RECONNECT_HIBERNATE_MS);
+      return;
+    }
+
     const delay = Math.min(
       this.RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts),
       this.RECONNECT_MAX_DELAY_MS,

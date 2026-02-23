@@ -6,7 +6,6 @@
 import axios from 'axios';
 import logger from '../utils/logger';
 import DatabaseConnection from './DatabaseConnection';
-import { BinanceService } from '../../lib/binance-service';
 
 interface MarketOverviewData {
   symbol: string;
@@ -38,7 +37,8 @@ class MarketOverviewService {
   private cachedData: CachedMarketData | null = null;
   private updateInterval: NodeJS.Timeout | null = null;
   private isUpdating = false;
-  private readonly UPDATE_INTERVAL_MS = 30 * 1000; // 30 seconds
+  private readonly UPDATE_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+  private btcDominanceBackoff = 0; // exponential backoff for CoinGecko 429s
   
   // Major cryptocurrencies to track
   private readonly MAJOR_SYMBOLS = [
@@ -186,18 +186,16 @@ class MarketOverviewService {
       const symbolsQuery = this.MAJOR_SYMBOLS.map(s => `"${s}"`).join(',');
       const binanceUrl = `https://api.binance.com/api/v3/ticker/24hr?symbols=[${symbolsQuery}]`;
 
-      logger.info(`MarketOverviewService: Fetching from ${binanceUrl}`);
-
-      // Route through BinanceService rate limiter
-      const response = await BinanceService.scheduleRequest(() =>
-        axios.get(binanceUrl, {
-          timeout: 15000,
-          headers: {
-            'User-Agent': 'SpikeCoins/1.0',
-            'Accept': 'application/json'
-          }
-        })
-      );
+      // Direct fetch — this is a public endpoint (no API key needed).
+      // Bypasses the shared BinanceService rate limiter so it doesn't
+      // compete with authenticated user requests (funds, orders, positions).
+      const response = await axios.get(binanceUrl, {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'SpikeCoins/1.0',
+          'Accept': 'application/json'
+        }
+      });
 
       if (!response.data || !Array.isArray(response.data)) {
         logger.error('MarketOverviewService: Invalid Binance API response format', response.data);
@@ -246,6 +244,11 @@ class MarketOverviewService {
 
   private async fetchBitcoinDominance(): Promise<BitcoinDominance> {
     try {
+      // Exponential backoff for CoinGecko 429 errors
+      if (this.btcDominanceBackoff > Date.now()) {
+        throw new Error('CoinGecko backoff active');
+      }
+
       const response = await axios.get('https://api.coingecko.com/api/v3/global', {
         timeout: 8000,
         headers: {
@@ -253,6 +256,9 @@ class MarketOverviewService {
           'User-Agent': 'SpikeCoins/1.0'
         }
       });
+
+      // Reset backoff on success
+      this.btcDominanceBackoff = 0;
 
       const globalData = response.data?.data;
       if (globalData?.market_cap_percentage?.btc) {
@@ -264,8 +270,18 @@ class MarketOverviewService {
       } else {
         throw new Error('Invalid BTC dominance data from CoinGecko');
       }
-    } catch (error) {
-      logger.warn('MarketOverviewService: Using fallback BTC dominance data:', error);
+    } catch (error: any) {
+      // If 429 or backoff, increase backoff: 2min, 4min, 8min, 16min (max)
+      const errorMsg = error?.message || '';
+      const is429 = error?.response?.status === 429 || errorMsg.includes('429');
+      if (is429 || errorMsg.includes('backoff')) {
+        const currentBackoffMs = Math.max(0, this.btcDominanceBackoff - Date.now());
+        const nextBackoffMs = Math.min(currentBackoffMs > 0 ? currentBackoffMs * 2 : 2 * 60 * 1000, 16 * 60 * 1000);
+        this.btcDominanceBackoff = Date.now() + nextBackoffMs;
+        logger.warn(`MarketOverviewService: CoinGecko backoff set to ${Math.round(nextBackoffMs / 1000)}s`);
+      } else {
+        logger.warn('MarketOverviewService: Using fallback BTC dominance data:', error);
+      }
       
       // Fallback data
       return {

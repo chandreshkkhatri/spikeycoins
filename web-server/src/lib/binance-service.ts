@@ -131,16 +131,31 @@ export class BinanceService {
 
     // Use Bottleneck's expiration to auto-reject jobs stuck in queue,
     // and wrap with a timeout for end-to-end safety.
+    const abortController = new AbortController();
+
     const scheduled = BinanceService.limiter.schedule(
       { expiration: BinanceService.SCHEDULE_TIMEOUT_MS },
-      fn,
+      () => {
+        // If already aborted by the safety timeout, reject immediately
+        // so we don't waste a rate-limit token on a request nobody is waiting for.
+        if (abortController.signal.aborted) {
+          return Promise.reject(Object.assign(
+            new Error('Binance API request aborted (caller timed out)'),
+            { status: 504, aborted: true },
+          ));
+        }
+        return fn();
+      },
     );
 
     // Race against a timeout in case both Bottleneck and Axios hang
+    let timer: ReturnType<typeof setTimeout>;
     return Promise.race([
-      scheduled,
+      scheduled.then((result) => { clearTimeout(timer); return result; }),
       new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => {
+        timer = setTimeout(() => {
+          // Signal abort so the Bottleneck job becomes a no-op if it hasn't started yet
+          abortController.abort();
           const err: any = new Error(
             'Binance API request timed out (rate limiter queue stall)',
           );
