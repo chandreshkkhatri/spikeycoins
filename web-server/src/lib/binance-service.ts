@@ -30,8 +30,6 @@ export class BinanceService {
     reservoirRefreshInterval: 60 * 1000,
     maxConcurrent: 10,
     minTime: 50,
-    highWater: 50, // Drop requests if queue size exceeds 50
-    strategy: Bottleneck.strategy.OVERFLOW,
   });
 
   // ── Monitoring State ─────────────────────────────────────────

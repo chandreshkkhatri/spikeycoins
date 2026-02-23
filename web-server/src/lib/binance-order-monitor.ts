@@ -89,7 +89,9 @@ class BinanceOrderMonitor {
   // Constants
   private readonly LISTEN_KEY_RENEWAL_MS = 30 * 60 * 1000; // 30 minutes
   private readonly POLLING_INTERVAL_MS = 120 * 1000; // 2 minutes (was 30s — reduced to cut rate limit usage)
-  private readonly RECONNECT_DELAY_MS = 5000; // 5 seconds
+  private readonly RECONNECT_BASE_DELAY_MS = 5000; // 5 seconds initial
+  private readonly RECONNECT_MAX_DELAY_MS = 120_000; // 2 minutes max
+  private reconnectAttempts: Map<string, number> = new Map(); // accountId -> attempt count
   private readonly WS_BASE_URL = "wss://fstream.binance.com";
   private readonly WS_TESTNET_URL = "wss://stream.binancefuture.com";
 
@@ -227,6 +229,9 @@ class BinanceOrderMonitor {
         client.post("/fapi/v1/listenKey"),
       );
       conn.listenKey = response.data.listenKey;
+
+      // Reset reconnect backoff on success
+      this.reconnectAttempts.set(conn.accountId, 0);
 
       console.log(`[OrderMonitor] Got listenKey for account ${conn.accountId}`);
 
@@ -826,14 +831,23 @@ class BinanceOrderMonitor {
   }
 
   /**
-   * Schedule reconnection
+   * Schedule reconnection with exponential backoff
    */
   private scheduleReconnect(conn: AccountConnection): void {
     if (!this.isRunning) return;
     if (conn.reconnectTimeout) return;
 
+    // Exponential backoff: 5s, 10s, 20s, 40s, 80s, 120s (cap)
+    const attempts = this.reconnectAttempts.get(conn.accountId) || 0;
+    const delay = Math.min(
+      this.RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts),
+      this.RECONNECT_MAX_DELAY_MS,
+    );
+    this.reconnectAttempts.set(conn.accountId, attempts + 1);
+
     console.log(
-      `[OrderMonitor] Scheduling reconnect for account ${conn.accountId}...`,
+      `[OrderMonitor] Scheduling reconnect for account ${conn.accountId} ` +
+        `(attempt ${attempts + 1}, delay ${Math.round(delay / 1000)}s)...`,
     );
 
     // Clear existing resources
@@ -850,13 +864,13 @@ class BinanceOrderMonitor {
     }
     conn.listenKey = null;
 
-    // Schedule reconnect
+    // Schedule reconnect with backoff delay
     conn.reconnectTimeout = setTimeout(async () => {
       conn.reconnectTimeout = null;
       if (this.isRunning) {
         await this.establishWebSocket(conn);
       }
-    }, this.RECONNECT_DELAY_MS);
+    }, delay);
   }
 
   /**
