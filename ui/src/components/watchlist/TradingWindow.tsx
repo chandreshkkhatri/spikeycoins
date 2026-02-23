@@ -1385,19 +1385,6 @@ const TradingWindow = memo(function TradingWindow({
   const chartPriceLines = useMemo(() => {
     const lines = [];
 
-    // Current Price (LTP) line
-    if (currentPrice > 0) {
-      lines.push({
-        price: currentPrice,
-        color: "#64748b", // slate-500
-        lineWidth: 1,
-        lineStyle: 1, // Dotted
-        axis: "right" as const,
-        axisLabelVisible: true,
-        title: "LTP",
-      });
-    }
-
     // Stop Loss line
     if (orderForm.stopLoss) {
       const slPrice = parseFloat(String(orderForm.stopLoss).replace(/,/g, ""));
@@ -1459,7 +1446,6 @@ const TradingWindow = memo(function TradingWindow({
 
     return lines;
   }, [
-    currentPrice,
     orderForm.stopLoss,
     orderForm.takeProfit,
     existingPosition,
@@ -1467,7 +1453,6 @@ const TradingWindow = memo(function TradingWindow({
   ]);
 
   const chartLegend = useMemo(() => [
-    { label: "LTP", color: "#64748b" },
     { label: "Stop Loss", color: "#ec4899" },
     { label: "Take Profit", color: "#3b82f6" },
     ...(existingPosition ? [{ label: "Position Entry", color: "#f59e0b" }] : []),
