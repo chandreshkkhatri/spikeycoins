@@ -113,6 +113,8 @@ const TradingWindow = memo(function TradingWindow({
   });
 
   const [positionSizePercentage, setPositionSizePercentage] = useState(1);
+  // Track the last percentage that was applied to quantity, so the effect fires on mount (initial value of 1)
+  const lastAppliedPercentage = useRef<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -1031,14 +1033,12 @@ const TradingWindow = memo(function TradingWindow({
     handleInputChange("quantity", quantity);
   };
 
-  // Fresh page load can momentarily have currentPrice=0; if the user sets position size
-  // during that window, quantity can become invalid. Once price arrives, recover by
-  // recalculating quantity for the chosen position size.
+  // Recalculate quantity whenever position size percentage changes, OR on the first render
+  // with a valid price (ensures the 1% default is applied on mount).
   useEffect(() => {
     if (positionSizePercentage <= 0) return;
-
-    const qty = parseFloat(orderForm.quantity);
-    if (Number.isFinite(qty) && qty > 0) return;
+    // Only recalculate if the percentage has actually changed since last time we applied it
+    if (lastAppliedPercentage.current === positionSizePercentage) return;
 
     const limitPrice = parseFloat(orderForm.price);
     const referencePrice =
@@ -1054,13 +1054,13 @@ const TradingWindow = memo(function TradingWindow({
     const rawQuantity = (maxPositionValue / referencePrice) * (positionSizePercentage / 100);
     const nextQuantity = roundToStep(rawQuantity, stepSize);
 
+    lastAppliedPercentage.current = positionSizePercentage;
     setOrderForm((prev) => {
       if (prev.quantity === nextQuantity) return prev;
       return { ...prev, quantity: nextQuantity };
     });
   }, [
     positionSizePercentage,
-    orderForm.quantity,
     orderForm.leverage,
     orderForm.type,
     orderForm.price,
