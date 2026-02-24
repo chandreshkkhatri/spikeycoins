@@ -223,6 +223,7 @@ class BinanceOrderMonitor {
 
       const client = axios.create({
         baseURL: baseUrl,
+        timeout: 10000,
         headers: { "X-MBX-APIKEY": conn.apiKey },
       });
 
@@ -438,6 +439,7 @@ class BinanceOrderMonitor {
 
       const client = axios.create({
         baseURL: baseUrl,
+        timeout: 10000,
         headers: { "X-MBX-APIKEY": conn.apiKey },
       });
 
@@ -550,6 +552,7 @@ class BinanceOrderMonitor {
 
       const client = axios.create({
         baseURL: baseUrl,
+        timeout: 10000,
         headers: { "X-MBX-APIKEY": conn.apiKey },
       });
 
@@ -632,6 +635,7 @@ class BinanceOrderMonitor {
 
       const client = axios.create({
         baseURL: baseUrl,
+        timeout: 10000,
         headers: { "X-MBX-APIKEY": conn.apiKey },
       });
 
@@ -810,6 +814,7 @@ class BinanceOrderMonitor {
 
       const client = axios.create({
         baseURL: baseUrl,
+        timeout: 10000,
         headers: { "X-MBX-APIKEY": conn.apiKey },
       });
 
@@ -926,6 +931,7 @@ class BinanceOrderMonitor {
 
         const client = axios.create({
           baseURL: baseUrl,
+          timeout: 10000,
           headers: { "X-MBX-APIKEY": conn.apiKey },
         });
 
@@ -987,6 +993,7 @@ class BinanceOrderMonitor {
 
           const client = axios.create({
             baseURL: baseUrl,
+            timeout: 10000,
             headers: { "X-MBX-APIKEY": conn.apiKey },
           });
 
