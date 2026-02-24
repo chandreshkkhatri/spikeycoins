@@ -1,0 +1,44 @@
+name: Deploy to Prod Server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web-server/**'
+      - '.github/workflows/deploy-prod.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Prod Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          script: |
+            set -e
+
+            # Source profile and add common Node paths
+            export PATH="$HOME/.local/share/pnpm:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node 2>/dev/null | tail -1)/bin:$HOME/.npm-global/bin:/usr/local/bin:$PATH"
+            source ~/.bashrc 2>/dev/null || source ~/.profile 2>/dev/null || true
+
+            echo "📦 Pulling latest code..."
+            cd ~/deployments/prod/spikeycoins
+            git fetch origin main
+            git reset --hard origin/main
+            cd web-server
+
+            echo "📦 Installing dependencies..."
+            pnpm install
+
+            echo "🔨 Building..."
+            pnpm build
+
+            echo "🚀 Restarting server..."
+            pm2 restart spikey-coins-prod
+
+            echo "✅ Prod deployment complete!"
+            pm2 status
