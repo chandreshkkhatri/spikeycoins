@@ -25,11 +25,14 @@ export class BinanceService {
   private static readonly WEIGHT_WARN_THRESHOLD = 0.8; // Log warning at 80%
 
   static readonly limiter = new Bottleneck({
-    reservoir: 1200,
+    // Start conservatively at 600. On Render, deploys reuse the same IP so the
+    // old instance's Binance weight carries over. The actual reservoir gets
+    // synced from the x-mbx-used-weight-1m header after the first response.
+    reservoir: 600,
     reservoirRefreshAmount: 1200,
     reservoirRefreshInterval: 60 * 1000,
-    maxConcurrent: 10,
-    minTime: 50,
+    maxConcurrent: 5, // Keep low to avoid firing many heavy calls before weight feedback
+    minTime: 100,
   });
 
   // ── Monitoring State ─────────────────────────────────────────

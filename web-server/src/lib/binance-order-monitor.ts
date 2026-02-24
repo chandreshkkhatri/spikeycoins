@@ -982,6 +982,16 @@ class BinanceOrderMonitor {
         this.isPolling = false;
         return;
       }
+
+      // Skip polling when rate limit is above 70% — user-facing requests take priority
+      const rateLimitStatus = BinanceService.getRateLimitStatus();
+      if (parseFloat(rateLimitStatus.usagePercent) > 70) {
+        console.log(
+          `[OrderMonitor] Rate limit at ${rateLimitStatus.usagePercent}%, skipping poll to preserve budget`,
+        );
+        this.isPolling = false;
+        return;
+      }
       for (const [accountId, conn] of this.connections) {
         try {
           const axios = (await import("axios")).default;

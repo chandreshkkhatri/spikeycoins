@@ -203,11 +203,15 @@ app.listen(PORT, () => {
   console.log("📡 Starting Binance price service...");
   binancePriceService.start();
 
-  // Start order monitor for auto-cancelling SL/TP orders
-  console.log("📡 Starting Binance order monitor...");
-  binanceOrderMonitor.start().catch((err) => {
-    console.error("Failed to start order monitor:", err);
-  });
+  // Start order monitor after a delay so user-facing requests take priority
+  // during the deploy transition burst.
+  console.log("📡 Binance order monitor will start in 30s...");
+  setTimeout(() => {
+    console.log("📡 Starting Binance order monitor...");
+    binanceOrderMonitor.start().catch((err) => {
+      console.error("Failed to start order monitor:", err);
+    });
+  }, 30_000);
 
   // Start crypto services (Binance WebSocket, Market Overview, etc.)
   console.log("📡 Starting crypto services...");
