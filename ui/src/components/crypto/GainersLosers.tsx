@@ -26,6 +26,15 @@ interface TickerData {
   q?: string;
 }
 
+interface TopMover7d {
+  symbol: string;
+  name: string;
+  price: string;
+  change_24h: number;
+  change_7d: number;
+  volume: string;
+}
+
 export default function GainersLosers() {
   const [activeTab, setActiveTab] = useState<"gainers" | "losers">("gainers");
   const [timeframe, setTimeframe] = useState<"24h" | "7d">("24h");
@@ -91,18 +100,18 @@ export default function GainersLosers() {
           const response = await cryptoApi.get7dTopMovers();
           const data = response.data?.data || {};
 
-          const formatData = (items: TickerData[]) =>
-            items.map((item: TickerData) => ({
+          const formatData = (items: TopMover7d[]) =>
+            items.map((item) => ({
               id: item.symbol || Math.random().toString(36).substring(2, 11),
               symbol: item.symbol || "Unknown",
-              name: item.symbol,
+              name: item.name || item.symbol,
               price: formatPrice(parseFloat(item.price || "0")),
-              change: parseFloat((item as unknown as { change_7d?: number }).change_7d?.toString() || "0"),
-              volume: formatVolume(parseFloat((item as unknown as { volume?: string }).volume || "0")),
+              change: item.change_7d ?? 0,
+              volume: formatVolume(parseFloat(item.volume || "0")),
             }));
 
-          setGainers(formatData((data as { gainers?: TickerData[] }).gainers || []));
-          setLosers(formatData((data as { losers?: TickerData[] }).losers || []));
+          setGainers(formatData(data.gainers || []));
+          setLosers(formatData(data.losers || []));
         }
       } catch {
         setError("Failed to load gainers and losers data");

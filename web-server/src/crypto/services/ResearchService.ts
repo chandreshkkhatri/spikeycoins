@@ -25,6 +25,7 @@ interface ResearchResult {
   coinName: string;
   priceChange: number;
   timeframe: '24h' | '7d';
+  headline: string;
   researchContent: string;
   sources: {
     type: string;
@@ -281,62 +282,53 @@ Remember: Respond with ONLY the JSON object, nothing else.`;
     try {
       logger.info(`ResearchService: Researching ${mover.symbol} (${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}%)`);
 
-      const prompt = `You are a cryptocurrency research analyst. Your task is to research why a specific cryptocurrency has had significant price movement and determine if there's a COIN-SPECIFIC cause.
+      const prompt = `You are a senior cryptocurrency research analyst writing for active traders. Research why this cryptocurrency had significant price movement and produce a brief, actionable market intelligence report.
 
 Coin: ${mover.name} (${mover.symbol})
 Price Change: ${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}% (${mover.timeframe})
 Current Price: $${mover.price.toFixed(mover.price >= 1 ? 2 : 6)}
 Volume: $${mover.volume.toLocaleString()}
 
-Research the following sources to identify if there's a COIN-SPECIFIC cause for this price movement:
-1. Recent news articles specifically about ${mover.name}
-2. Reddit discussions (r/cryptocurrency, r/CryptoMarkets, coin-specific subreddits)
-3. Crypto forums and social media
-4. Any major announcements, partnerships, or developments specifically for ${mover.name}
+Research using web search:
+1. Breaking news, announcements, or developments specifically about ${mover.name}
+2. On-chain data or tokenomics events (unlocks, burns, staking changes)
+3. Exchange listings, delistings, or liquidity changes
+4. Community sentiment from Reddit, Twitter/X, or Discord
+5. Technical milestones (upgrades, mainnet launches, partnerships)
 
-Analyze whether the research indicates a COIN-SPECIFIC CAUSE for the price movement. Consider:
-- Is there a clear coin-specific catalyst (partnership, listing, upgrade, regulatory news for THIS coin)?
-- Is the news credible and from reliable sources?
-- Does the timing align with the price movement?
-- Is there substantial discussion/evidence to support causation?
-- Is this movement unique to this coin, or is it part of broader market trends?
-
-CRITICAL: You MUST respond with ONLY valid JSON, no additional text or explanation. Use this exact format:
+CRITICAL: Respond with ONLY valid JSON, no extra text. Use this exact format:
 
 {
-  "researchContent": "Detailed summary of findings (2-3 sentences)",
+  "headline": "Concise, engaging headline (max 12 words) — like a news ticker headline, NOT just 'SYMBOL: +X%'",
+  "researchContent": "3-5 sentence analysis. Start with WHAT happened (the catalyst). Then WHY it matters for the token. End with what traders should WATCH next (upcoming dates, support/resistance, or follow-up events). Be specific with dates, numbers, and names.",
   "sources": [
     {
-      "type": "reddit",
-      "url": "https://example.com",
-      "title": "Source title",
-      "summary": "Brief summary"
+      "type": "news|social|onchain|exchange",
+      "url": "https://actual-source-url.com",
+      "title": "Source headline",
+      "summary": "One-line summary"
     }
   ],
   "isPublishable": false,
-  "publishableReason": "Why this is/isn't publishable (1-2 sentences)",
-  "category": "General",
-  "impact": "medium"
+  "publishableReason": "Why publishable or not (1 sentence)",
+  "category": "Choose ONE: Listing/Delisting | Partnership | Technical Upgrade | Tokenomics | Regulatory | Hack/Exploit | Ecosystem Growth | Market Structure | Community Event",
+  "impact": "high|medium|low"
 }
 
-IMPORTANT: Only mark isPublishable as true if you find CREDIBLE evidence of a COIN-SPECIFIC event that reasonably explains the price movement.
+isPublishable = TRUE only when there is a CREDIBLE, COIN-SPECIFIC catalyst:
+- Specific partnership, listing, or announcement for THIS coin
+- Technical upgrade, mainnet launch, or protocol change
+- Regulatory action targeting THIS coin or its ecosystem
+- Security incident, exploit, or governance crisis
+- Token unlock, burn, or major supply change
 
-Mark FALSE if:
-- The movement is due to broader market trends (e.g., "crypto market weakness", "Bitcoin decline affecting altcoins")
-- The movement is due to general crypto market conditions or macro factors
-- The movement is due to ETF flows, liquidity issues, or market-wide dynamics
-- The cause affects multiple cryptocurrencies, not specifically this coin
-- Speculation, pump & dump, or unclear causes
+isPublishable = FALSE when:
+- Movement is driven by broader crypto/macro trends
 - No coin-specific catalyst found
+- Only speculation or social hype without substance
+- General market conditions (BTC moves, ETF flows, liquidations)
 
-Mark TRUE only if:
-- There's a specific partnership, listing, or announcement for THIS coin
-- There's a technical development (upgrade, mainnet launch) for THIS coin
-- There's regulatory news specifically about THIS coin or its ecosystem
-- There's a hack, exploit, or major event specifically affecting THIS coin
-- There's credible, coin-specific news that aligns with the price movement timing
-
-Remember: Respond with ONLY the JSON object, nothing else.`;
+Respond with ONLY the JSON object.`;
 
       const responseContent = await this.aiClient.generateCompletion(prompt, {
         useWebSearch: true
@@ -351,6 +343,7 @@ Remember: Respond with ONLY the JSON object, nothing else.`;
 
       // Parse the JSON response with improved error handling
       const fallbackResponse = {
+        headline: `${mover.symbol}: ${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}% (${mover.timeframe})`,
         researchContent: responseContent.substring(0, 500) || "No research content available",
         sources: [],
         isPublishable: false,
@@ -366,6 +359,7 @@ Remember: Respond with ONLY the JSON object, nothing else.`;
         coinName: mover.name,
         priceChange: mover.priceChange,
         timeframe: mover.timeframe,
+        headline: parsedResponse.headline || `${mover.symbol}: ${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}% - ${parsedResponse.category || 'General'}`,
         researchContent: parsedResponse.researchContent || "No research content available",
         sources: parsedResponse.sources || [],
         isPublishable: parsedResponse.isPublishable || false,
@@ -490,7 +484,7 @@ Respond with JSON:
 
       // If publishable, create a summary entry
       if (research.isPublishable) {
-        const title = `${research.coinSymbol}: ${research.priceChange > 0 ? '+' : ''}${research.priceChange.toFixed(2)}% - ${research.category}`;
+        const title = research.headline || `${research.coinSymbol}: ${research.priceChange > 0 ? '+' : ''}${research.priceChange.toFixed(2)}% - ${research.category}`;
 
         await SummaryModel.create({
           researchId: researchDoc._id,
@@ -733,7 +727,7 @@ Respond with JSON:
                   researchId: recentResearch._id,
                 });
 
-                const newTitle = `${newResearch.coinSymbol}: ${newResearch.priceChange > 0 ? '+' : ''}${newResearch.priceChange.toFixed(2)}% - ${newResearch.category}`;
+                const newTitle = newResearch.headline || `${newResearch.coinSymbol}: ${newResearch.priceChange > 0 ? '+' : ''}${newResearch.priceChange.toFixed(2)}% - ${newResearch.category}`;
 
                 if (existingSummary) {
                   await SummaryModel.findByIdAndUpdate(existingSummary._id, {

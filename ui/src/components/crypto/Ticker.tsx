@@ -128,12 +128,12 @@ export default function Ticker() {
         cell: (info) => (
           <span className="font-mono">${formatPrice(info.getValue())}</span>
         ),
-        sortingFn: "alphanumeric",
+        sortingFn: numberSort,
       }),
       columnHelper.accessor("change_24h", {
         header: "24h Change",
         cell: (info) => formatPercentage(info.getValue()),
-        sortingFn: "alphanumeric",
+        sortingFn: numberSort,
       }),
       columnHelper.accessor("change_12h", {
         header: "12h Change",
@@ -185,14 +185,14 @@ export default function Ticker() {
             </span>
           );
         },
-        sortingFn: "alphanumeric",
+        sortingFn: numberSort,
       }),
       columnHelper.accessor("volume_usd", {
         header: "Volume (USD)",
         cell: (info) => (
           <span className="font-mono">${formatNumber(info.getValue())}</span>
         ),
-        sortingFn: "alphanumeric",
+        sortingFn: numberSort,
       }),
       columnHelper.accessor("market_cap", {
         header: "Market Cap",

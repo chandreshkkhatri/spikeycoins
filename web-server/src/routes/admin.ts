@@ -256,14 +256,23 @@ adminRouter.get('/system', requireAuth, requireAdmin, async (_req: Request, res:
 
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
 /**
  * GET /api/admin/logs/files
  * List available log files with size and last modified time
  */
-adminRouter.get('/logs/files', requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+adminRouter.get('/logs/files', requireAuth, requireAdmin, async (_req: Request, res: Response): Promise<void> => {
   try {
     if (!fs.existsSync(LOGS_DIR)) {
-      return res.json({ success: true, files: [] });
+      res.json({ success: true, files: [] });
+      return;
     }
 
     const entries = fs.readdirSync(LOGS_DIR);
@@ -298,7 +307,7 @@ adminRouter.get('/logs/files', requireAuth, requireAdmin, async (_req: Request, 
  *   search   - text search filter (case-insensitive)
  *   tail     - if 'true', return last N lines (default: true)
  */
-adminRouter.get('/logs/read', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+adminRouter.get('/logs/read', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const fileName = (req.query.file as string) || `application-${today}.log`;
@@ -312,7 +321,8 @@ adminRouter.get('/logs/read', requireAuth, requireAdmin, async (req: Request, re
     const filePath = path.join(LOGS_DIR, safeName);
 
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ success: false, error: `Log file not found: ${safeName}` });
+      res.status(404).json({ success: false, error: `Log file not found: ${safeName}` });
+      return;
     }
 
     const isGz = safeName.endsWith('.gz');
@@ -367,7 +377,7 @@ adminRouter.get('/logs/read', requireAuth, requireAdmin, async (req: Request, re
  *   lines    - max lines to return (default: 500, max: 5000)
  *   search   - text search filter (case-insensitive)
  */
-adminRouter.get('/logs/pm2', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+adminRouter.get('/logs/pm2', requireAuth, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const type = (req.query.type as string) === 'error' ? 'error' : 'out';
     const maxLines = Math.min(parseInt(req.query.lines as string) || 500, 5000);
@@ -390,10 +400,11 @@ adminRouter.get('/logs/pm2', requireAuth, requireAdmin, async (req: Request, res
     }
 
     if (!logFilePath) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: `PM2 ${type} log not found. Checked: ${possibleNames.join(', ')}`,
       });
+      return;
     }
 
     let allLines: string[] = [];

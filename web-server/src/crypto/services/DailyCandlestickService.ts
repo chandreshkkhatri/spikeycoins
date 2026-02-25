@@ -6,7 +6,7 @@
 
 import DatabaseConnection from "./DatabaseConnection";
 import DataManager from "../core/DataManager";
-import { CandlestickModel } from "../models/Candlestick";
+import { DailyCandlestickModel } from "../models/DailyCandlestick";
 import logger from "../utils/logger";
 import { BinanceService } from "../../lib/binance-service";
 
@@ -150,9 +150,8 @@ class DailyCandlestickService {
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
       // Check if we have a daily candle from around 7 days ago
-      const oldCandle = await CandlestickModel.findOne({
+      const oldCandle = await DailyCandlestickModel.findOne({
         symbol,
-        interval: '1d',
         openTime: { $gte: sevenDaysAgo - 24 * 60 * 60 * 1000, $lte: sevenDaysAgo + 24 * 60 * 60 * 1000 }
       });
 
@@ -233,20 +232,23 @@ class DailyCandlestickService {
           close: parseFloat(kline[4]),
           volume: parseFloat(kline[5]),
           closeTime: kline[6],
-          interval: '1d',
         }));
 
         // Use bulk upsert for better performance
-        const bulkOps = candles.map((candle: DailyCandle & { interval: string }) => ({
+        const bulkOps = candles.map((candle: DailyCandle) => ({
           updateOne: {
-            filter: { symbol: candle.symbol, openTime: candle.openTime, interval: '1d' },
+            filter: { symbol: candle.symbol, openTime: candle.openTime },
             update: { $set: candle },
             upsert: true
           }
         }));
 
         if (bulkOps.length > 0) {
-          await CandlestickModel.bulkWrite(bulkOps, { ordered: false });
+          const result = await DailyCandlestickModel.bulkWrite(bulkOps, { ordered: false });
+          const written = (result.upsertedCount || 0) + (result.modifiedCount || 0);
+          if (written === 0) {
+            logger.debug(`DailyCandlestickService: No new data written for ${symbol} (${candles.length} candles matched existing)`);
+          }
         }
 
         logger.debug(`DailyCandlestickService: Backfilled ${candles.length} daily candles for ${symbol}`);
@@ -279,10 +281,9 @@ class DailyCandlestickService {
       // Get all symbols
       const symbols = currentTickers.map((t: any) => t.s).filter((s: string) => s);
 
-      // Fetch old prices in one query
-      const oldCandles = await CandlestickModel.find({
+      // Fetch old prices in one query from dedicated daily collection
+      const oldCandles = await DailyCandlestickModel.find({
         symbol: { $in: symbols },
-        interval: '1d',
         openTime: { $gte: sevenDaysAgo, $lte: sixDaysAgo }
       });
 
