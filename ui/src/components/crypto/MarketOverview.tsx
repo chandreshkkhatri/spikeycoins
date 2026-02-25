@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { TrendingUp, TrendingDown, AlertCircle } from "lucide-react";
 import { cryptoApi } from "@/lib/crypto-api";
+import { PAGE_ROUTES } from "@/lib/constants";
 
 interface CryptoIndex {
   symbol: string;
@@ -35,6 +37,7 @@ interface LegacyTickerData {
 }
 
 export default function MarketOverview() {
+  const router = useRouter();
   const [marketData, setMarketData] = useState<MarketOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -177,6 +180,7 @@ export default function MarketOverview() {
         {cryptocurrencies.map((crypto) => (
           <div
             key={crypto.symbol}
+            onClick={() => router.push(PAGE_ROUTES.CRYPTO_SCREENER)}
             className="flex-shrink-0 bg-muted/50 rounded-lg p-3 min-w-[140px] hover:bg-muted transition-colors cursor-pointer"
           >
             <div className="flex items-center justify-between mb-1">

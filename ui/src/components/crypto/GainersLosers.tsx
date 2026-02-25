@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, AlertCircle } from "lucide-react";
 import { cryptoApi } from "@/lib/crypto-api";
+import { PAGE_ROUTES } from "@/lib/constants";
 
 interface CryptoItem {
   _id?: string;
@@ -36,6 +38,7 @@ interface TopMover7d {
 }
 
 export default function GainersLosers() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"gainers" | "losers">("gainers");
   const [timeframe, setTimeframe] = useState<"24h" | "7d">("24h");
   const [gainers, setGainers] = useState<CryptoItem[]>([]);
@@ -63,8 +66,7 @@ export default function GainersLosers() {
     }
   };
 
-  useEffect(() => {
-    const fetchTickerData = async () => {
+  const fetchTickerData = useCallback(async () => {
       try {
         setLoading(true);
         setError(null);
@@ -118,10 +120,16 @@ export default function GainersLosers() {
       } finally {
         setLoading(false);
       }
-    };
-
-    fetchTickerData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe]);
+
+  useEffect(() => {
+    fetchTickerData();
+
+    // Auto-refresh every 30s
+    const interval = setInterval(fetchTickerData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchTickerData]);
 
   const items = activeTab === "gainers" ? gainers : losers;
 
@@ -299,7 +307,10 @@ export default function GainersLosers() {
         ))}
       </div>
 
-      <button className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors">
+      <button
+        onClick={() => router.push(PAGE_ROUTES.CRYPTO_SCREENER)}
+        className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors"
+      >
         View All {activeTab === "gainers" ? "Gainers" : "Losers"}
       </button>
     </div>

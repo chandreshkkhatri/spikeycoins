@@ -100,6 +100,10 @@ export default function MarketSummary() {
     };
 
     fetchSummaries();
+
+    // Auto-refresh every 5 minutes (research runs every 2 hours, so 5m is fine)
+    const interval = setInterval(fetchSummaries, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   if (loading) {
@@ -247,9 +251,7 @@ export default function MarketSummary() {
         ))}
       </div>
 
-      <button className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors">
-        View All Stories
-      </button>
+
 
       {showModal && selectedStory && (
         <div

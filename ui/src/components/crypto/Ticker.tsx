@@ -112,6 +112,10 @@ export default function Ticker() {
 
   useEffect(() => {
     fetchTickers();
+
+    // Auto-refresh every 30s
+    const interval = setInterval(fetchTickers, 30000);
+    return () => clearInterval(interval);
   }, []);
   const columns = useMemo(
     () => [
@@ -263,6 +267,14 @@ export default function Ticker() {
           Error Loading Data
         </p>
         <p className="text-muted-foreground mt-2">{error}</p>
+        <Button
+          variant="outline"
+          className="mt-4"
+          onClick={fetchTickers}
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Retry
+        </Button>
       </div>
     );
   }
