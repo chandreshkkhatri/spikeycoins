@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
 import { PAGE_ROUTES } from "@/lib/constants";
+import PanelErrorBoundary from "@/components/PanelErrorBoundary";
 import Ticker from "@/components/crypto/Ticker";
 
 export default function CryptoScreenerPage() {
@@ -24,7 +25,9 @@ export default function CryptoScreenerPage() {
         </div>
       </div>
 
-      <Ticker />
+      <PanelErrorBoundary name="Screener">
+        <Ticker />
+      </PanelErrorBoundary>
     </div>
   );
 }

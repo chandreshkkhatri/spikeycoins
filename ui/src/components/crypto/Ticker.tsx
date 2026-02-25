@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   createColumnHelper,
   flexRender,
@@ -16,8 +16,9 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronUp, ChevronDown, Search, RefreshCw, ArrowUpDown } from "lucide-react";
+import { ChevronUp, ChevronDown, Search, RefreshCw, ArrowUpDown, Sparkles, Loader2 } from "lucide-react";
 import { cryptoApi } from "@/lib/crypto-api";
+import api from "@/lib/api";
 
 export interface TickerData {
   s: string;
@@ -94,10 +95,27 @@ export default function Ticker() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [analyzingSymbol, setAnalyzingSymbol] = useState<string | null>(null);
+  const [analyzeResult, setAnalyzeResult] = useState<{ symbol: string; success: boolean; message: string } | null>(null);
+  const isInitialLoad = useRef(true);
 
-  const fetchTickers = async () => {
+  // Check admin status
+  useEffect(() => {
+    const checkAdmin = async () => {
+      try {
+        const response = await api.get("/admin/status");
+        setIsAdmin(response.data?.isAdmin === true);
+      } catch {
+        setIsAdmin(false);
+      }
+    };
+    checkAdmin();
+  }, []);
+
+  const fetchTickers = useCallback(async (showLoading = false) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       setError(null);
       const response = await cryptoApi.getTickers();
       const data = response.data?.data || response.data || [];
@@ -108,14 +126,37 @@ export default function Ticker() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchTickers();
+    fetchTickers(true);
+    isInitialLoad.current = false;
 
-    // Auto-refresh every 30s
-    const interval = setInterval(fetchTickers, 30000);
+    // Auto-refresh every 30s (silent, no loading spinner)
+    const interval = setInterval(() => fetchTickers(false), 30000);
     return () => clearInterval(interval);
+  }, [fetchTickers]);
+
+  const handleAnalyze = useCallback(async (symbol: string) => {
+    try {
+      setAnalyzingSymbol(symbol);
+      setAnalyzeResult(null);
+      const token = localStorage.getItem("spikeyCoins_accessToken") || "";
+      const response = await cryptoApi.researchCoin(symbol, token);
+      setAnalyzeResult({
+        symbol,
+        success: true,
+        message: response.data?.summary?.headline || "Added to market summaries",
+      });
+      // Clear success message after 5 seconds
+      setTimeout(() => setAnalyzeResult(null), 5000);
+    } catch (err: unknown) {
+      const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || "Analysis failed";
+      setAnalyzeResult({ symbol, success: false, message: errorMsg });
+      setTimeout(() => setAnalyzeResult(null), 5000);
+    } finally {
+      setAnalyzingSymbol(null);
+    }
   }, []);
   const columns = useMemo(
     () => [
@@ -210,8 +251,56 @@ export default function Ticker() {
         },
         sortingFn: numberSort,
       }),
+      ...(isAdmin
+        ? [
+            columnHelper.display({
+              id: "analyze",
+              header: "Analyze",
+              cell: ({ row }) => {
+                const symbol = row.original.s;
+                const isAnalyzing = analyzingSymbol === symbol;
+                const result = analyzeResult?.symbol === symbol ? analyzeResult : null;
+                return (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAnalyze(symbol);
+                      }}
+                      disabled={isAnalyzing}
+                      title="Analyze & add to market summaries"
+                    >
+                      {isAnalyzing ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                    {result && (
+                      <span
+                        className={cn(
+                          "text-[10px] max-w-[120px] truncate",
+                          result.success
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-red-600 dark:text-red-400"
+                        )}
+                        title={result.message}
+                      >
+                        {result.success ? "✓" : "✗"}
+                      </span>
+                    )}
+                  </div>
+                );
+              },
+              enableSorting: false,
+            }),
+          ]
+        : []),
     ],
-    []
+    [isAdmin, analyzingSymbol, analyzeResult, handleAnalyze]
   );
 
   const [sorting, setSorting] = useState<SortingState>([
@@ -270,7 +359,7 @@ export default function Ticker() {
         <Button
           variant="outline"
           className="mt-4"
-          onClick={fetchTickers}
+          onClick={() => fetchTickers(true)}
         >
           <RefreshCw className="h-4 w-4 mr-2" />
           Retry
@@ -318,7 +407,7 @@ export default function Ticker() {
           </Button>
           <Button
             variant="outline"
-            onClick={fetchTickers}
+            onClick={() => fetchTickers(true)}
             disabled={loading}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
@@ -326,6 +415,22 @@ export default function Ticker() {
           </Button>
         </div>
       </div>
+
+      {/* Analyze result notification */}
+      {analyzeResult && (
+        <div
+          className={cn(
+            "px-4 py-2 rounded-lg text-sm flex items-center gap-2",
+            analyzeResult.success
+              ? "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400"
+              : "bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400"
+          )}
+        >
+          <Sparkles className="h-4 w-4 shrink-0" />
+          <span className="font-medium">{analyzeResult.symbol}:</span>
+          <span>{analyzeResult.message}</span>
+        </div>
+      )}
 
       <div className="overflow-x-auto border border-border rounded-lg">
         <table className="w-full text-sm">

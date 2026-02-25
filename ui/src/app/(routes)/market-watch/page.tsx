@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PAGE_ROUTES } from "@/lib/constants";
 import { BarChart2 } from "lucide-react";
+import PanelErrorBoundary from "@/components/PanelErrorBoundary";
 import MarketOverview from "@/components/crypto/MarketOverview";
 import MarketSummary from "@/components/crypto/MarketSummary";
 import GainersLosers from "@/components/crypto/GainersLosers";
@@ -26,14 +27,20 @@ export default function CryptoHomePage() {
         </Link>
       </div>
 
-      <MarketOverview />
+      <PanelErrorBoundary name="Market Overview">
+        <MarketOverview />
+      </PanelErrorBoundary>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
-          <MarketSummary />
+          <PanelErrorBoundary name="Market Summary">
+            <MarketSummary />
+          </PanelErrorBoundary>
         </div>
         <div>
-          <GainersLosers />
+          <PanelErrorBoundary name="Gainers & Losers">
+            <GainersLosers />
+          </PanelErrorBoundary>
         </div>
       </div>
     </div>

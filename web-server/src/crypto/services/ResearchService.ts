@@ -8,6 +8,7 @@ import { ResearchModel } from "../models/Research";
 import { SummaryModel } from "../models/Summary";
 import DatabaseConnection from "./DatabaseConnection";
 import DataManager from "../core/DataManager";
+import MarketCapService from "./MarketCapService";
 import DailyCandlestickService from "./DailyCandlestickService";
 import logger from "../utils/logger";
 
@@ -813,6 +814,68 @@ Respond with JSON:
     } catch (error) {
       logger.error('ResearchService: Error in automated research:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Research a single coin on-demand (admin action from screener)
+   * Always creates a summary regardless of publishable status
+   */
+  async researchSingleCoin(symbol: string): Promise<{ success: boolean; summary?: any; error?: string }> {
+    try {
+      // Normalize symbol
+      const normalizedSymbol = symbol.toUpperCase();
+      if (!normalizedSymbol.endsWith('USDT')) {
+        return { success: false, error: 'Only USDT pairs are supported' };
+      }
+
+      // Get ticker data for the symbol
+      const ticker = DataManager.getTickerBySymbol(normalizedSymbol);
+      if (!ticker) {
+        return { success: false, error: `Symbol ${normalizedSymbol} not found in active tickers` };
+      }
+
+      // Get coin name from MarketCapService
+      const marketCapData = MarketCapService.getMarketCapData(normalizedSymbol);
+      const coinName = marketCapData?.coingeckoName || normalizedSymbol.replace('USDT', '');
+
+      const mover: TopMover = {
+        symbol: normalizedSymbol,
+        name: coinName,
+        priceChange: ticker.change_24h,
+        price: ticker.price,
+        volume: ticker.volume_usd,
+        timeframe: '24h',
+      };
+
+      logger.info(`ResearchService: On-demand research for ${normalizedSymbol} triggered by admin`);
+
+      // Research the coin
+      const research = await this.researchCoin(mover);
+
+      // Force publishable for on-demand research
+      research.isPublishable = true;
+      research.publishableReason = 'Admin-triggered on-demand research';
+
+      // Save research and create summary
+      await this.saveResearch(research);
+
+      logger.info(`ResearchService: On-demand research completed for ${normalizedSymbol}`);
+
+      return {
+        success: true,
+        summary: {
+          coinSymbol: research.coinSymbol,
+          headline: research.headline,
+          category: research.category,
+          impact: research.impact,
+          content: research.researchContent,
+        },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`ResearchService: Error in on-demand research for ${symbol}: ${errorMessage}`);
+      return { success: false, error: errorMessage };
     }
   }
 

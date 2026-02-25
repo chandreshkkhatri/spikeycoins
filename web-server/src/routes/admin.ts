@@ -195,6 +195,46 @@ adminRouter.get('/research-status', requireAuth, requireAdmin, async (_req: Requ
 });
 
 /**
+ * POST /api/admin/research/:symbol
+ * Research a specific coin and add to market summaries (one-click analyze)
+ */
+adminRouter.post('/research/:symbol', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { symbol } = req.params;
+
+    if (!symbol) {
+      res.status(400).json({ success: false, error: 'Symbol is required' });
+      return;
+    }
+
+    const ResearchService = (await import('../crypto/services/ResearchService')).default;
+    const researchService = ResearchService.getInstance();
+
+    const result = await researchService.researchSingleCoin(symbol);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: `Research completed for ${symbol}`,
+        summary: result.summary,
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: result.error || 'Research failed',
+      });
+    }
+  } catch (error) {
+    console.error(`Admin: Error researching ${req.params.symbol}:`, error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to research coin',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
  * GET /api/admin/system
  * Get system status with detailed memory and service stats (admin only)
  */

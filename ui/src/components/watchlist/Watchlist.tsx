@@ -1,127 +1,31 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
 import binanceWebSocketService from "@/lib/binance-websocket";
-import { formatPrice, formatVolume, formatPercent } from "@/lib/format-utils";
+import { formatPrice } from "@/lib/format-utils";
 import { upstoxWebSocket } from "@/lib/upstox-websocket";
 import { ArrowDown, ArrowUp, ChevronDown, Plus, Trash2, X, Search } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SymbolSearchModal from "./SymbolSearchModal";
 import TradingWindow from "./TradingWindow";
+import WatchlistItemRow from "./WatchlistItemRow";
+import WatchlistContextMenu from "./WatchlistContextMenu";
+import {
+  type WatchlistItem,
+  type WatchlistProps,
+  type WatchlistInfo,
+  type ContextMenuState,
+  type SortConfig,
+  getStoredWatchlistSettings,
+  saveWatchlistSettings,
+  getStoredWatchlistPrices,
+  saveWatchlistPrices,
+} from "./watchlist-types";
 
-const WATCHLIST_SETTINGS_KEY = "spikeyCoins_watchlistSettings";
-
-interface WatchlistSettings {
-  sortKey: keyof WatchlistItem;
-  sortDirection: "asc" | "desc";
-  lastSelectedSymbol?: string;
-}
-
-const getStoredWatchlistSettings = (): WatchlistSettings | null => {
-  try {
-    const stored = localStorage.getItem(WATCHLIST_SETTINGS_KEY);
-    return stored ? JSON.parse(stored) : null;
-  } catch {
-    return null;
-  }
-};
-
-const saveWatchlistSettings = (settings: WatchlistSettings) => {
-  try {
-    localStorage.setItem(WATCHLIST_SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // Ignore storage errors
-  }
-};
-
-const WATCHLIST_PRICES_KEY = "spikeyCoins_watchlistPrices";
-
-const getStoredWatchlistPrices = (accountId: string): Record<string, WatchlistItem> | null => {
-  try {
-    if (typeof window === 'undefined') return null;
-    const key = `${WATCHLIST_PRICES_KEY}_${accountId}`;
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : null;
-  } catch {
-    return null;
-  }
-};
-
-const saveWatchlistPrices = (accountId: string, items: WatchlistItem[]) => {
-  try {
-    if (typeof window === 'undefined') return;
-    const key = `${WATCHLIST_PRICES_KEY}_${accountId}`;
-    // Convert array to map for faster lookup on load
-    const pricesMap = items.reduce((acc, item) => {
-      acc[item.symbol] = item;
-      return acc;
-    }, {} as Record<string, WatchlistItem>);
-    localStorage.setItem(key, JSON.stringify(pricesMap));
-  } catch {
-    // Ignore
-  }
-};
-
-export interface WatchlistItem {
-  symbol: string;
-  lastPrice: number;
-  priceChange: number;
-  priceChangePercent: number;
-  volume: number;
-  high24h: number;
-  low24h: number;
-}
-
-interface WatchlistProps {
-  accounts: Array<{
-    _id: string;
-    accountName: string;
-    accountType: "binance" | "kite" | "upstox";
-    isActive: boolean;
-  }>;
-  selectedAccount?: {
-    _id: string;
-    accountName: string;
-    accountType: "binance" | "kite" | "upstox";
-    isActive: boolean;
-  } | null;
-  marketType?: string;
-}
-
-// Helper function to format symbol name for tooltip display
-const formatSymbolForTooltip = (
-  symbol: string,
-  accountType?: string
-): string => {
-  // For Binance futures, format as "BTC/USDT Perpetual"
-  if (accountType === "binance") {
-    if (symbol.endsWith("USDT")) {
-      const base = symbol.slice(0, -4);
-      return `${base}/USDT Perpetual`;
-    }
-    if (symbol.endsWith("BUSD")) {
-      const base = symbol.slice(0, -4);
-      return `${base}/BUSD Perpetual`;
-    }
-    if (symbol.endsWith("USD")) {
-      const base = symbol.slice(0, -3);
-      return `${base}/USD`;
-    }
-  }
-  // For Indian brokers
-  if (accountType === "kite" || accountType === "upstox") {
-    return symbol.replace(":", " - ");
-  }
-  return symbol;
-};
+// Re-export for backwards compatibility
+export type { WatchlistItem } from "./watchlist-types";
 
 const Watchlist = memo(function Watchlist({
   accounts = [],
@@ -149,14 +53,7 @@ const Watchlist = memo(function Watchlist({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([]);
-  const [watchlists, setWatchlists] = useState<
-    Array<{
-      id: string;
-      name: string;
-      isDefault: boolean;
-      isSystem?: boolean;
-    }>
-  >([]);
+  const [watchlists, setWatchlists] = useState<WatchlistInfo[]>([]);
   const [currentWatchlistId, setCurrentWatchlistId] = useState<string | null>(
     null
   );
@@ -182,12 +79,9 @@ const Watchlist = memo(function Watchlist({
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Context menu state for right-click "Add to" functionality
-  const [contextMenu, setContextMenu] = useState<{
-    symbol: string;
-    x: number;
-    y: number;
-    open: boolean;
-  }>({ symbol: "", x: 0, y: 0, open: false });
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(
+    { symbol: "", x: 0, y: 0, open: false }
+  );
 
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => ({ ...prev, open: false }));
@@ -230,10 +124,7 @@ const Watchlist = memo(function Watchlist({
     return () => document.removeEventListener("click", handleClickOutside);
   }, [isSearchOpen]);
 
-  const [sortConfig, setSortConfig] = useState<{
-    key: keyof WatchlistItem;
-    direction: "asc" | "desc";
-  }>({
+  const [sortConfig, setSortConfig] = useState<SortConfig>({
     key: storedWatchlistSettings.current?.sortKey || "symbol",
     direction: storedWatchlistSettings.current?.sortDirection || "asc",
   });
@@ -840,6 +731,25 @@ const Watchlist = memo(function Watchlist({
     // Handle order placed event - could refresh data, show notification, etc.
   }, []);
 
+  const handleContextMenu = useCallback(
+    (symbol: string, x: number, y: number) => {
+      setContextMenu({ symbol, x, y, open: true });
+    },
+    []
+  );
+
+  const handleSelectSymbol = useCallback(
+    (symbol: string) => {
+      setSelectedSymbol(symbol);
+      setIsMobileWatchlistOpen(false);
+      if (isSearchOpen) {
+        setIsSearchOpen(false);
+        setSearchQuery("");
+      }
+    },
+    [isSearchOpen]
+  );
+
   const createWatchlist = async () => {
     if (!selectedAccount || !newWatchlistName.trim() || !user?._id) return;
 
@@ -997,6 +907,21 @@ const Watchlist = memo(function Watchlist({
       </div>
     );
   }
+
+  const renderSortHeader = (label: string, key: keyof WatchlistItem) => (
+    <div
+      className="flex cursor-pointer items-center gap-1 hover:text-foreground"
+      onClick={() => handleSort(key)}
+    >
+      {label}
+      {sortConfig.key === key &&
+        (sortConfig.direction === "asc" ? (
+          <ArrowUp size={10} />
+        ) : (
+          <ArrowDown size={10} />
+        ))}
+    </div>
+  );
 
   const renderWatchlistContent = () => (
     <div
@@ -1192,301 +1117,49 @@ const Watchlist = memo(function Watchlist({
         {/* Column Headers */}
         {watchlistItems.length > 0 && (
           <div className="sticky top-0 z-10 grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 border-b border-border bg-muted px-2 pr-1 py-2 text-[10px] font-medium text-muted-foreground">
-            <div
-              className="flex cursor-pointer items-center gap-1 hover:text-foreground"
-              onClick={() => handleSort("symbol")}
-            >
-              Symbol
-              {sortConfig.key === "symbol" &&
-                (sortConfig.direction === "asc" ? (
-                  <ArrowUp size={10} />
-                ) : (
-                  <ArrowDown size={10} />
-                ))}
-            </div>
-            <div
-              className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
-              onClick={() => handleSort("lastPrice")}
-            >
-              Price
-              {sortConfig.key === "lastPrice" &&
-                (sortConfig.direction === "asc" ? (
-                  <ArrowUp size={10} />
-                ) : (
-                  <ArrowDown size={10} />
-                ))}
-            </div>
-            <div
-              className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
-              onClick={() => handleSort("priceChangePercent")}
-            >
-              24h %
-              {sortConfig.key === "priceChangePercent" &&
-                (sortConfig.direction === "asc" ? (
-                  <ArrowUp size={10} />
-                ) : (
-                  <ArrowDown size={10} />
-                ))}
-            </div>
-            <div
-              className="flex cursor-pointer items-center justify-end gap-1 hover:text-foreground"
-              onClick={() => handleSort("volume")}
-            >
-              Vol
-              {sortConfig.key === "volume" &&
-                (sortConfig.direction === "asc" ? (
-                  <ArrowUp size={10} />
-                ) : (
-                  <ArrowDown size={10} />
-                ))}
-            </div>
-            {/* Actions column - empty header */}
+            {renderSortHeader("Symbol", "symbol")}
+            <div className="justify-self-end">{renderSortHeader("Price", "lastPrice")}</div>
+            <div className="justify-self-end">{renderSortHeader("24h %", "priceChangePercent")}</div>
+            <div className="justify-self-end">{renderSortHeader("Vol", "volume")}</div>
             <div></div>
           </div>
         )}
         {filteredWatchlistItems.map((item) => (
-          <div
+          <WatchlistItemRow
             key={item.symbol}
-            className={`group relative grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 cursor-pointer border-b border-border px-2 pr-1 py-3 transition-colors hover:bg-accent/50 items-center ${selectedSymbol === item.symbol
-                ? "bg-accent/50 border-l-4 border-l-primary pl-3"
-                : "border-l-4 border-l-transparent"
-              } ${contextMenu.open && contextMenu.symbol === item.symbol
-                ? "bg-accent/70"
-                : ""
-              }`}
-            onClick={() => {
-              setSelectedSymbol(item.symbol);
-              setIsMobileWatchlistOpen(false);
-              if (isSearchOpen) {
-                setIsSearchOpen(false);
-                setSearchQuery("");
-              }
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setContextMenu({
-                symbol: item.symbol,
-                x: e.clientX,
-                y: e.clientY,
-                open: true,
-              });
-            }}
-          >
-            <div className="flex items-center gap-2 overflow-hidden">
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="truncate font-semibold text-foreground text-sm cursor-help">
-                      {item.symbol}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-xs">
-                    <p className="font-medium">
-                      {formatSymbolForTooltip(
-                        item.symbol,
-                        selectedAccount?.accountType
-                      )}
-                    </p>
-                    {item.high24h > 0 && item.low24h > 0 && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        24h High: {formatPrice(item.high24h)} | Low:{" "}
-                        {formatPrice(item.low24h)}
-                      </p>
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            <div className="text-right">
-              <span className="font-mono text-xs font-medium text-foreground">
-                {selectedAccount?.accountType === "binance"
-                  ? formatPrice(item.lastPrice, "$")
-                  : selectedAccount?.accountType === "upstox" ||
-                    selectedAccount?.accountType === "kite"
-                    ? formatPrice(item.lastPrice, "₹")
-                    : formatPrice(item.lastPrice)}
-              </span>
-            </div>
-            <div className="text-right">
-              <span
-                className={`text-xs font-medium ${item.priceChange >= 0
-                    ? "text-green-600 dark:text-green-400"
-                    : "text-red-600 dark:text-red-400"
-                  }`}
-              >
-                {formatPercent(item.priceChangePercent)}
-              </span>
-            </div>
-            <div className="text-right">
-              <span className="text-xs text-muted-foreground">
-                {formatVolume(item.volume * item.lastPrice)}
-              </span>
-            </div>
-
-            {/* Actions column */}
-            <div className="flex items-center justify-end">
-              {/* More actions button (opens context menu) */}
-              <button
-                className="opacity-0 transition-opacity group-hover:opacity-100 h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground rounded text-sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const rect = (
-                    e.currentTarget as HTMLElement
-                  ).getBoundingClientRect();
-                  setContextMenu({
-                    symbol: item.symbol,
-                    x: rect.left,
-                    y: rect.bottom + 4,
-                    open: true,
-                  });
-                }}
-                title="More actions"
-              >
-                ⋮
-              </button>
-
-              {!isDefaultBinance && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="opacity-0 transition-opacity group-hover:opacity-100 h-5 w-5 text-muted-foreground hover:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeSymbol(item.symbol);
-                  }}
-                >
-                  <Trash2 size={12} />
-                </Button>
-              )}
-            </div>
-          </div>
+            item={item}
+            isSelected={selectedSymbol === item.symbol}
+            isContextTarget={contextMenu.open && contextMenu.symbol === item.symbol}
+            accountType={selectedAccount?.accountType}
+            isSystemWatchlist={!!isDefaultBinance}
+            onSelect={handleSelectSymbol}
+            onContextMenu={handleContextMenu}
+            onRemove={removeSymbol}
+          />
         ))}
       </div>
 
-      {/* Context Menu for "Add to" */}
-      {contextMenu.open && contextMenu.symbol && (
-        <div
-          className="fixed z-50 min-w-[200px] rounded-md border border-border bg-popover shadow-lg text-sm animate-in fade-in zoom-in-95"
-          style={{
-            top: Math.min(contextMenu.y, window.innerHeight - 280),
-            left: Math.min(contextMenu.x, window.innerWidth - 220),
+      {/* Context Menu */}
+      {selectedAccount && (
+        <WatchlistContextMenu
+          contextMenu={contextMenu}
+          currentWatchlistId={currentWatchlistId}
+          currentWatchlistName={currentWatchlistName}
+          watchlists={watchlists}
+          marketType={marketType}
+          accountId={selectedAccount._id}
+          getAuthHeaders={getAuthHeaders}
+          onClose={closeContextMenu}
+          onSuccess={(msg) => {
+            setSuccess(msg);
+            setTimeout(() => setSuccess(null), 3000);
           }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header */}
-          <div className="px-3 py-2 border-b border-border text-xs font-semibold text-foreground">
-            {contextMenu.symbol}
-          </div>
-
-          {/* Add to section */}
-          <div className="px-3 py-1.5 text-[10px] uppercase text-muted-foreground tracking-wide">
-            Add to watchlist
-          </div>
-
-          {/* Current watchlist indicator */}
-          <div className="px-3 py-1.5 text-xs text-muted-foreground flex items-center gap-2">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" />
-            <span className="truncate flex-1">{currentWatchlistName}</span>
-            <span className="text-[10px]">Current</span>
-          </div>
-
-          {/* Separator */}
-          <div className="border-t border-border my-1" />
-
-          {/* Other watchlists */}
-          <div className="max-h-[160px] overflow-y-auto">
-            {watchlists
-              .filter((wl) => wl.id !== currentWatchlistId && !wl.isSystem)
-              .map((wl) => (
-                <button
-                  key={wl.id}
-                  className="w-full text-left px-3 py-1.5 hover:bg-accent hover:text-accent-foreground text-xs flex items-center gap-2 transition-colors"
-                  onClick={async () => {
-                    try {
-                      if (!selectedAccount) return;
-
-                      const body = {
-                        accountId: selectedAccount._id,
-                        marketType,
-                        symbol: contextMenu.symbol,
-                        watchlistId: wl.id,
-                      };
-
-                      const res = await fetch(
-                        getApiUrl("/api/watchlist/symbols"),
-                        {
-                          method: "POST",
-                          headers: getAuthHeaders(),
-                          body: JSON.stringify(body),
-                        }
-                      );
-
-                      if (!res.ok) {
-                        console.error(
-                          "Failed to add symbol:",
-                          await res.text()
-                        );
-                        setError(
-                          `Failed to add ${contextMenu.symbol} to ${wl.name}`
-                        );
-                        setTimeout(() => setError(null), 3000);
-                      } else {
-                        setSuccess(
-                          `${contextMenu.symbol} added to '${wl.name}'`
-                        );
-                        setTimeout(() => setSuccess(null), 3000);
-                      }
-                    } catch (err) {
-                      console.error("Error adding symbol to watchlist:", err);
-                      setError("Failed to add symbol to watchlist");
-                      setTimeout(() => setError(null), 3000);
-                    } finally {
-                      closeContextMenu();
-                    }
-                  }}
-                >
-                  <span className="truncate flex-1">{wl.name}</span>
-                  {wl.isDefault && (
-                    <span className="text-[10px] text-muted-foreground">
-                      Default
-                    </span>
-                  )}
-                </button>
-              ))}
-            {watchlists.filter(
-              (wl) => wl.id !== currentWatchlistId && !wl.isSystem
-            ).length === 0 && (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
-                  No other watchlists
-                </div>
-              )}
-          </div>
-
-          {/* Add to new watchlist */}
-          <div className="border-t border-border">
-            <button
-              className="w-full text-left px-3 py-2 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground flex items-center gap-1.5 transition-colors"
-              onClick={() => {
-                closeContextMenu();
-                setShowCreateWatchlistModal(true);
-              }}
-            >
-              <Plus size={12} />
-              Add to new watchlist…
-            </button>
-          </div>
-
-          {/* Cancel */}
-          <div className="border-t border-border">
-            <button
-              className="w-full text-left px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent/40 transition-colors"
-              onClick={closeContextMenu}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+          onError={(msg) => {
+            setError(msg);
+            setTimeout(() => setError(null), 3000);
+          }}
+          onCreateWatchlist={() => setShowCreateWatchlistModal(true)}
+        />
       )}
 
       {/* Success message */}

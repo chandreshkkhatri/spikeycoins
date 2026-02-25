@@ -41,4 +41,13 @@ export const cryptoApi = {
     const response = await cryptoClient.get("/api/ticker/7d");
     return response;
   },
+
+  async researchCoin(symbol: string, authToken: string) {
+    const response = await cryptoClient.post(
+      `/api/admin/research/${symbol}`,
+      {},
+      { headers: { Authorization: `Bearer ${authToken}` } }
+    );
+    return response;
+  },
 };
