@@ -7,6 +7,10 @@ import { Router, Request, Response } from 'express';
 import { requireAuth, AuthenticatedRequest } from '../lib/auth-middleware';
 import { requireAdmin } from '../lib/admin-middleware';
 import User from '../models/user';
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import zlib from 'zlib';
 
 const adminRouter: Router = Router();
 
@@ -245,6 +249,176 @@ adminRouter.get('/system', requireAuth, requireAdmin, async (_req: Request, res:
       success: false,
       error: 'Failed to fetch system status',
     });
+  }
+});
+
+// ─── Log Management Endpoints ────────────────────────────────────────────────
+
+const LOGS_DIR = path.join(process.cwd(), 'logs');
+
+/**
+ * GET /api/admin/logs/files
+ * List available log files with size and last modified time
+ */
+adminRouter.get('/logs/files', requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    if (!fs.existsSync(LOGS_DIR)) {
+      return res.json({ success: true, files: [] });
+    }
+
+    const entries = fs.readdirSync(LOGS_DIR);
+    const files = entries
+      .filter((f) => f.endsWith('.log') || f.endsWith('.log.gz'))
+      .map((name) => {
+        const stat = fs.statSync(path.join(LOGS_DIR, name));
+        return {
+          name,
+          size: stat.size,
+          sizeHuman: formatBytes(stat.size),
+          modified: stat.mtime.toISOString(),
+          compressed: name.endsWith('.gz'),
+        };
+      })
+      .sort((a, b) => b.modified.localeCompare(a.modified));
+
+    res.json({ success: true, files });
+  } catch (error) {
+    console.error('Admin: Error listing log files:', error);
+    res.status(500).json({ success: false, error: 'Failed to list log files' });
+  }
+});
+
+/**
+ * GET /api/admin/logs/read
+ * Read log file content with optional filtering
+ * Query params:
+ *   file     - log file name (default: today's application log)
+ *   lines    - max lines to return (default: 500, max: 5000)
+ *   level    - filter by level: INFO, WARN, ERROR (comma-separated)
+ *   search   - text search filter (case-insensitive)
+ *   tail     - if 'true', return last N lines (default: true)
+ */
+adminRouter.get('/logs/read', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const fileName = (req.query.file as string) || `application-${today}.log`;
+    const maxLines = Math.min(parseInt(req.query.lines as string) || 500, 5000);
+    const levelFilter = (req.query.level as string)?.toUpperCase().split(',').filter(Boolean) || [];
+    const searchFilter = (req.query.search as string)?.toLowerCase() || '';
+    const tailMode = (req.query.tail as string) !== 'false';
+
+    // Sanitize filename to prevent path traversal
+    const safeName = path.basename(fileName);
+    const filePath = path.join(LOGS_DIR, safeName);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ success: false, error: `Log file not found: ${safeName}` });
+    }
+
+    const isGz = safeName.endsWith('.gz');
+    let allLines: string[] = [];
+
+    // Read lines from file (or gzipped file)
+    const readStream = isGz
+      ? fs.createReadStream(filePath).pipe(zlib.createGunzip())
+      : fs.createReadStream(filePath, { encoding: 'utf8' });
+
+    const rl = readline.createInterface({ input: readStream, crlfDelay: Infinity });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+
+      // Apply level filter
+      if (levelFilter.length > 0) {
+        const lineUpper = line.toUpperCase();
+        if (!levelFilter.some((lvl) => lineUpper.includes(`[${lvl}]`))) continue;
+      }
+
+      // Apply search filter
+      if (searchFilter && !line.toLowerCase().includes(searchFilter)) continue;
+
+      allLines.push(line);
+    }
+
+    // Return last N lines (tail) or first N lines
+    const resultLines = tailMode
+      ? allLines.slice(-maxLines)
+      : allLines.slice(0, maxLines);
+
+    res.json({
+      success: true,
+      file: safeName,
+      totalMatching: allLines.length,
+      returned: resultLines.length,
+      truncated: allLines.length > maxLines,
+      lines: resultLines,
+    });
+  } catch (error) {
+    console.error('Admin: Error reading log file:', error);
+    res.status(500).json({ success: false, error: 'Failed to read log file' });
+  }
+});
+
+/**
+ * GET /api/admin/logs/pm2
+ * Read PM2 stdout/stderr logs (where console.log/console.error go)
+ * Query params:
+ *   type     - 'out' or 'error' (default: 'out')
+ *   lines    - max lines to return (default: 500, max: 5000)
+ *   search   - text search filter (case-insensitive)
+ */
+adminRouter.get('/logs/pm2', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const type = (req.query.type as string) === 'error' ? 'error' : 'out';
+    const maxLines = Math.min(parseInt(req.query.lines as string) || 500, 5000);
+    const searchFilter = (req.query.search as string)?.toLowerCase() || '';
+
+    // Find the PM2 log file
+    const pm2LogDir = path.join(process.env.HOME || '/home/ubuntu', '.pm2', 'logs');
+    const possibleNames = [
+      `spikey-coins-prod-${type}.log`,
+      `spikey-coins-backend-${type}.log`,
+    ];
+
+    let logFilePath = '';
+    for (const name of possibleNames) {
+      const p = path.join(pm2LogDir, name);
+      if (fs.existsSync(p)) {
+        logFilePath = p;
+        break;
+      }
+    }
+
+    if (!logFilePath) {
+      return res.status(404).json({
+        success: false,
+        error: `PM2 ${type} log not found. Checked: ${possibleNames.join(', ')}`,
+      });
+    }
+
+    let allLines: string[] = [];
+    const readStream = fs.createReadStream(logFilePath, { encoding: 'utf8' });
+    const rl = readline.createInterface({ input: readStream, crlfDelay: Infinity });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      if (searchFilter && !line.toLowerCase().includes(searchFilter)) continue;
+      allLines.push(line);
+    }
+
+    const resultLines = allLines.slice(-maxLines);
+
+    res.json({
+      success: true,
+      file: path.basename(logFilePath),
+      totalMatching: allLines.length,
+      returned: resultLines.length,
+      truncated: allLines.length > maxLines,
+      lines: resultLines,
+    });
+  } catch (error) {
+    console.error('Admin: Error reading PM2 logs:', error);
+    res.status(500).json({ success: false, error: 'Failed to read PM2 logs' });
   }
 });
 

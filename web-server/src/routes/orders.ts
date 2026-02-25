@@ -332,9 +332,21 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
               leverage,
             );
           } catch (leverageError: any) {
-            // Ignore "No need to change leverage" errors
-            if (!leverageError.message?.includes("No need to change")) {
-              console.warn("Failed to set leverage:", leverageError.message);
+            const msg = leverageError.message || "";
+            // Ignore "No need to change leverage" errors (already at requested leverage)
+            if (msg.includes("No need to change")) {
+              // Already at the requested leverage — proceed normally
+            } else if (
+              msg.includes("not valid") ||
+              msg.includes("exceeds maximum")
+            ) {
+              // Leverage is truly invalid for this symbol — fail fast with a clear message
+              throw new Error(
+                `Cannot set ${leverage}x leverage for ${orderParams.symbol}: ${msg}. ` +
+                  `Please check the maximum allowed leverage for this symbol on Binance.`,
+              );
+            } else {
+              console.warn("Failed to set leverage:", msg);
             }
           }
         }

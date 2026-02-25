@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/badge";
 import Table from "@/components/ui/Table";
-import { RefreshCw, Shield, Users, Server, DollarSign } from "lucide-react";
+import { RefreshCw, Shield, Users, Server, DollarSign, FileText } from "lucide-react";
 import api from "@/lib/api";
 
 interface User {
@@ -248,6 +248,28 @@ export default function AdminPage() {
           <CardContent>
             <div className="text-3xl font-bold">{users.length}</div>
             <p className="text-sm text-muted-foreground">Registered users</p>
+          </CardContent>
+        </Card>
+
+        {/* Log Viewer */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Logs
+            </CardTitle>
+            <CardDescription>
+              View server logs, errors, and order activity
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              onClick={() => router.push("/admin/logs")}
+              className="w-full"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Open Log Viewer
+            </Button>
           </CardContent>
         </Card>
       </div>
