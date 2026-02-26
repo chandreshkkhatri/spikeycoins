@@ -364,12 +364,20 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 // Get or initialize current candle OHLC
                 let candleData = currentCandleRef.current[periodKey];
                 if (!candleData) {
-                  // Try to get the last bar data from the series
+                  // Try to get the last bar data from the series — but ONLY if its
+                  // timestamp matches the current period.  If the series' last bar
+                  // belongs to the *previous* (now-closed) candle we must NOT copy
+                  // its OHLC into the new candle, otherwise it visually looks like a
+                  // duplicate of the prior candle.
                   const seriesData = chartRef.series.data();
                   const lastBar = seriesData.length > 0 ? seriesData[seriesData.length - 1] : null;
 
-                  if (lastBar && 'open' in lastBar && 'high' in lastBar && 'low' in lastBar) {
-                    // Use the actual last candle data - double cast to access OHLC properties
+                  if (
+                    lastBar &&
+                    'open' in lastBar &&
+                    (lastBar as unknown as { time: number }).time === (candleTime as number)
+                  ) {
+                    // Last bar IS the current candle (API data already includes it)
                     const ohlcBar = lastBar as unknown as { open: number; high: number; low: number; close: number };
                     candleData = {
                       open: ohlcBar.open,
@@ -378,7 +386,7 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                       close: currentPrice,
                     };
                   } else {
-                    // Fallback: Initialize with current price
+                    // New candle period — start fresh with current price
                     candleData = {
                       open: currentPrice,
                       high: currentPrice,
@@ -507,6 +515,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
               // Check if chart keys exist and chart is not disposed
               if (data.length > 0 && chartRef.series && !chartRef.disposed && typeof chartRef.series.setData === "function") {
                 chartRef.series.setData(data);
+                // Clear cached candle OHLC so timer re-reads from fresh series
+                const periodKey = `${index}-${actualTimeframe}`;
+                delete currentCandleRef.current[periodKey];
                 // Reset historical data tracking after refresh
                 chartRef.oldestTimestamp = (data[0].time as number) * 1000;
                 chartRef.hasMoreHistory = true;
@@ -1114,6 +1125,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             if (data.length > 0 && chartRef.series && !chartRef.disposed && typeof chartRef.series.setData === "function") {
               try {
                 chartRef.series.setData(data);
+                // Clear the cached candle OHLC so the live-update timer
+                // re-reads fresh values from the series on its next tick,
+                // instead of overwriting the API data with stale values.
+                const periodKey = `${index}-${actualInterval}`;
+                delete currentCandleRef.current[periodKey];
                 chartRef.chart?.timeScale().scrollToRealTime();
               } catch {
                 // Chart might be disposed
