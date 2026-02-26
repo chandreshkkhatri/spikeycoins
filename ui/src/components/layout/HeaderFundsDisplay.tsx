@@ -16,6 +16,8 @@ interface FundsResponse {
 
 const FUNDS_REQUEST_TIMEOUT = 12_000; // 12s client-side timeout
 const FUNDS_POLL_INTERVAL = 30_000;   // 30s polling
+const FUNDS_RETRY_DELAY = 3_000;      // 3s retry delay on failure
+const FUNDS_MAX_RETRIES = 3;          // max retries before falling back to poll
 
 export function HeaderFundsDisplay() {
     const { selectedAccount } = useAccount();
@@ -26,6 +28,8 @@ export function HeaderFundsDisplay() {
     const abortControllerRef = useRef<AbortController | null>(null);
     const mountedRef = useRef(true);
     const hasFundsRef = useRef(false);
+    const retryCountRef = useRef(0);
+    const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const fetchFunds = useCallback(async (signal: AbortSignal) => {
         if (!selectedAccount) return;
@@ -55,6 +59,7 @@ export function HeaderFundsDisplay() {
                     currency
                 });
                 hasFundsRef.current = true;
+                retryCountRef.current = 0;
                 setError(false);
             } else {
                 console.error("Failed to fetch header funds: API returned success=false", response.data);
@@ -65,6 +70,19 @@ export function HeaderFundsDisplay() {
             if (!mountedRef.current) return;
             console.error("Failed to fetch header funds:", err.message || err);
             setError(true);
+
+            // If we don't have funds yet (first load) or lost them, retry quickly
+            if (!hasFundsRef.current && retryCountRef.current < FUNDS_MAX_RETRIES) {
+                retryCountRef.current++;
+                const delay = FUNDS_RETRY_DELAY * retryCountRef.current; // 3s, 6s, 9s
+                console.log(`[HeaderFunds] Retry ${retryCountRef.current}/${FUNDS_MAX_RETRIES} in ${delay}ms`);
+                retryTimerRef.current = setTimeout(() => {
+                    if (!mountedRef.current) return;
+                    const retryController = new AbortController();
+                    abortControllerRef.current = retryController;
+                    fetchFunds(retryController.signal);
+                }, delay);
+            }
         } finally {
             if (mountedRef.current) setLoading(false);
         }
@@ -72,6 +90,7 @@ export function HeaderFundsDisplay() {
 
     useEffect(() => {
         mountedRef.current = true;
+        retryCountRef.current = 0;
 
         if (!selectedAccount) {
             setFunds(null);
@@ -86,6 +105,7 @@ export function HeaderFundsDisplay() {
 
         // Abort any previous in-flight request
         abortControllerRef.current?.abort();
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
         const controller = new AbortController();
         abortControllerRef.current = controller;
 
@@ -94,6 +114,8 @@ export function HeaderFundsDisplay() {
         // Refresh every 30 seconds with a fresh AbortController each time
         const interval = setInterval(() => {
             abortControllerRef.current?.abort();
+            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            retryCountRef.current = 0; // reset retry count for each poll cycle
             const newController = new AbortController();
             abortControllerRef.current = newController;
             fetchFunds(newController.signal);
@@ -102,6 +124,7 @@ export function HeaderFundsDisplay() {
         return () => {
             mountedRef.current = false;
             clearInterval(interval);
+            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
             abortControllerRef.current?.abort();
         };
     }, [selectedAccount, selectedAccount?._id, isLoggedIn, fetchFunds]);

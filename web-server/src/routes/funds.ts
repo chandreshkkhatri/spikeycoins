@@ -86,8 +86,25 @@ router.get("/", async (req: Request, res: Response) => {
           isTestnet,
         );
 
+        // Retry helper for Binance API calls (handles transient failures)
+        const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delayMs = 1000): Promise<T> => {
+          for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+              return await fn();
+            } catch (err: any) {
+              const isLastAttempt = attempt === retries;
+              const isRetryable = !err.message?.includes('Rate limited') &&
+                err.status !== 401 && err.status !== 403;
+              if (isLastAttempt || !isRetryable) throw err;
+              console.warn(`[Funds] Binance API attempt ${attempt + 1} failed, retrying in ${delayMs}ms:`, err.message);
+              await new Promise(r => setTimeout(r, delayMs * (attempt + 1)));
+            }
+          }
+          throw new Error('Unreachable');
+        };
+
         if (tradingSegment === "usdm") {
-          const futuresAccount = await binanceService.getFuturesAccount();
+          const futuresAccount = await withRetry(() => binanceService.getFuturesAccount());
           funds = {
             segment: "usdm",
             totalWalletBalance: futuresAccount.totalWalletBalance,
@@ -99,7 +116,7 @@ router.get("/", async (req: Request, res: Response) => {
             positions: futuresAccount.positions,
           };
         } else {
-          const spotAccount = await binanceService.getSpotAccount();
+          const spotAccount = await withRetry(() => binanceService.getSpotAccount());
           funds = {
             segment: "spot",
             canTrade: spotAccount.canTrade,
@@ -161,6 +178,7 @@ router.get("/", async (req: Request, res: Response) => {
     return res.status(500).json({
       error: "Failed to fetch funds",
       details: error.message,
+      retryable: true,
     });
   }
 });

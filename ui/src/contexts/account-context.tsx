@@ -191,6 +191,15 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
           // Use a ref to check selected account to avoid dependency issues
           setSelectedAccountState(prev => {
+            // Helper to check if account data actually changed (avoid unnecessary re-renders)
+            const accountChanged = (a: TradingAccount | null, b: TradingAccount | null): boolean => {
+              if (!a || !b) return a !== b;
+              // Compare relevant fields that would affect dependent components
+              return a._id !== b._id || a.isActive !== b.isActive ||
+                a.apiKey !== b.apiKey || a.accountName !== b.accountName ||
+                JSON.stringify(a.metadata) !== JSON.stringify(b.metadata);
+            };
+
             // ALWAYS check localStorage first for the saved selection
             const savedAccountId = localStorage.getItem('selectedAccountId');
 
@@ -198,6 +207,10 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
             if (savedAccountId) {
               const savedAccount = allAccounts.find(acc => acc._id === savedAccountId);
               if (savedAccount) {
+                // Keep prev reference if data hasn't changed to avoid re-renders
+                if (prev && prev._id === savedAccount._id && !accountChanged(prev, savedAccount)) {
+                  return prev;
+                }
                 return savedAccount;
               }
             }
@@ -207,6 +220,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
               const prevMatch = allAccounts.find(acc => acc._id === prev._id);
               if (prevMatch) {
                 localStorage.setItem('selectedAccountId', prevMatch._id);
+                // Keep prev reference if data hasn't changed
+                if (!accountChanged(prev, prevMatch)) return prev;
                 return prevMatch;
               }
             }
