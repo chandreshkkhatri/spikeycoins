@@ -65,7 +65,7 @@ interface RetryState {
 }
 
 const DETAILS_REFRESH_INTERVAL = 60000; // 60 seconds between automatic refreshes
-const EXPONENTIAL_SLIDER_STORAGE_KEY = "spikeyCoins_isExponentialSlider";
+const LOGARITHMIC_SLIDER_STORAGE_KEY = "spikeyCoins_isExponentialSlider"; // key kept for backward compat
 const DEFAULT_RISK_PERCENT_STORAGE_KEY = "spikeyCoins_defaultRiskPercent";
 const DEFAULT_TP_PERCENT_STORAGE_KEY = "spikeyCoins_defaultTakeProfitPercent";
 const USER_MAX_LEVERAGE_STORAGE_KEY = "spikeyCoins_userMaxLeverage";
@@ -129,9 +129,9 @@ const TradingWindow = memo(function TradingWindow({
   const [stepSize, setStepSize] = useState<string>("0.001");
   const [minQty, setMinQty] = useState<number>(0);
   const [minNotional, setMinNotional] = useState<number>(0);
-  const [isExponentialSlider, setIsExponentialSlider] = useState<boolean>(() => {
+  const [isLogarithmicSlider, setIsLogarithmicSlider] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(EXPONENTIAL_SLIDER_STORAGE_KEY) === "true";
+      return localStorage.getItem(LOGARITHMIC_SLIDER_STORAGE_KEY) === "true";
     } catch {
       return false;
     }
@@ -144,7 +144,7 @@ const TradingWindow = memo(function TradingWindow({
       return true;
     }
   });
-  // Slider percentage values for SL/TP (0-20%)
+  // Slider percentage values for SL/TP (% of available balance)
   const [slPercentage, setSlPercentage] = useState<number>(1);
   const [tpPercentage, setTpPercentage] = useState<number>(2);
   const [retryState, setRetryState] = useState<RetryState | null>(null);
@@ -558,10 +558,10 @@ const TradingWindow = memo(function TradingWindow({
           stopLoss: roundedSL.toFixed(calculatePriceDecimals(entryPrice)),
         }));
 
-        // Sync slider percentage to match the auto-calculated SL price
-        const slPriceDiff = Math.abs(entryPrice - roundedSL);
-        const slPercentageValue = (slPriceDiff / entryPrice) * 100;
-        setSlPercentage(Math.min(20, Math.max(0.1, slPercentageValue)));
+        // Sync slider percentage to match the auto-calculated SL price (% of balance)
+        const riskAmountFromSL = Math.abs(entryPrice - roundedSL) * qty;
+        const slBalancePct = availableBalance > 0 ? (riskAmountFromSL / availableBalance) * 100 : 1;
+        setSlPercentage(Math.min(100, Math.max(0.1, slBalancePct)));
       }
       setSlAutoCalcWarning(null);
     } else {
@@ -624,10 +624,10 @@ const TradingWindow = memo(function TradingWindow({
           takeProfit: roundedTP.toFixed(calculatePriceDecimals(entryPrice)),
         }));
 
-        // Sync slider percentage to match the auto-calculated TP price
-        const tpPriceDiff = Math.abs(roundedTP - entryPrice);
-        const tpPercentageValue = (tpPriceDiff / entryPrice) * 100;
-        setTpPercentage(Math.min(50, Math.max(0.1, tpPercentageValue)));
+        // Sync slider percentage to match the auto-calculated TP price (% of balance)
+        const profitAmountFromTP = Math.abs(roundedTP - entryPrice) * qty;
+        const tpBalancePct = availableBalance > 0 ? (profitAmountFromTP / availableBalance) * 100 : 2;
+        setTpPercentage(Math.min(100, Math.max(0.1, tpBalancePct)));
       }
     }
   }, [
@@ -642,6 +642,33 @@ const TradingWindow = memo(function TradingWindow({
     availableBalance,
   ]);
 
+  // Compute the maximum SL percentage (of balance) that corresponds to the liquidation price
+  const maxSlPercentage = useMemo(() => {
+    const leverage = parseFloat(orderForm.leverage) || 1;
+    const entryPrice = orderForm.type === "LIMIT"
+      ? parseFloat(orderForm.price) || currentPrice
+      : currentPrice;
+    const qty = parseFloat(orderForm.quantity) || 0;
+
+    if (entryPrice <= 0 || leverage <= 0 || qty <= 0 || availableBalance <= 0) return 50;
+
+    // Simplified liquidation distance (same formula as calculateLiquidationPrice)
+    const positionValue = entryPrice * qty;
+    let mmr = 0.004;
+    if (positionValue >= 250000) mmr = 0.01;
+    else if (positionValue >= 50000) mmr = 0.005;
+
+    const im = 1 / leverage;
+    // Max price move before liquidation
+    const maxPriceMove = entryPrice * (im - mmr);
+    // Convert to balance percentage: loss at liquidation = maxPriceMove * qty
+    const lossAtLiquidation = maxPriceMove * qty;
+    const maxPct = (lossAtLiquidation / availableBalance) * 100;
+
+    // Clamp: at least 1%, at most 100%
+    return Math.max(1, Math.min(100, Math.floor(maxPct)));
+  }, [orderForm.leverage, orderForm.type, orderForm.price, orderForm.quantity, currentPrice, availableBalance]);
+
   // Initialize SL/TP prices from slider percentages when in slider mode
   // This runs independently of quantity/balance to show prices immediately on load
   useEffect(() => {
@@ -650,6 +677,7 @@ const TradingWindow = memo(function TradingWindow({
     const entryPrice = orderForm.type === "LIMIT"
       ? parseFloat(orderForm.price) || currentPrice
       : currentPrice;
+    const qty = parseFloat(orderForm.quantity) || 0;
 
     // Need valid entry price
     if (!entryPrice || entryPrice <= 0) return;
@@ -660,26 +688,42 @@ const TradingWindow = memo(function TradingWindow({
 
     // Initialize SL if empty and user hasn't manually edited
     if (!hasUserEditedSL && !orderForm.stopLoss) {
-      const slPrice = orderForm.side === "BUY"
-        ? entryPrice * (1 - slPercentage / 100)
-        : entryPrice * (1 + slPercentage / 100);
-
-      setOrderForm((prev) => ({
-        ...prev,
-        stopLoss: slPrice.toFixed(decimals),
-      }));
+      if (availableBalance > 0 && qty > 0) {
+        // Balance-based: riskAmount = balance * pct / 100, offset = riskAmount / qty
+        const riskAmount = (availableBalance * slPercentage) / 100;
+        const offset = riskAmount / qty;
+        const slPrice = orderForm.side === "BUY" ? entryPrice - offset : entryPrice + offset;
+        if (slPrice > 0) {
+          setOrderForm((prev) => ({ ...prev, stopLoss: slPrice.toFixed(decimals) }));
+        }
+      } else {
+        // Fallback: use price-based % when balance/qty not available
+        const slPrice = orderForm.side === "BUY"
+          ? entryPrice * (1 - slPercentage / 100)
+          : entryPrice * (1 + slPercentage / 100);
+        if (slPrice > 0) {
+          setOrderForm((prev) => ({ ...prev, stopLoss: slPrice.toFixed(decimals) }));
+        }
+      }
     }
 
     // Initialize TP if empty and user hasn't manually edited
     if (!hasUserEditedTP && !orderForm.takeProfit) {
-      const tpPrice = orderForm.side === "BUY"
-        ? entryPrice * (1 + tpPercentage / 100)
-        : entryPrice * (1 - tpPercentage / 100);
-
-      setOrderForm((prev) => ({
-        ...prev,
-        takeProfit: tpPrice.toFixed(decimals),
-      }));
+      if (availableBalance > 0 && qty > 0) {
+        const profitAmount = (availableBalance * tpPercentage) / 100;
+        const offset = profitAmount / qty;
+        const tpPrice = orderForm.side === "BUY" ? entryPrice + offset : entryPrice - offset;
+        if (tpPrice > 0) {
+          setOrderForm((prev) => ({ ...prev, takeProfit: tpPrice.toFixed(decimals) }));
+        }
+      } else {
+        const tpPrice = orderForm.side === "BUY"
+          ? entryPrice * (1 + tpPercentage / 100)
+          : entryPrice * (1 - tpPercentage / 100);
+        if (tpPrice > 0) {
+          setOrderForm((prev) => ({ ...prev, takeProfit: tpPrice.toFixed(decimals) }));
+        }
+      }
     }
   }, [
     useSlTpSlider,
@@ -689,11 +733,13 @@ const TradingWindow = memo(function TradingWindow({
     orderForm.side,
     orderForm.stopLoss,
     orderForm.takeProfit,
+    orderForm.quantity,
     slPercentage,
     tpPercentage,
     tickSize,
     hasUserEditedSL,
     hasUserEditedTP,
+    availableBalance,
   ]);
 
   // NOTE: fetchAccountAndPositionDetails and fetchOpenOrders removed.
@@ -771,8 +817,8 @@ const TradingWindow = memo(function TradingWindow({
     sliderChangeCount.current += 1;
 
     let percentage = value[0] / 100; // Convert from 0-10000 to 0-100
-    if (isExponentialSlider) {
-      // Map slider (0-100) to percentage (0-100) exponentially
+    if (isLogarithmicSlider) {
+      // Map slider (0-100) to percentage (0-100) logarithmically
       // y = (x/100)^2 * 100
       percentage = Math.pow(percentage / 100, 2) * 100;
     }
@@ -789,7 +835,7 @@ const TradingWindow = memo(function TradingWindow({
     sliderChangeCount.current = 0; // Reset for next interaction
 
     let percentage = value[0] / 100; // Convert from 0-10000 to 0-100
-    if (isExponentialSlider) {
+    if (isLogarithmicSlider) {
       percentage = 100 * Math.pow(percentage / 100, 2);
       // Snap to nearest anchor on click (not drag)
       if (!wasDragging) {
@@ -821,60 +867,73 @@ const TradingWindow = memo(function TradingWindow({
     }
   };
 
-  // Debounced SL slider handler - updates SL price based on percentage
+  // Debounced SL slider handler - updates SL price based on % of available balance
   const handleSlSliderChange = useDebouncedCallback((value: number[]) => {
-    // Apply exponential scaling if enabled: y = 20 * (x/100)^2
+    // Apply logarithmic scaling if enabled: y = maxSl * (x/100)^2
     // This gives more precision at lower values (0-5% range)
-    let pct = isExponentialSlider
-      ? 20 * Math.pow(value[0] / 100, 2)
-      : value[0] * 0.2; // Linear: 0-100 maps to 0-20%
+    let pct = isLogarithmicSlider
+      ? maxSlPercentage * Math.pow(value[0] / 100, 2)
+      : value[0] * (maxSlPercentage / 100); // Linear: 0-100 maps to 0-maxSl%
 
-    // Clamp to reasonable range
-    pct = Math.max(0.1, Math.min(20, pct));
+    // Clamp to reasonable range (capped at liquidation)
+    pct = Math.max(0.1, Math.min(maxSlPercentage, pct));
     setSlPercentage(pct);
     setHasUserEditedSL(true);
 
-    // Calculate SL price based on side
+    // Calculate SL price: riskAmount = balance * pct / 100, offset = riskAmount / qty
     const entryPrice = orderForm.type === "LIMIT"
       ? parseFloat(orderForm.price) || currentPrice
       : currentPrice;
-    let slPrice: number;
-    if (orderForm.side === "BUY") {
-      slPrice = entryPrice * (1 - pct / 100);
-    } else {
-      slPrice = entryPrice * (1 + pct / 100);
-    }
+    const qty = parseFloat(orderForm.quantity) || 0;
     const decimals = tickSize.includes(".")
       ? tickSize.split(".")[1].replace(/0+$/, "").length
       : 2;
-    handleInputChange("stopLoss", slPrice.toFixed(decimals));
+
+    if (availableBalance > 0 && qty > 0) {
+      const riskAmount = (availableBalance * pct) / 100;
+      const offset = riskAmount / qty;
+      const slPrice = orderForm.side === "BUY" ? entryPrice - offset : entryPrice + offset;
+      handleInputChange("stopLoss", Math.max(0, slPrice).toFixed(decimals));
+    } else {
+      // Fallback to price-based when balance/qty unavailable
+      const slPrice = orderForm.side === "BUY"
+        ? entryPrice * (1 - pct / 100)
+        : entryPrice * (1 + pct / 100);
+      handleInputChange("stopLoss", Math.max(0, slPrice).toFixed(decimals));
+    }
   }, 50); // 50ms debounce for responsive feel
 
-  // Debounced TP slider handler - updates TP price based on percentage
+  // Debounced TP slider handler - updates TP price based on % of available balance
   const handleTpSliderChange = useDebouncedCallback((value: number[]) => {
-    // Apply exponential scaling if enabled: y = 50 * (x/100)^2
+    // Apply logarithmic scaling if enabled: y = 100 * (x/100)^2
     // This gives more precision at lower values (0-10% range)
-    let pct = isExponentialSlider
-      ? 50 * Math.pow(value[0] / 100, 2)
-      : value[0] * 0.5; // Linear: 0-100 maps to 0-50%
+    let pct = isLogarithmicSlider
+      ? 100 * Math.pow(value[0] / 100, 2)
+      : value[0]; // Linear: 0-100 maps to 0-100%
 
-    pct = Math.max(0.1, Math.min(50, pct));
+    pct = Math.max(0.1, Math.min(100, pct));
     setTpPercentage(pct);
     setHasUserEditedTP(true);
 
     const entryPrice = orderForm.type === "LIMIT"
       ? parseFloat(orderForm.price) || currentPrice
       : currentPrice;
-    let tpPrice: number;
-    if (orderForm.side === "BUY") {
-      tpPrice = entryPrice * (1 + pct / 100);
-    } else {
-      tpPrice = entryPrice * (1 - pct / 100);
-    }
+    const qty = parseFloat(orderForm.quantity) || 0;
     const decimals = tickSize.includes(".")
       ? tickSize.split(".")[1].replace(/0+$/, "").length
       : 2;
-    handleInputChange("takeProfit", tpPrice.toFixed(decimals));
+
+    if (availableBalance > 0 && qty > 0) {
+      const profitAmount = (availableBalance * pct) / 100;
+      const offset = profitAmount / qty;
+      const tpPrice = orderForm.side === "BUY" ? entryPrice + offset : entryPrice - offset;
+      handleInputChange("takeProfit", Math.max(0, tpPrice).toFixed(decimals));
+    } else {
+      const tpPrice = orderForm.side === "BUY"
+        ? entryPrice * (1 + pct / 100)
+        : entryPrice * (1 - pct / 100);
+      handleInputChange("takeProfit", Math.max(0, tpPrice).toFixed(decimals));
+    }
   }, 50); // 50ms debounce for responsive feel
 
   // Memoized callback for OrderBookPrice applied
@@ -1577,13 +1636,13 @@ const TradingWindow = memo(function TradingWindow({
                   <input
                     type="checkbox"
                     id="expSlider"
-                    checked={isExponentialSlider}
+                    checked={isLogarithmicSlider}
                     onChange={(e) => {
                       const checked = e.target.checked;
-                      setIsExponentialSlider(checked);
+                      setIsLogarithmicSlider(checked);
                       try {
                         localStorage.setItem(
-                          EXPONENTIAL_SLIDER_STORAGE_KEY,
+                          LOGARITHMIC_SLIDER_STORAGE_KEY,
                           String(checked)
                         );
                       } catch {
@@ -1603,7 +1662,7 @@ const TradingWindow = memo(function TradingWindow({
               <div className="slider-wrapper">
                 <Slider
                   value={[
-                    isExponentialSlider
+                    isLogarithmicSlider
                       ? Math.sqrt(positionSizePercentage / 100) * 100 * 100
                       : positionSizePercentage * 100,
                   ]}
@@ -1615,7 +1674,7 @@ const TradingWindow = memo(function TradingWindow({
                 />
               </div>
               <div className="slider-labels">
-                {isExponentialSlider ? (
+                {isLogarithmicSlider ? (
                   <>
                     <span className="cursor-pointer hover:text-primary" onClick={() => { setPositionSizePercentage(0); setQuickQuantity(0); }}>0%</span>
                     <span className="cursor-pointer hover:text-primary" onClick={() => { setPositionSizePercentage(2); setQuickQuantity(2); }}>2%</span>
@@ -1694,9 +1753,9 @@ const TradingWindow = memo(function TradingWindow({
                   <>
                     <div className="flex items-center gap-2 mb-1">
                       <Slider
-                        value={[isExponentialSlider
-                          ? Math.sqrt(slPercentage / 20) * 100  // Reverse exponential for display
-                          : slPercentage * 5]} // Linear: 0-20% maps to 0-100
+                        value={[isLogarithmicSlider
+                          ? Math.sqrt(slPercentage / maxSlPercentage) * 100  // Reverse logarithmic for display
+                          : (slPercentage / maxSlPercentage) * 100]} // Linear: 0-maxSl% maps to 0-100
                         min={0}
                         max={100}
                         step={0.5}
@@ -1755,9 +1814,9 @@ const TradingWindow = memo(function TradingWindow({
                   <>
                     <div className="flex items-center gap-2 mb-1">
                       <Slider
-                        value={[isExponentialSlider
-                          ? Math.sqrt(tpPercentage / 50) * 100  // Reverse exponential for display
-                          : tpPercentage * 2]} // Linear: 0-50% maps to 0-100
+                        value={[isLogarithmicSlider
+                          ? Math.sqrt(tpPercentage / 100) * 100  // Reverse logarithmic for display
+                          : tpPercentage]} // Linear: 0-100% maps to 0-100
                         min={0}
                         max={100}
                         step={0.5}

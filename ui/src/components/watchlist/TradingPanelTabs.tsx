@@ -61,6 +61,7 @@ interface Order {
 
 interface Trade {
   id: string;
+  orderId?: string;
   symbol: string;
   quantity: number;
   price: number;
@@ -68,6 +69,7 @@ interface Trade {
   realizedPnl: number;
   commission: number;
   timestamp: number;
+  fillCount?: number;
 }
 
 interface OrderHistory {
@@ -113,7 +115,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
   const [activeTab, setActiveTab] = useState("positions");
   const [historySubTab, setHistorySubTab] = useState<"orders" | "trades">(
-    "orders"
+    "trades"
   );
   const [historyTimeframe, setHistoryTimeframe] = useState<
     "24h" | "7d" | "30d" | "90d"
@@ -500,18 +502,44 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           ...prev,
           trades: !!result.tradeData?.hasMore,
         }));
-        setTrades(
-          (result.tradeData.trades || []).map((t: Record<string, unknown>) => ({
-            id: t.id,
-            symbol: t.symbol,
-            quantity: t.qty,
-            price: t.price,
-            side: t.side,
-            realizedPnl: t.realizedPnl || 0,
-            commission: t.commission || 0,
-            timestamp: t.time,
-          }))
-        );
+        // Group fills from the same order together
+        const rawTrades = (result.tradeData.trades || []).map((t: Record<string, unknown>) => ({
+          id: t.id as string,
+          orderId: t.orderId as string | undefined,
+          symbol: t.symbol as string,
+          quantity: t.qty as number,
+          price: t.price as number,
+          side: t.side as string,
+          realizedPnl: (t.realizedPnl || 0) as number,
+          commission: (t.commission || 0) as number,
+          timestamp: t.time as number,
+        }));
+
+        // Combine fills sharing the same orderId
+        const groupedMap = new Map<string, Trade>();
+        for (const trade of rawTrades) {
+          const key = trade.orderId
+            ? `${trade.symbol}-${trade.side}-${trade.orderId}`
+            : trade.id; // No orderId — keep as individual
+          const existing = groupedMap.get(key);
+          if (existing) {
+            // Weighted average price
+            const totalQty = existing.quantity + trade.quantity;
+            existing.price =
+              (existing.price * existing.quantity + trade.price * trade.quantity) / totalQty;
+            existing.quantity = totalQty;
+            existing.realizedPnl += trade.realizedPnl;
+            existing.commission += trade.commission;
+            existing.fillCount = (existing.fillCount || 1) + 1;
+            // Keep the earliest timestamp
+            if (trade.timestamp < existing.timestamp) {
+              existing.timestamp = trade.timestamp;
+            }
+          } else {
+            groupedMap.set(key, { ...trade, fillCount: 1 });
+          }
+        }
+        setTrades(Array.from(groupedMap.values()));
       } else {
         setHistoryHasMore((prev) => ({ ...prev, trades: false }));
       }
@@ -1226,15 +1254,6 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
           <div className="flex items-center justify-between border-b px-2 text-base">
             <div className="flex gap-2">
               <button
-                className={`py-2 px-2 ${historySubTab === "orders"
-                  ? "border-b-2 border-primary font-medium"
-                  : "text-muted-foreground"
-                  }`}
-                onClick={() => setHistorySubTab("orders")}
-              >
-                Order History ({orderHistory.length})
-              </button>
-              <button
                 className={`py-2 px-2 ${historySubTab === "trades"
                   ? "border-b-2 border-primary font-medium"
                   : "text-muted-foreground"
@@ -1242,6 +1261,15 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                 onClick={() => setHistorySubTab("trades")}
               >
                 Trades ({trades.length})
+              </button>
+              <button
+                className={`py-2 px-2 ${historySubTab === "orders"
+                  ? "border-b-2 border-primary font-medium"
+                  : "text-muted-foreground"
+                  }`}
+                onClick={() => setHistorySubTab("orders")}
+              >
+                Order History ({orderHistory.length})
               </button>
             </div>
             <div className="flex items-center gap-2">
@@ -1422,7 +1450,14 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
                       <td className="text-right px-2 py-2">
                         {formatPrice(trade.price)}
                       </td>
-                      <td className="text-right px-2 py-2">{trade.quantity}</td>
+                      <td className="text-right px-2 py-2">
+                        {trade.quantity}
+                        {trade.fillCount && trade.fillCount > 1 && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            ({trade.fillCount} fills)
+                          </span>
+                        )}
+                      </td>
                       <td
                         className={`text-right px-2 py-2 font-medium ${trade.realizedPnl >= 0
                           ? "text-green-500"

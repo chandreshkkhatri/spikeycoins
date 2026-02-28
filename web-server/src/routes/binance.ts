@@ -844,6 +844,7 @@ router.get("/trade-history", async (req: Request, res: Response) => {
       hasMore,
       trades: pageTrades.map((t: any) => ({
         id: t.id,
+        orderId: t.orderId,
         symbol: t.symbol,
         side: t.side,
         price: parseFloat(t.price),
