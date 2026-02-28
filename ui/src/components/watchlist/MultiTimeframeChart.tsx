@@ -348,12 +348,23 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
             shouldRefresh = true;
             // Reset current candle data for this chart
             delete currentCandleRef.current[periodKey];
+            // Also invalidate the promise cache for this interval so the
+            // candle-close refresh fetches fresh data instead of a cached
+            // response that may still contain the previous candle as latest.
+            const cachePrefix = `${displaySymbol}-`;
+            CHART_PROMISE_CACHE.forEach((_v, key) => {
+              if (key.startsWith(cachePrefix) && key.endsWith(`-${actualInterval}`)) {
+                CHART_PROMISE_CACHE.delete(key);
+              }
+            });
           }
           lastPeriodRef.current[periodKey] = currentPeriodStart;
 
           // Update last candle close price with current LTP
           // Skip if charts haven't loaded data for the current symbol yet
-          if (currentPrice && currentPrice > 0 && loadedSymbolRef.current === displaySymbol) {
+          // Skip the LTP update when we just detected a candle close — the
+          // refresh fetch will provide authoritative data for the new candle.
+          if (!shouldRefresh && currentPrice && currentPrice > 0 && loadedSymbolRef.current === displaySymbol) {
             const chartRef = chartRefs.current[index];
             // Skip if chart is disposed or series is not available
             if (chartRef?.series && !chartRef.disposed) {

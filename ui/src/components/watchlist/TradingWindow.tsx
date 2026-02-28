@@ -1249,7 +1249,9 @@ const TradingWindow = memo(function TradingWindow({
     } catch (err: any) {
       console.error("Order placement error:", err);
       const errorData = err.response?.data;
-      setError(errorData?.error || "Failed to place order");
+      // Show the detailed error message from the server if available
+      const errorMsg = errorData?.details || errorData?.error || err.message || "Failed to place order";
+      setError(errorMsg);
       setSuccess(null);
       setRetryState(null);
     } finally {
@@ -1421,25 +1423,36 @@ const TradingWindow = memo(function TradingWindow({
       });
     }
 
-    // Open stop orders (SL/TP) price lines only
+    // Open orders price lines
     openOrders.forEach((order) => {
-      const isSL = order.orderType.includes("STOP");
+      const isSL = order.orderType.includes("STOP") && !order.orderType.includes("TAKE_PROFIT");
       const isTP = order.orderType.includes("TAKE_PROFIT");
-      const isStopOrder = isSL || isTP;
-      if (!isStopOrder) return;
+      const isConditionalOrder = isSL || isTP;
 
-      // Use stopPrice for stop orders, fallback to price if needed
-      const orderPrice = order.stopPrice && order.stopPrice > 0 ? order.stopPrice : order.price;
-      if (orderPrice > 0) {
-        let color = "#ec4899"; // SL color
-        if (isTP) color = "#3b82f6"; // TP color
+      if (isConditionalOrder) {
+        // SL/TP conditional orders — use stopPrice
+        const orderPrice = order.stopPrice && order.stopPrice > 0 ? order.stopPrice : order.price;
+        if (orderPrice > 0) {
+          let color = "#ec4899"; // SL color
+          if (isTP) color = "#3b82f6"; // TP color
 
+          lines.push({
+            price: orderPrice,
+            color: color,
+            lineWidth: 1,
+            lineStyle: 1, // Dotted for conditional orders
+            title: isSL ? "SL" : "TP",
+          });
+        }
+      } else if (order.orderType === "LIMIT" && order.price > 0) {
+        // Regular LIMIT orders — show buy/sell lines
+        const isBuy = order.transactionType === "BUY";
         lines.push({
-          price: orderPrice,
-          color: color,
+          price: order.price,
+          color: isBuy ? "#86efac" : "#fca5a5", // Green for buy, red for sell
           lineWidth: 1,
-          lineStyle: 1, // Dotted for stop orders
-          title: isSL ? "SL" : "TP",
+          lineStyle: 2, // Dashed for limit orders
+          title: isBuy ? "Buy" : "Sell",
         });
       }
     });

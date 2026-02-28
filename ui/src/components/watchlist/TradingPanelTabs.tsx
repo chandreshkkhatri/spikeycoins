@@ -270,7 +270,7 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
 
   // Sync orders from context to local state (used for SL/TP remaining qty calculations)
   useEffect(() => {
-    if (contextOrders && contextOrders.length > 0) {
+    if (contextOrders && contextOrders.length >= 0) {
       setOrders(
         contextOrders.map((o) => ({
           id: o.id,
@@ -415,9 +415,15 @@ const TradingPanelTabs = memo(function TradingPanelTabs({
     if (!selectedAccount) return;
 
     // For positions and orders tabs, data comes from TradingDataContext.
-    // Just trigger a context refresh.
+    // Just trigger a context refresh with visual feedback.
     if (activeTab === "positions" || activeTab === "orders") {
-      contextRefreshAll();
+      setLoading(true);
+      try {
+        await contextRefreshAll();
+      } finally {
+        // Small delay so the spinner is visible even if refresh is instant
+        setTimeout(() => setLoading(false), 400);
+      }
       return;
     }
 
