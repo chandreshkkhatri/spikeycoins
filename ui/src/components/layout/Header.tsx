@@ -24,6 +24,7 @@ import {
   Coins
 } from "lucide-react";
 import { HeaderFundsDisplay } from "./HeaderFundsDisplay";
+import { InstallPwaButton } from "./InstallPwaButton";
 
 const navItems = [
   { href: PAGE_ROUTES.DASHBOARD, label: "Command Center", icon: LayoutDashboard },
@@ -152,6 +153,9 @@ export function Header() {
 
           {/* Notification Toggle - Only show when logged in */}
           {isLoggedIn && <NotificationToggle />}
+
+          {/* PWA Install Button - only visible on mobile when installable */}
+          <InstallPwaButton />
 
           <button
             aria-label="Toggle theme"
