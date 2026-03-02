@@ -1,7 +1,6 @@
-const CACHE_NAME = "spikeycoins-v1";
+const CACHE_NAME = "spikeycoins-v2";
 
 const STATIC_ASSETS = [
-  "/",
   "/logo.png",
   "/logo_dark.png",
   "/logo.svg",
