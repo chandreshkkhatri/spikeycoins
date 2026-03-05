@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getApiUrl } from "@/lib/api";
+import chartCache from "@/lib/chart-cache";
 import { formatPrice } from "@/lib/format-utils";
 import {
   CandlestickData,
@@ -31,46 +32,13 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Trash2,
   X,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 // Global promise cache to deduplicate simultaneous fetches
 const CHART_PROMISE_CACHE = new Map<string, Promise<CandlestickData[]>>();
-
-const localCache = {
-  get: <T,>(key: string): T | null => {
-    try {
-      if (typeof window === 'undefined') return null;
-      const item = window.localStorage.getItem(key);
-      if (!item) return null;
-      const parsed = JSON.parse(item);
-      // Basic validity check
-      if (!parsed || !parsed.timestamp) return null;
-      // Expiry check (24h default for charts if not specified)
-      if (Date.now() - parsed.timestamp > 24 * 60 * 60 * 1000) {
-        window.localStorage.removeItem(key);
-        return null;
-      }
-      return parsed.data as T;
-    } catch {
-      return null;
-    }
-  },
-  set: <T,>(key: string, data: T) => {
-    try {
-      if (typeof window === 'undefined') return;
-      // aggressively prune old keys if space is tight? 
-      // For now, simple set. 
-      window.localStorage.setItem(key, JSON.stringify({
-        data,
-        timestamp: Date.now(),
-      }));
-    } catch (e) {
-      console.warn('LocalStorage full or error', e);
-    }
-  }
-};
 
 interface PriceLine {
   price: number;
@@ -287,11 +255,17 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
     );
     // Use ref to access zoom levels in createSingleChart without triggering recreation
     const zoomLevelsRef = useRef(zoomLevels);
+    // Use ref to access collapsedCharts within init effect without adding it as a dep
+    const collapsedChartsRef = useRef(collapsedCharts);
     
-    // Sync ref with state
+    // Sync refs with state
     useEffect(() => {
       zoomLevelsRef.current = zoomLevels;
     }, [zoomLevels]);
+
+    useEffect(() => {
+      collapsedChartsRef.current = collapsedCharts;
+    }, [collapsedCharts]);
 
     const runIdRef = useRef(0);
 
@@ -322,6 +296,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       });
       setLoadingHistoryCharts({});
     }, [displaySymbol]);
+
+    // One-time migration from localStorage to IndexedDB (fire-and-forget)
+    useEffect(() => {
+      chartCache.migrateFromLocalStorage();
+    }, []);
 
     // Update countdown timers every second + detect new candle periods
     useEffect(() => {
@@ -499,6 +478,18 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
       setAutoScale(false);
       setIsLogScale(false);
       setIsCollapsed(false);
+    };
+
+    /** Clear all chart data & settings from IndexedDB/localStorage and re-initialize */
+    const clearChartCache = () => {
+      chartCache.clearAll(); // async, fire-and-forget
+      CHART_PROMISE_CACHE.clear();
+      try { localStorage.removeItem(CHART_SETTINGS_KEY); } catch { /* */ }
+      // Reset state to defaults
+      resetToDefaults();
+      setCollapsedCharts({});
+      setZoomLevels({});
+      // Force re-init by incrementing runId (the main effect will fire via state changes)
     };
 
     // Refresh all charts by re-fetching data without destroying existing charts
@@ -903,12 +894,11 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
         CHART_PROMISE_CACHE.set(cacheKey, promise);
         
-        // Cache the result when promise resolves
+        // Cache the result when promise resolves (IndexedDB — no size worries)
         promise.then(data => {
             if (data && data.length > 0) {
-                // Keep only the last 1000 candles to save localStorage space
                 const dataToCache = data.length > 1000 ? data.slice(-1000) : data;
-                localCache.set(cacheKey, dataToCache);
+                chartCache.set(cacheKey, dataToCache); // async, fire-and-forget
             }
         }).catch(() => {
             // Ignore errors
@@ -1184,13 +1174,29 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           });
           chartRefs.current = [];
 
-          // Wait for container refs to be available
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          // Poll for container refs — on slower mobile devices the fixed 300ms
+          // wait wasn't always enough, causing charts to silently fail to load.
+          const MAX_CONTAINER_RETRIES = 8;
+          const CONTAINER_POLL_MS = 150;
+          for (let attempt = 0; attempt < MAX_CONTAINER_RETRIES; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, CONTAINER_POLL_MS));
+            if (runIdRef.current !== thisRun) return; // bail if symbol changed
+            const allReady = selectedTimeframes.every((tf, i) => {
+              const isChartCollapsed = collapsedChartsRef.current[tf.interval] ?? false;
+              return isChartCollapsed || containerRefs.current[i] != null;
+            });
+            if (allReady) break;
+          }
 
           // Create charts for all selected timeframes
+          let containerMissCount = 0;
           const promises = selectedTimeframes.map(async (timeframe, index) => {
+            const isChartCollapsed = collapsedChartsRef.current[timeframe.interval] ?? false;
+            if (isChartCollapsed) return null; // collapsed — skip intentionally
             const container = containerRefs.current[index];
             if (!container) {
+              containerMissCount++;
+              console.warn(`[CHART] Container ref null for chart ${index} (${timeframe.interval}) after ${MAX_CONTAINER_RETRIES} retries`);
               return null;
             }
 
@@ -1248,6 +1254,9 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
           if (runIdRef.current !== thisRun) return;
           // Mark charts as ready for live updates for this symbol
           loadedSymbolRef.current = displaySymbol;
+          if (containerMissCount > 0 && containerMissCount === selectedTimeframes.filter((_, i) => !(collapsedChartsRef.current[selectedTimeframes[i]?.interval] ?? false)).length) {
+            setError('Charts failed to load — try "Clear Cache" to reset.');
+          }
           setLoading(false);
         } catch (err) {
           const errorMessage =
@@ -1396,16 +1405,14 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                 chartRef.chart.timeScale().unsubscribeVisibleLogicalRangeChange(chartRef.visibleRangeHandler);
               }
 
-              // Try to load from cache first for instant render
+              // Try to load from IndexedDB cache first for instant render
               const cacheKey = `${displaySymbol}-${accountId || ''}-${accountType || ''}-${marketType || ''}-${timeframe}`;
-              const cachedData = localCache.get<CandlestickData[]>(cacheKey);
+              const cachedData = await chartCache.get<CandlestickData[]>(cacheKey);
               
               if (cachedData && cachedData.length > 0 && chartRef.series) {
                  chartRef.series.setData(cachedData);
                  if (runIdRef.current === thisRun) {
                      chartRef.oldestTimestamp = (cachedData[0].time as number) * 1000;
-                     // Don't set scroll handler yet, wait for fresh data or set it now? 
-                     // Setting it now is fine, it will be reset when fresh data comes.
                  }
               }
 
@@ -1567,6 +1574,15 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                   title="Reset to defaults"
                 >
                   <RotateCcw size={12} /> Reset
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearChartCache}
+                  className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+                  title="Clear all chart cache & settings (fixes loading issues)"
+                >
+                  <Trash2 size={12} /> Clear Cache
                 </Button>
                 <Button
                   variant="ghost"
@@ -1733,11 +1749,19 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
                       )}
 
                       {error && (
-                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/95 p-3">
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/95 p-3 gap-2">
                           <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
                             <AlertCircle size={14} />
                             <p className="line-clamp-2">{error}</p>
                           </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            onClick={clearChartCache}
+                          >
+                            <Trash2 size={12} /> Clear Cache & Retry
+                          </Button>
                         </div>
                       )}
                     </div>

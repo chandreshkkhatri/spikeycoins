@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Providers } from "@/components/providers";
 import { ServiceWorkerRegistrar } from "@/components/layout/ServiceWorkerRegistrar";
+import { OfflineBanner } from "@/components/layout/OfflineBanner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,6 +22,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body>
         <ServiceWorkerRegistrar />
+        <OfflineBanner />
         <Providers>{children}</Providers>
       </body>
     </html>
