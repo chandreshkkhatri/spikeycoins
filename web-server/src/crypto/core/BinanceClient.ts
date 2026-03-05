@@ -12,8 +12,11 @@ import CandlestickStorage from "../services/CandlestickStorage";
 
 class BinanceClient {
   private tickerWs: WebSocket | null = null;
+  private futuresWs: WebSocket | null = null;
   private isConnected: boolean = false;
+  private isFuturesConnected: boolean = false;
   private reconnectAttempts: number = 0;
+  private futuresReconnectAttempts: number = 0;
   private readonly maxReconnectAttempts: number = 5;
   
   // Candlestick fetching configuration
@@ -37,8 +40,9 @@ class BinanceClient {
     await MarketCapService.initialize();
     CandlestickStorage.initialize();
     
-    // Start ticker stream
+    // Start ticker streams (spot + futures)
     this.connectTickerStream();
+    this.connectFuturesTickerStream();
     
     // Wait for initial ticker data, then start candlestick fetching
     setTimeout(() => {
@@ -80,6 +84,72 @@ class BinanceClient {
     this.tickerWs.on('error', (error) => {
       logger.error("BinanceClient: Ticker WebSocket error:", error);
     });
+  }
+
+  /**
+   * Connect to Binance Futures 24hr ticker stream
+   * Only futures-only symbols (not on spot) will be kept by DataManager.
+   */
+  private connectFuturesTickerStream(): void {
+    const wsUrl = 'wss://fstream.binance.com/ws/!ticker@arr';
+
+    this.futuresWs = new WebSocket(wsUrl);
+
+    this.futuresWs.on('open', () => {
+      logger.info("BinanceClient: Futures ticker WebSocket connected");
+      this.isFuturesConnected = true;
+      this.futuresReconnectAttempts = 0;
+    });
+
+    this.futuresWs.on('message', (data: Buffer) => {
+      try {
+        const tickerArray = JSON.parse(data.toString());
+        if (Array.isArray(tickerArray)) {
+          DataManager.updateFuturesTickers(tickerArray);
+        }
+      } catch (error) {
+        logger.error("BinanceClient: Error processing futures ticker data:", error);
+      }
+    });
+
+    this.futuresWs.on('close', () => {
+      logger.warn("BinanceClient: Futures ticker WebSocket disconnected");
+      this.isFuturesConnected = false;
+      this.handleFuturesReconnect();
+    });
+
+    this.futuresWs.on('error', (error) => {
+      logger.error("BinanceClient: Futures ticker WebSocket error:", error);
+    });
+  }
+
+  /**
+   * Handle reconnection logic for futures stream
+   */
+  private handleFuturesReconnect(): void {
+    if (this.futuresReconnectAttempts >= this.maxReconnectAttempts) {
+      logger.error("BinanceClient: Max futures reconnection attempts reached");
+      return;
+    }
+
+    if (this.futuresWs) {
+      try {
+        this.futuresWs.removeAllListeners();
+        this.futuresWs.terminate();
+      } catch (err) {
+        logger.error("BinanceClient: Error terminating futures WebSocket:", err);
+      }
+      this.futuresWs = null;
+    }
+
+    this.futuresReconnectAttempts++;
+    const delay = Math.min(1000 * Math.pow(2, this.futuresReconnectAttempts), 30000);
+
+    logger.info(`BinanceClient: Reconnecting futures in ${delay}ms (attempt ${this.futuresReconnectAttempts})`);
+
+    setTimeout(() => {
+      this.connectFuturesTickerStream();
+    }, delay);
   }
 
   /**
@@ -274,6 +344,7 @@ class BinanceClient {
   getStatus() {
     return {
       connected: this.isConnected,
+      futuresConnected: this.isFuturesConnected,
       reconnectAttempts: this.reconnectAttempts,
       candlestickData: {
         symbolsTracked: this.symbolsToTrack.length,
@@ -293,6 +364,10 @@ class BinanceClient {
     
     if (this.tickerWs) {
       this.tickerWs.close();
+    }
+
+    if (this.futuresWs) {
+      this.futuresWs.close();
     }
     
     CandlestickStorage.cleanup();

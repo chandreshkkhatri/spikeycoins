@@ -49,12 +49,15 @@ interface SymbolStats {
 
 class DataManager {
   private static tickers: Map<string, TickerData> = new Map();
+  /** Symbols received from the spot stream — futures duplicates are skipped */
+  private static spotSymbols: Set<string> = new Set();
 
   private static discoveredSymbols: Map<string, SymbolStats> = new Map();
   private static lastDiscoveryUpdate: number = 0;
   private static readonly DISCOVERY_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
   private static readonly SYMBOL_EXPIRY_TIME = 30 * 60 * 1000; // 30 minutes
   private static readonly MIN_VOLUME_THRESHOLD = 1000;
+  private static readonly FUTURES_MIN_VOLUME_THRESHOLD = 50000; // Higher bar for futures-only coins
 
   private static lastCalculationTime: Map<string, number> = new Map();
   private static readonly CALCULATION_THROTTLE_MS = 60 * 1000; // 1 minute
@@ -72,6 +75,8 @@ class DataManager {
       if (!rawTicker.s || !rawTicker.s.endsWith('USDT')) continue;
       
       const symbol = rawTicker.s;
+      // Track that this symbol exists on spot
+      this.spotSymbols.add(symbol);
       const price = parseFloat(rawTicker.c);
       const volume = parseFloat(rawTicker.v);
       const volume24h = parseFloat(rawTicker.q) || 0;
@@ -175,6 +180,87 @@ class DataManager {
     // Only log ticker updates periodically to avoid log spam
     if (timestamp - this.lastDiscoveryUpdate > this.DISCOVERY_UPDATE_INTERVAL) {
       logger.debug(`DataManager: Updated ${tickerArray.length} tickers, tracking ${this.tickers.size} symbols`);
+    }
+  }
+
+  /**
+   * Update ticker data from Binance Futures WebSocket stream.
+   * Only adds symbols that do NOT exist on spot (to avoid duplicates).
+   */
+  static updateFuturesTickers(tickerArray: any[]): void {
+    const now = new Date().toISOString();
+    const timestamp = Date.now();
+    let addedCount = 0;
+
+    for (const rawTicker of tickerArray) {
+      if (!rawTicker.s || !rawTicker.s.endsWith('USDT')) continue;
+
+      const symbol = rawTicker.s;
+
+      // Skip if this symbol already exists on spot
+      if (this.spotSymbols.has(symbol)) continue;
+
+      const price = parseFloat(rawTicker.c);
+      const volume = parseFloat(rawTicker.v);
+      const volume24h = parseFloat(rawTicker.q) || 0;
+
+      // Higher volume bar for futures-only to keep screener clean
+      if (volume24h < this.FUTURES_MIN_VOLUME_THRESHOLD) continue;
+
+      const rangePosition = calculate24hRangePosition(rawTicker);
+      const existingTicker = this.tickers.get(symbol);
+
+      const ticker: TickerData = {
+        s: symbol,
+        c: rawTicker.c,
+        o: rawTicker.o,
+        h: rawTicker.h,
+        l: rawTicker.l,
+        v: rawTicker.v,
+        q: rawTicker.q,
+        P: rawTicker.P,
+        p: rawTicker.p,
+        C: rawTicker.C,
+        O: rawTicker.O,
+
+        price,
+        change_24h: parseFloat(rawTicker.P),
+        change_1h: existingTicker ? existingTicker.change_1h : null,
+        change_4h: existingTicker ? existingTicker.change_4h : null,
+        change_8h: existingTicker ? existingTicker.change_8h : null,
+        change_12h: existingTicker ? existingTicker.change_12h : null,
+        high_24h: parseFloat(rawTicker.h),
+        low_24h: parseFloat(rawTicker.l),
+        range_position_24h: rangePosition,
+        volume_usd: volume * price,
+        volume_base: volume,
+        market_cap: null,
+        is_futures: true,
+        last_updated: now,
+      };
+
+      const isNew = !this.tickers.has(symbol);
+      this.tickers.set(symbol, ticker);
+
+      // Discovery tracking for futures-only symbols
+      const existing = this.discoveredSymbols.get(symbol);
+      if (existing) {
+        existing.volume24h = volume24h;
+        existing.lastSeen = timestamp;
+      } else {
+        this.discoveredSymbols.set(symbol, {
+          symbol,
+          volume24h,
+          lastSeen: timestamp,
+          rank: 0,
+        });
+      }
+
+      if (isNew) addedCount++;
+    }
+
+    if (addedCount > 0) {
+      logger.info(`DataManager: Added ${addedCount} futures-only symbols (total: ${this.tickers.size})`);
     }
   }
 
@@ -386,6 +472,7 @@ class DataManager {
    */
   static clearAll(): void {
     this.tickers.clear();
+    this.spotSymbols.clear();
     this.discoveredSymbols.clear();
     this.lastDiscoveryUpdate = 0;
   }

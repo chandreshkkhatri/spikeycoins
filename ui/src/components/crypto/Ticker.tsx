@@ -35,6 +35,7 @@ export interface TickerData {
   volume_base: number;
   market_cap?: number | null;
   normalized_volume_score: number;
+  is_futures?: boolean;
 }
 
 const columnHelper = createColumnHelper<TickerData>();
@@ -163,9 +164,16 @@ export default function Ticker() {
       columnHelper.accessor("s", {
         header: "Symbol",
         cell: (info) => (
-          <strong className="text-blue-600 dark:text-blue-400">
-            {info.getValue().replace("USDT", "/USDT")}
-          </strong>
+          <span className="flex items-center gap-1.5">
+            <strong className="text-blue-600 dark:text-blue-400">
+              {info.getValue().replace("USDT", "/USDT")}
+            </strong>
+            {info.row.original.is_futures && (
+              <span className="rounded bg-amber-500/20 px-1 py-0.5 text-[10px] font-semibold leading-none text-amber-600 dark:text-amber-400">
+                PERP
+              </span>
+            )}
+          </span>
         ),
       }),
       columnHelper.accessor("price", {
