@@ -193,8 +193,10 @@ router.get("/", async (req: Request, res: Response) => {
 
     try {
       const responseData = await fetchPromise;
+      console.log(`[Funds Debug] fetchPromise resolved, calling res.json!`);
       return res.json(responseData);
     } catch (error: any) {
+      console.log(`[Funds Debug] fetchPromise rejected: ${error.message}`);
       // If the promise fails, remove it from cache immediately so retries work
       FUNDS_RESPONSE_CACHE.delete(cacheKey);
       throw error;

@@ -126,7 +126,11 @@ export class BinanceService {
         `[BinanceRateLimit] Weight data stale (${Math.round(staleness / 1000)}s), resetting reservoir`,
       );
       BinanceService.lastReportedWeight = 0;
-      BinanceService.lastWeightUpdateTime = 0;
+      // CRITICAL: Set to Date.now() so that if the next 1200 requests ALL hit network timeouts without
+      // ever reaching the 'trackWeight' response interceptor, staleness can trigger AGAIN after WEIGHT_STALE_MS.
+      // If we set this to 0, it requires at least one successful network response to "un-zero" it, which
+      // can cause an indefinite deadlock if the queue is spammed with failing requests.
+      BinanceService.lastWeightUpdateTime = Date.now();
       BinanceService.limiter.updateSettings({
         reservoir: BinanceService.WEIGHT_LIMIT,
       });
@@ -135,31 +139,30 @@ export class BinanceService {
     // Use Bottleneck's expiration to auto-reject jobs stuck in queue.
     // CRITICAL: The timeout for the fn() execution lives INSIDE the Bottleneck
     // job so that when it fires, the Bottleneck concurrent slot is freed.
-    // Previously, the timeout was in a Promise.race wrapper *outside* Bottleneck,
-    // which meant the caller saw an error but the underlying HTTP request (and
-    // its Bottleneck slot) remained occupied indefinitely — eventually all 10
-    // concurrent slots would be eaten by hung requests.
     const INNER_TIMEOUT_MS = BinanceService.SCHEDULE_TIMEOUT_MS; // 15s
 
     return BinanceService.limiter.schedule(
       { expiration: BinanceService.SCHEDULE_TIMEOUT_MS },
       () => {
-        // Race the actual fn() against a hard inner timeout.
-        // When the timeout wins, the promise returned to Bottleneck settles,
-        // freeing the concurrent slot immediately.
-        return Promise.race([
-          fn(),
-          new Promise<never>((_, reject) => {
-            const t = setTimeout(() => {
-              const err: any = new Error(
-                'Binance API request timed out (rate limiter queue stall)',
-              );
-              err.status = 504;
+        return new Promise<T>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            const err: any = new Error(
+              'Binance API request timed out (rate limiter queue stall)',
+            );
+            err.status = 504;
+            reject(err);
+          }, INNER_TIMEOUT_MS);
+
+          fn()
+            .then((result) => {
+              clearTimeout(timeout);
+              resolve(result);
+            })
+            .catch((err) => {
+              clearTimeout(timeout);
               reject(err);
-            }, INNER_TIMEOUT_MS);
-            if (t.unref) t.unref();
-          }),
-        ]);
+            });
+        });
       },
     );
   }
