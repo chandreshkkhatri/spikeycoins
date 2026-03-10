@@ -94,6 +94,7 @@ router.get("/", async (req: Request, res: Response) => {
             } catch (err: any) {
               const isLastAttempt = attempt === retries;
               const isRetryable = !err.message?.includes('Rate limited') &&
+                !err.message?.includes('recvWindow') && // -1021: stale timestamp, retrying won't help
                 err.status !== 401 && err.status !== 403;
               if (isLastAttempt || !isRetryable) throw err;
               console.warn(`[Funds] Binance API attempt ${attempt + 1} failed, retrying in ${delayMs}ms:`, err.message);
@@ -131,19 +132,54 @@ router.get("/", async (req: Request, res: Response) => {
         throw new Error("Unsupported account type for funds");
       }
 
-      const unifiedFunds = {
-        totalBalance:
-          funds.equity?.available_margin || funds.totalMarginBalance || "0",
-        availableBalance:
-          funds.equity?.available_margin || funds.availableBalance || "0",
-        usedMargin:
-          funds.equity?.used_margin || funds.totalInitialMargin || undefined,
-        unrealizedPnl:
+      const unifiedFunds: Record<string, unknown> = { details: funds };
+      
+      if (funds.segment === "spot") {
+        // Find market value of the spot balances
+        let calcTotalBalance = 0;
+        let calcAvailableBalance = 0;
+        
+        try {
+          const { default: MarketOverviewService } = await import("../crypto/services/MarketOverviewService");
+          const marketData = MarketOverviewService.getInstance().getCachedData();
+          const cryptocache = marketData?.cryptocurrencies || [];
+          
+          for (const b of funds.balances) {
+            const free = parseFloat(b.free);
+            const locked = parseFloat(b.locked);
+            const total = free + locked;
+            
+            if (b.asset === "USDT" || b.asset === "USDC" || b.asset === "BUSD") {
+              calcTotalBalance += total;
+              calcAvailableBalance += free;
+            } else {
+              const crypto = cryptocache.find(c => c.symbol === b.asset);
+              if (crypto) {
+                calcTotalBalance += total * crypto.price;
+                calcAvailableBalance += free * crypto.price;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Could not calculate spot balance values", e);
+        }
+
+        unifiedFunds.totalBalance = calcTotalBalance.toFixed(2);
+        unifiedFunds.availableBalance = calcAvailableBalance.toFixed(2);
+        unifiedFunds.usedMargin = undefined;
+        unifiedFunds.unrealizedPnl = "0.00";
+      } else {
+        unifiedFunds.totalBalance =
+          funds.equity?.available_margin || funds.totalMarginBalance || "0";
+        unifiedFunds.availableBalance =
+          funds.equity?.available_margin || funds.availableBalance || "0";
+        unifiedFunds.usedMargin =
+          funds.equity?.used_margin || funds.totalInitialMargin || undefined;
+        unifiedFunds.unrealizedPnl =
           funds.equity?.unrealised_pnl ||
           funds.totalUnrealizedProfit ||
-          undefined,
-        details: funds,
-      };
+          undefined;
+      }
 
       return {
         success: true,

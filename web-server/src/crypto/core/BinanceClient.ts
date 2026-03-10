@@ -9,6 +9,7 @@ import logger from "../utils/logger";
 import DataManager from "./DataManager";
 import MarketCapService from "../services/MarketCapService";
 import CandlestickStorage from "../services/CandlestickStorage";
+import { BinanceService } from "../../lib/binance-service";
 
 class BinanceClient {
   private tickerWs: WebSocket | null = null;
@@ -292,19 +293,30 @@ class BinanceClient {
       interval: '5m',
       limit: this.CANDLES_TO_FETCH
     };
-    
-    const response = await axios.get(url, { 
-      params, 
-      timeout: 5000,
-      validateStatus: (status) => status < 500 // Don't throw on 4xx errors
-    });
-    
-    if (response.status === 200 && response.data && Array.isArray(response.data)) {
-      await CandlestickStorage.storeCandlesticks(symbol, response.data);
-    } else if (response.status === 429) {
-      // Rate limited - slow down
-      logger.warn('BinanceClient: Rate limited, slowing down');
-      await new Promise(resolve => setTimeout(resolve, 5000));
+
+    // Route through the shared rate limiter so background candlestick fetches
+    // are counted against the same IP weight budget as authenticated user calls.
+    // Note: BinanceService interceptors will throw on 429 responses, so we
+    // don't need to check response.status === 429 explicitly here.
+    try {
+      const response = await BinanceService.scheduleRequest(() =>
+        axios.get(url, {
+          params,
+          timeout: 5000,
+        })
+      );
+
+      if (response.data && Array.isArray(response.data)) {
+        await CandlestickStorage.storeCandlesticks(symbol, response.data);
+      }
+    } catch (err: unknown) {
+      const error = err as { status?: number; message?: string };
+      if (error.status === 429) {
+        // Rate limited: the limiter will already have paused; just bail out
+        logger.warn('BinanceClient: Rate limited by Binance, skipping symbol');
+      } else {
+        throw err;
+      }
     }
   }
 

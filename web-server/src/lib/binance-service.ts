@@ -355,9 +355,8 @@ export class BinanceService {
    */
   async getSpotAccount() {
     try {
-      const signedParams = this.signRequest();
       const response = await BinanceService.scheduleRequest(() =>
-        this.spotClient.get(`/api/v3/account?${signedParams}`),
+        this.spotClient.get(`/api/v3/account?${this.signRequest()}`),
       );
       return response.data;
     } catch (error: any) {
@@ -394,9 +393,8 @@ export class BinanceService {
   async getSpotOpenOrders(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      const signedParams = this.signRequest(params);
       const response = await BinanceService.scheduleRequest(() =>
-        this.spotClient.get(`/api/v3/openOrders?${signedParams}`),
+        this.spotClient.get(`/api/v3/openOrders?${this.signRequest(params)}`),
       );
       return response.data;
     } catch (error: any) {
@@ -415,9 +413,8 @@ export class BinanceService {
    */
   async getSpotAllOrders(symbol: string, limit: number = 500) {
     try {
-      const signedParams = this.signRequest({ symbol, limit });
       const response = await BinanceService.scheduleRequest(() =>
-        this.spotClient.get(`/api/v3/allOrders?${signedParams}`),
+        this.spotClient.get(`/api/v3/allOrders?${this.signRequest({ symbol, limit })}`),
       );
       return response.data;
     } catch (error: any) {
@@ -444,9 +441,8 @@ export class BinanceService {
     timeInForce?: "GTC" | "IOC" | "FOK";
   }) {
     try {
-      const signedParams = this.signRequest(params);
       const response = await BinanceService.scheduleRequest(() =>
-        this.spotClient.post(`/api/v3/order?${signedParams}`),
+        this.spotClient.post(`/api/v3/order?${this.signRequest(params)}`),
       );
       return response.data;
     } catch (error: any) {
@@ -465,9 +461,8 @@ export class BinanceService {
    */
   async cancelSpotOrder(symbol: string, orderId: number) {
     try {
-      const signedParams = this.signRequest({ symbol, orderId });
       const response = await BinanceService.scheduleRequest(() =>
-        this.spotClient.delete(`/api/v3/order?${signedParams}`),
+        this.spotClient.delete(`/api/v3/order?${this.signRequest({ symbol, orderId })}`),
       );
       return response.data;
     } catch (error: any) {
@@ -488,9 +483,8 @@ export class BinanceService {
    */
   async getFuturesAccount() {
     try {
-      const signedParams = this.signRequest();
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.get(`/fapi/v2/account?${signedParams}`),
+        this.futuresClient.get(`/fapi/v2/account?${this.signRequest()}`),
       );
       return response.data;
     } catch (error: any) {
@@ -509,9 +503,8 @@ export class BinanceService {
    */
   async getFuturesBalance() {
     try {
-      const signedParams = this.signRequest();
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.get(`/fapi/v2/balance?${signedParams}`),
+        this.futuresClient.get(`/fapi/v2/balance?${this.signRequest()}`),
       );
       return response.data;
     } catch (error: any) {
@@ -530,9 +523,8 @@ export class BinanceService {
    */
   async getFuturesPositions() {
     try {
-      const signedParams = this.signRequest();
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.get(`/fapi/v2/positionRisk?${signedParams}`),
+        this.futuresClient.get(`/fapi/v2/positionRisk?${this.signRequest()}`),
       );
       // Filter out positions with no quantity
       return response.data.filter(
@@ -556,9 +548,8 @@ export class BinanceService {
   async getFuturesOpenOrders(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      const signedParams = this.signRequest(params);
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.get(`/fapi/v1/openOrders?${signedParams}`),
+        this.futuresClient.get(`/fapi/v1/openOrders?${this.signRequest(params)}`),
       );
       return response.data;
     } catch (error: any) {
@@ -583,9 +574,8 @@ export class BinanceService {
       if (symbol) {
         params.symbol = symbol;
       }
-      const signedParams = this.signRequest(params);
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.get(`/fapi/v1/openAlgoOrders?${signedParams}`),
+        this.futuresClient.get(`/fapi/v1/openAlgoOrders?${this.signRequest(params)}`),
       );
       return response.data;
     } catch (error: any) {
@@ -618,9 +608,8 @@ export class BinanceService {
       if (symbol) params.symbol = symbol;
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
-      const signedParams = this.signRequest(params);
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.get(`/fapi/v1/allOrders?${signedParams}`),
+        this.futuresClient.get(`/fapi/v1/allOrders?${this.signRequest(params)}`),
       );
       return response.data;
     } catch (error: any) {
@@ -653,9 +642,8 @@ export class BinanceService {
       if (symbol) params.symbol = symbol;
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
-      const signedParams = this.signRequest(params);
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.get(`/fapi/v1/userTrades?${signedParams}`),
+        this.futuresClient.get(`/fapi/v1/userTrades?${this.signRequest(params)}`),
       );
       return response.data;
     } catch (error: any) {
@@ -689,9 +677,8 @@ export class BinanceService {
       if (incomeType) params.incomeType = incomeType;
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
-      const signedParams = this.signRequest(params);
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.get(`/fapi/v1/income?${signedParams}`),
+        this.futuresClient.get(`/fapi/v1/income?${this.signRequest(params)}`),
       );
       return response.data;
     } catch (error: any) {
@@ -738,9 +725,8 @@ export class BinanceService {
           ? true
           : false;
       }
-      const signedParams = this.signRequest(apiParams as Record<string, any>);
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.post(`/fapi/v1/order?${signedParams}`),
+        this.futuresClient.post(`/fapi/v1/order?${this.signRequest(apiParams as Record<string, any>)}`),
       );
       return response.data;
     } catch (error: any) {
@@ -815,9 +801,8 @@ export class BinanceService {
 
       console.log("Placing Binance Algo Order:", apiParams);
 
-      const signedParams = this.signRequest(apiParams as Record<string, any>);
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.post(`/fapi/v1/algoOrder?${signedParams}`),
+        this.futuresClient.post(`/fapi/v1/algoOrder?${this.signRequest(apiParams as Record<string, any>)}`),
       );
       console.log("Binance Algo Order response:", response.data);
       return response.data;
@@ -838,9 +823,8 @@ export class BinanceService {
    */
   async cancelFuturesOrder(symbol: string, orderId: number) {
     try {
-      const signedParams = this.signRequest({ symbol, orderId });
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.delete(`/fapi/v1/order?${signedParams}`),
+        this.futuresClient.delete(`/fapi/v1/order?${this.signRequest({ symbol, orderId })}`),
       );
       return response.data;
     } catch (error: any) {
@@ -860,9 +844,8 @@ export class BinanceService {
    */
   async cancelFuturesAlgoOrder(symbol: string, algoId: number) {
     try {
-      const signedParams = this.signRequest({ symbol, algoId });
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.delete(`/fapi/v1/algoOrder?${signedParams}`),
+        this.futuresClient.delete(`/fapi/v1/algoOrder?${this.signRequest({ symbol, algoId })}`),
       );
       console.log("Binance Algo Order cancel response:", response.data);
       return response.data;
@@ -883,9 +866,8 @@ export class BinanceService {
    */
   async cancelAllFuturesOrders(symbol: string) {
     try {
-      const signedParams = this.signRequest({ symbol });
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.delete(`/fapi/v1/allOpenOrders?${signedParams}`),
+        this.futuresClient.delete(`/fapi/v1/allOpenOrders?${this.signRequest({ symbol })}`),
       );
       return response.data;
     } catch (error: any) {
@@ -989,9 +971,8 @@ export class BinanceService {
    */
   async changeFuturesLeverage(symbol: string, leverage: number) {
     try {
-      const signedParams = this.signRequest({ symbol, leverage });
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.post(`/fapi/v1/leverage?${signedParams}`),
+        this.futuresClient.post(`/fapi/v1/leverage?${this.signRequest({ symbol, leverage })}`),
       );
       return response.data;
     } catch (error: any) {
@@ -1014,9 +995,8 @@ export class BinanceService {
     marginType: "ISOLATED" | "CROSSED",
   ) {
     try {
-      const signedParams = this.signRequest({ symbol, marginType });
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.post(`/fapi/v1/marginType?${signedParams}`),
+        this.futuresClient.post(`/fapi/v1/marginType?${this.signRequest({ symbol, marginType })}`),
       );
       return response.data;
     } catch (error: any) {
@@ -1043,9 +1023,8 @@ export class BinanceService {
   async getFuturesLeverageBrackets(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      const signedParams = this.signRequest(params);
       const response = await BinanceService.scheduleRequest(() =>
-        this.futuresClient.get(`/fapi/v1/leverageBracket?${signedParams}`),
+        this.futuresClient.get(`/fapi/v1/leverageBracket?${this.signRequest(params)}`),
       );
       return response.data;
     } catch (error: any) {

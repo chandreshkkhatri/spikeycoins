@@ -168,7 +168,7 @@ class DailyCandlestickService {
   private async backfillAllSymbols(symbols: string[]): Promise<void> {
     logger.info(`DailyCandlestickService: Starting backfill for ${symbols.length} symbols...`);
 
-    const batchSize = 10;
+    const batchSize = 3;
     let successCount = 0;
     let errorCount = 0;
 
@@ -191,11 +191,11 @@ class DailyCandlestickService {
 
       // Rate limiting between batches
       if (i + batchSize < symbols.length) {
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Log progress every 100 symbols
-      if ((i + batchSize) % 100 === 0) {
+      // Log progress every 30 symbols
+      if ((i + batchSize) % 30 === 0) {
         logger.info(`DailyCandlestickService: Progress ${i + batchSize}/${symbols.length} (${successCount} success, ${errorCount} errors)`);
       }
     }
