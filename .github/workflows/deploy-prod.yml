@@ -37,8 +37,13 @@ jobs:
             echo "🔨 Building..."
             pnpm build
 
-            echo "🚀 Restarting server..."
-            pm2 restart spikey-coins-prod
+            echo "🚀 Starting or restarting server..."
+            if pm2 describe spikey-coins-prod >/dev/null 2>&1; then
+              pm2 restart spikey-coins-prod --update-env
+            else
+              pm2 start dist/server.js --name spikey-coins-prod
+            fi
+            pm2 save
 
             echo "✅ Prod deployment complete!"
             pm2 status
