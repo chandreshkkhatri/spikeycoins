@@ -1,9 +1,8 @@
 import { Router, Response } from "express";
-import kiteConnectService from "../lib/kiteconnect-service";
-import upstoxService from "../lib/upstox-service";
-import { BinanceService } from "../lib/binance-service";
 import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
 import { asyncHandler } from "../lib/async-handler";
+import { BrokerFactory } from "../lib/broker-factory";
+import { formatHolding } from "../lib/format-utils";
 
 const router: Router = Router();
 
@@ -64,26 +63,16 @@ router.get(
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
-      kiteConnectService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-      );
-      kiteConnectService.setAccessToken(account.accessToken);
-      holdings = await kiteConnectService.getHoldings();
+      const kiteClient = BrokerFactory.getKiteClient(account);
+      holdings = await kiteClient.getHoldings();
     } else if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
-      const isSandbox = account.metadata?.sandbox || false;
-      upstoxService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isSandbox,
-      );
-      upstoxService.setAccessToken(account.accessToken);
+      const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
       try {
-        holdings = await upstoxService.getHoldings();
+        holdings = await upstoxClient.getHoldings();
       } catch (upstoxError: any) {
         console.warn(
           "Upstox SDK error (known superagent issue):",
@@ -92,17 +81,10 @@ router.get(
         holdings = [];
       }
     } else if (account.accountType === "binance") {
-      const isTestnet = account.metadata?.testnet || false;
-
-      const binanceService = new BinanceService();
-      binanceService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isTestnet,
-      );
+      const binanceClient = BrokerFactory.getBinanceClient(account);
 
       try {
-        holdings = await binanceService.getSpotBalances();
+        holdings = await binanceClient.getSpotBalances();
       } catch (binanceError: any) {
         const parsedError = parseBinanceError(binanceError);
         console.error("Binance holdings error:", parsedError);
@@ -123,41 +105,7 @@ router.get(
     }
 
     const unifiedHoldings = Array.isArray(holdings)
-      ? holdings.map((holding: any) => {
-          if (account.accountType === "binance") {
-            const free = parseFloat(holding.free || 0);
-            const locked = parseFloat(holding.locked || 0);
-            const quantity = free + locked;
-
-            return {
-              id: `${account._id}-${holding.asset}`,
-              symbol: holding.asset,
-              exchange: "SPOT",
-              quantity: quantity,
-              averagePrice: 0,
-              lastPrice: 0,
-              currentValue: 0,
-              pnl: 0,
-              pnlPercentage: 0,
-              vendor: account.accountType,
-              accountId: account._id,
-              accountName: account.accountName,
-              timestamp: new Date().toISOString(),
-              details: {
-                free: free,
-                locked: locked,
-                asset: holding.asset,
-              },
-            };
-          }
-
-          return {
-            ...holding,
-            accountId: account._id,
-            accountName: account.accountName,
-            vendor: account.accountType,
-          };
-        })
+      ? holdings.map((holding: any) => formatHolding(holding, account))
       : [];
 
     return res.json({

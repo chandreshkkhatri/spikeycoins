@@ -1,10 +1,8 @@
 import { Router, Response } from "express";
-import kiteConnectService from "../lib/kiteconnect-service";
-import upstoxService from "../lib/upstox-service";
-import { BinanceService } from "../lib/binance-service";
 import pushNotificationService from "../lib/push-notification-service";
 import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
 import { asyncHandler } from "../lib/async-handler";
+import { BrokerFactory } from "../lib/broker-factory";
 
 const router: Router = Router();
 
@@ -23,26 +21,15 @@ router.get(
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
-      kiteConnectService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-      );
-      kiteConnectService.setAccessToken(account.accessToken);
-      orders = await kiteConnectService.getOrders();
+      const kiteClient = BrokerFactory.getKiteClient(account);
+      orders = await kiteClient.getOrders();
     } else if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
-      const isSandbox = account.metadata?.sandbox || false;
-      upstoxService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isSandbox,
-      );
-      upstoxService.setAccessToken(account.accessToken);
-
+      const upstoxClient = BrokerFactory.getUpstoxClient(account);
       try {
-        orders = await upstoxService.getOrders();
+        orders = await upstoxClient.getOrders();
       } catch (upstoxError: any) {
         console.warn(
           "Upstox SDK error (known superagent issue):",
@@ -57,14 +44,8 @@ router.get(
       );
       const tradingSegment = account.metadata?.tradingSegment || "spot";
       console.log(`[Orders] Using trading segment: ${tradingSegment}`);
-      const isTestnet = account.metadata?.testnet || false;
 
-      const binanceService = new BinanceService();
-      binanceService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isTestnet,
-      );
+      const binanceService = BrokerFactory.getBinanceClient(account);
 
       if (tradingSegment === "usdm") {
         // USD(S)-M Futures - Get both basic and conditional orders
@@ -155,24 +136,14 @@ router.post(
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
-      kiteConnectService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-      );
-      kiteConnectService.setAccessToken(account.accessToken);
-      result = await kiteConnectService.placeOrder(orderParams);
+      const kiteClient = BrokerFactory.getKiteClient(account);
+      result = await kiteClient.placeOrder(orderParams);
     } else if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
-      const isSandbox = account.metadata?.sandbox || false;
-      upstoxService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isSandbox,
-      );
-      upstoxService.setAccessToken(account.accessToken);
-      result = await upstoxService.placeOrder(orderParams);
+      const upstoxClient = BrokerFactory.getUpstoxClient(account);
+      result = await upstoxClient.placeOrder(orderParams);
     } else if (account.accountType === "binance") {
       // Detect trading segment from metadata, or infer from order params
       // If leverage, stopLoss, or takeProfit is set, it's a futures order
@@ -181,18 +152,12 @@ router.post(
       const tradingSegment =
         account.metadata?.tradingSegment ||
         (hasFuturesParams ? "usdm" : "spot");
-      const isTestnet = account.metadata?.testnet || false;
 
       console.log(
         `[Orders/Place] Detected trading segment: ${tradingSegment} (metadata: ${account.metadata?.tradingSegment}, hasFuturesParams: ${hasFuturesParams})`,
       );
 
-      const binanceService = new BinanceService();
-      binanceService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isTestnet,
-      );
+      const binanceService = BrokerFactory.getBinanceClient(account);
 
       if (tradingSegment === "usdm") {
         // USD(S)-M Futures - Extract special params
@@ -736,21 +701,11 @@ router.put(
     let result;
 
     if (account.accountType === "kite") {
-      kiteConnectService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-      );
-      kiteConnectService.setAccessToken(account.accessToken);
-      result = await kiteConnectService.modifyOrder(orderId, orderParams);
+      const kiteClient = BrokerFactory.getKiteClient(account);
+      result = await kiteClient.modifyOrder(orderId, orderParams);
     } else if (account.accountType === "upstox") {
-      const isSandbox = account.metadata?.sandbox || false;
-      upstoxService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isSandbox,
-      );
-      upstoxService.setAccessToken(account.accessToken);
-      result = await upstoxService.modifyOrder(orderId, orderParams);
+      const upstoxClient = BrokerFactory.getUpstoxClient(account);
+      result = await upstoxClient.modifyOrder(orderId, orderParams);
     } else {
       return res
         .status(400)
@@ -783,34 +738,18 @@ router.delete(
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
-      kiteConnectService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-      );
-      kiteConnectService.setAccessToken(account.accessToken);
-      result = await kiteConnectService.cancelOrder(orderId);
+      const kiteClient = BrokerFactory.getKiteClient(account);
+      result = await kiteClient.cancelOrder(orderId);
     } else if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
-      const isSandbox = account.metadata?.sandbox || false;
-      upstoxService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isSandbox,
-      );
-      upstoxService.setAccessToken(account.accessToken);
-      result = await upstoxService.cancelOrder(orderId);
+      const upstoxClient = BrokerFactory.getUpstoxClient(account);
+      result = await upstoxClient.cancelOrder(orderId);
     } else if (account.accountType === "binance") {
       const tradingSegment = account.metadata?.tradingSegment || "spot";
-      const isTestnet = account.metadata?.testnet || false;
 
-      const binanceService = new BinanceService();
-      binanceService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isTestnet,
-      );
+      const binanceService = BrokerFactory.getBinanceClient(account);
 
       if (!symbol) {
         return res

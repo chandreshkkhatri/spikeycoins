@@ -1,10 +1,8 @@
 import { Router, Response } from "express";
-import kiteConnectService from "../lib/kiteconnect-service";
-import upstoxService from "../lib/upstox-service";
-import { BinanceService } from "../lib/binance-service";
-import { IAccount } from "../models/account";
 import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
 import { asyncHandler } from "../lib/async-handler";
+import { BrokerFactory } from "../lib/broker-factory";
+import { formatPosition, toNumber } from "../lib/format-utils";
 
 const router: Router = Router();
 
@@ -38,58 +36,6 @@ function setCachedSummary(key: string, promise: Promise<any>): void {
     }
   }
 }
-
-const toNumber = (value: unknown, fallback: number = 0): number => {
-  if (value === null || value === undefined) return fallback;
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : fallback;
-  }
-  if (typeof value === "string") {
-    const parsed = parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-  return fallback;
-};
-
-const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
-  const quantity = toNumber(position.positionAmt, 0);
-  const averagePrice = toNumber(position.entryPrice, 0);
-  const lastPrice = toNumber(position.markPrice, averagePrice);
-  const pnl = toNumber(position.unRealizedProfit, 0);
-  const notional = Math.abs(quantity * averagePrice);
-  const pnlPercentage = notional > 0 ? (pnl / notional) * 100 : 0;
-  const symbol = position.symbol || "UNKNOWN_SYMBOL";
-  const liquidationPrice = toNumber(position.liquidationPrice, 0);
-  const initialMargin = toNumber(position.initialMargin, 0);
-  const leverage = toNumber(position.leverage, 1);
-
-  const TAKER_FEE = 0.0004;
-  const breakEvenPrice =
-    quantity > 0
-      ? averagePrice * (1 + TAKER_FEE * 2)
-      : averagePrice * (1 - TAKER_FEE * 2);
-
-  return {
-    id: `${account._id}-${symbol}-${position.positionSide || "BOTH"}`,
-    symbol,
-    exchange: "BINANCE",
-    quantity,
-    averagePrice,
-    lastPrice,
-    pnl,
-    pnlPercentage,
-    leverage,
-    liquidationPrice,
-    breakEvenPrice: Number.isFinite(breakEvenPrice) ? breakEvenPrice : averagePrice,
-    margin: initialMargin,
-    marginType: position.marginType,
-    product: `Futures (${(position.marginType || "cross").toUpperCase()})`,
-    vendor: account.accountType,
-    accountId: account._id,
-    accountName: account.accountName,
-    timestamp: new Date(position.updateTime || Date.now()).toISOString(),
-  };
-};
 
 // GET /api/trading/summary - Aggregated endpoint for all trading data
 router.get(
@@ -130,14 +76,8 @@ router.get(
 
       if (account.accountType === "binance") {
         const tradingSegment = account.metadata?.tradingSegment || "spot";
-        const isTestnet = account.metadata?.testnet || false;
 
-        const binanceService = new BinanceService();
-        binanceService.initializeWithCredentials(
-          account.apiKey,
-          account.apiSecret,
-          isTestnet
-        );
+        const binanceService = BrokerFactory.getBinanceClient(account);
 
         if (tradingSegment === "usdm") {
           const [
@@ -170,7 +110,7 @@ router.get(
 
           response.positions = (positions || [])
             .filter((p: any) => Math.abs(toNumber(p.positionAmt)) > 0)
-            .map((p: any) => formatBinanceFuturesPosition(p, account));
+            .map((p: any) => formatPosition(account, p, { tradingSegment }));
 
           const normalizedBasic = (basicOrders || []).map((o: any) => ({
             ...o,
@@ -257,23 +197,15 @@ router.get(
         if (!account.accessToken) {
           throw new Error("Account not authenticated");
         }
-        kiteConnectService.initializeWithCredentials(
-          account.apiKey,
-          account.apiSecret
-        );
-        kiteConnectService.setAccessToken(account.accessToken);
+        const kiteClient = BrokerFactory.getKiteClient(account);
 
         const [positions, orders, margins] = await Promise.all([
-          kiteConnectService.getPositions(),
-          kiteConnectService.getOrders(),
-          kiteConnectService.getMargins(),
+          kiteClient.getPositions(),
+          kiteClient.getOrders(),
+          kiteClient.getMargins(),
         ]);
 
-        response.positions = (positions || []).map((p: any) => ({
-          ...p,
-          accountId: account._id,
-          vendor: account.accountType,
-        }));
+        response.positions = (positions || []).map((p: any) => formatPosition(account, p));
 
         response.orders = (orders || []).map((o: any) => ({
           ...o,
@@ -290,26 +222,16 @@ router.get(
         if (!account.accessToken) {
           throw new Error("Account not authenticated");
         }
-        const isSandbox = account.metadata?.sandbox || false;
-        upstoxService.initializeWithCredentials(
-          account.apiKey,
-          account.apiSecret,
-          isSandbox
-        );
-        upstoxService.setAccessToken(account.accessToken);
+        const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
         try {
           const [positions, orders, funds] = await Promise.all([
-            upstoxService.getPositions().catch(() => []),
-            upstoxService.getOrders().catch(() => []),
-            upstoxService.getFunds().catch(() => null),
+            upstoxClient.getPositions().catch(() => []),
+            upstoxClient.getOrders().catch(() => []),
+            upstoxClient.getFunds().catch(() => null),
           ]);
 
-          response.positions = (positions || []).map((p: any) => ({
-            ...p,
-            accountId: account._id,
-            vendor: account.accountType,
-          }));
+          response.positions = (positions || []).map((p: any) => formatPosition(account, p));
 
           response.orders = (orders || []).map((o: any) => ({
             ...o,

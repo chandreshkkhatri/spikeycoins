@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import upstoxService from "../lib/upstox-service";
 import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
 import { asyncHandler } from "../lib/async-handler";
+import { BrokerFactory } from "../lib/broker-factory";
 
 const router: Router = Router();
 
@@ -28,16 +29,10 @@ router.get(
       return res.status(401).json({ error: "Account not authenticated" });
     }
 
-    const isSandbox = account.metadata?.sandbox || false;
-    upstoxService.initializeWithCredentials(
-      account.apiKey,
-      account.apiSecret,
-      isSandbox,
-    );
-    upstoxService.setAccessToken(account.accessToken);
+    const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
     const instrumentList = (instruments as string).split(",");
-    const ltp = await upstoxService.getLTP(instrumentList);
+    const ltp = await upstoxClient.getLTP(instrumentList);
 
     return res.json({
       success: true,
@@ -67,16 +62,10 @@ router.get(
       return res.status(401).json({ error: "Account not authenticated" });
     }
 
-    const isSandbox = account.metadata?.sandbox || false;
-    upstoxService.initializeWithCredentials(
-      account.apiKey,
-      account.apiSecret,
-      isSandbox,
-    );
-    upstoxService.setAccessToken(account.accessToken);
+    const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
     const instrumentList = (instruments as string).split(",");
-    const ohlc = await upstoxService.getOHLC(instrumentList);
+    const ohlc = await upstoxClient.getOHLC(instrumentList);
 
     return res.json({
       success: true,
@@ -106,16 +95,10 @@ router.get(
       return res.status(401).json({ error: "Account not authenticated" });
     }
 
-    const isSandbox = account.metadata?.sandbox || false;
-    upstoxService.initializeWithCredentials(
-      account.apiKey,
-      account.apiSecret,
-      isSandbox,
-    );
-    upstoxService.setAccessToken(account.accessToken);
+    const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
     const instrumentList = (instruments as string).split(",");
-    const quotes = await upstoxService.getQuote(instrumentList);
+    const quotes = await upstoxClient.getQuote(instrumentList);
 
     return res.json({
       success: true,

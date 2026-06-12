@@ -1,9 +1,8 @@
 import { Router, Response } from "express";
-import kiteConnectService from "../lib/kiteconnect-service";
-import upstoxService from "../lib/upstox-service";
-import { BinanceService } from "../lib/binance-service";
 import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
 import { asyncHandler } from "../lib/async-handler";
+import { BrokerFactory } from "../lib/broker-factory";
+import { formatFunds } from "../lib/format-utils";
 
 const router: Router = Router();
 
@@ -41,34 +40,17 @@ router.get(
         if (!account.accessToken) {
           throw new Error("Account not authenticated:kite");
         }
-        kiteConnectService.initializeWithCredentials(
-          account.apiKey,
-          account.apiSecret,
-        );
-        kiteConnectService.setAccessToken(account.accessToken);
-        funds = await kiteConnectService.getMargins();
+        const kiteClient = BrokerFactory.getKiteClient(account);
+        funds = await kiteClient.getMargins();
       } else if (account.accountType === "upstox") {
         if (!account.accessToken) {
           throw new Error("Account not authenticated:upstox");
         }
-        const isSandbox = account.metadata?.sandbox || false;
-        upstoxService.initializeWithCredentials(
-          account.apiKey,
-          account.apiSecret,
-          isSandbox,
-        );
-        upstoxService.setAccessToken(account.accessToken);
-        funds = await upstoxService.getFunds();
+        const upstoxClient = BrokerFactory.getUpstoxClient(account);
+        funds = await upstoxClient.getFunds();
       } else if (account.accountType === "binance") {
         const tradingSegment = account.metadata?.tradingSegment || "spot";
-        const isTestnet = account.metadata?.testnet || false;
-
-        const binanceService = new BinanceService();
-        binanceService.initializeWithCredentials(
-          account.apiKey,
-          account.apiSecret,
-          isTestnet,
-        );
+        const binanceService = BrokerFactory.getBinanceClient(account);
 
         // Retry helper for Binance API calls
         const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delayMs = 1000): Promise<T> => {
@@ -116,53 +98,18 @@ router.get(
         throw new Error("Unsupported account type for funds");
       }
 
-      const unifiedFunds: Record<string, unknown> = { details: funds };
-      
+      let cryptocurrencies: any[] = [];
       if (funds.segment === "spot") {
-        let calcTotalBalance = 0;
-        let calcAvailableBalance = 0;
-        
         try {
           const { default: MarketOverviewService } = await import("../crypto/services/MarketOverviewService");
           const marketData = MarketOverviewService.getInstance().getCachedData();
-          const cryptocache = marketData?.cryptocurrencies || [];
-          
-          for (const b of funds.balances) {
-            const free = parseFloat(b.free);
-            const locked = parseFloat(b.locked);
-            const total = free + locked;
-            
-            if (b.asset === "USDT" || b.asset === "USDC" || b.asset === "BUSD") {
-              calcTotalBalance += total;
-              calcAvailableBalance += free;
-            } else {
-              const crypto = cryptocache.find(c => c.symbol === b.asset);
-              if (crypto) {
-                calcTotalBalance += total * crypto.price;
-                calcAvailableBalance += free * crypto.price;
-              }
-            }
-          }
+          cryptocurrencies = marketData?.cryptocurrencies || [];
         } catch (e) {
           console.warn("Could not calculate spot balance values", e);
         }
-
-        unifiedFunds.totalBalance = calcTotalBalance.toFixed(2);
-        unifiedFunds.availableBalance = calcAvailableBalance.toFixed(2);
-        unifiedFunds.usedMargin = undefined;
-        unifiedFunds.unrealizedPnl = "0.00";
-      } else {
-        unifiedFunds.totalBalance =
-          funds.equity?.available_margin || funds.totalMarginBalance || "0";
-        unifiedFunds.availableBalance =
-          funds.equity?.available_margin || funds.availableBalance || "0";
-        unifiedFunds.usedMargin =
-          funds.equity?.used_margin || funds.totalInitialMargin || undefined;
-        unifiedFunds.unrealizedPnl =
-          funds.equity?.unrealised_pnl ||
-          funds.totalUnrealizedProfit ||
-          undefined;
       }
+
+      const unifiedFunds = formatFunds(funds, account, cryptocurrencies);
 
       return {
         success: true,
