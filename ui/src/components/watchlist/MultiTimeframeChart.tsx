@@ -838,7 +838,13 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
 
             const url = getApiUrl(`/api/historical-data?${params.toString()}`);
 
-            const response = await fetch(url);
+            const headers: HeadersInit = {};
+            const token = typeof window !== "undefined" ? localStorage.getItem("spikeyCoins_accessToken") : null;
+            if (token) {
+              headers.Authorization = `Bearer ${token}`;
+            }
+
+            const response = await fetch(url, { headers });
 
             if (!response.ok) {
               const errorText = await response.text().catch(() => "");
@@ -937,7 +943,12 @@ const MultiTimeframeChart = memo<MultiTimeframeChartProps>(
         }
 
         const url = getApiUrl(`/api/historical-data?${params.toString()}`);
-        const response = await fetch(url);
+        const headers: HeadersInit = {};
+        const token = typeof window !== "undefined" ? localStorage.getItem("spikeyCoins_accessToken") : null;
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+        const response = await fetch(url, { headers });
 
         if (!response.ok) {
           throw new Error(`Failed to fetch historical data: ${response.status}`);

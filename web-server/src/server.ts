@@ -15,7 +15,6 @@ dotenv.config();
 import accountsRouter from "./routes/accounts";
 import authRouter from "./routes/auth";
 import binanceRouter from "./routes/binance";
-import dbRouter from "./routes/db";
 import fundsRouter from "./routes/funds";
 import historicalDataRouter from "./routes/historical-data";
 import holdingsRouter from "./routes/holdings";
@@ -146,7 +145,6 @@ app.get("/health", (req, res) => {
 app.use("/api/accounts", accountsRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/binance", binanceRouter);
-app.use("/api/db", dbRouter);
 app.use("/api/funds", fundsRouter);
 app.use("/api/historical-data", historicalDataRouter);
 app.use("/api/holdings", holdingsRouter);

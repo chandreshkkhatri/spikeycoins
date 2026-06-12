@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { BinanceService } from "../lib/binance-service";
 import binancePriceService from "../lib/binance-price-service";
 import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { BrokerFactory } from "../lib/broker-factory";
 import { demoAccountService } from "../lib/demo-account-service";
 import { asyncHandler } from "../lib/async-handler";
 
@@ -231,14 +232,7 @@ router.post(
       });
     }
 
-    const isTestnet = account.metadata?.testnet || false;
-
-    const binanceService = new BinanceService();
-    binanceService.initializeWithCredentials(
-      account.apiKey,
-      account.apiSecret,
-      isTestnet,
-    );
+    const binanceService = BrokerFactory.getBinanceClient(account);
 
     const result = await binanceService.changeFuturesLeverage(symbol, leverage);
 
@@ -276,14 +270,7 @@ router.post(
       });
     }
 
-    const isTestnet = account.metadata?.testnet || false;
-
-    const binanceService = new BinanceService();
-    binanceService.initializeWithCredentials(
-      account.apiKey,
-      account.apiSecret,
-      isTestnet,
-    );
+    const binanceService = BrokerFactory.getBinanceClient(account);
 
     const result = await binanceService.changeFuturesMarginType(
       symbol,
@@ -309,13 +296,7 @@ router.get(
     if (account.accountType !== "binance")
       return res.status(400).json({ error: "Not a Binance account" });
 
-    const isTestnet = account.metadata?.testnet || false;
-    const binanceService = new BinanceService();
-    binanceService.initializeWithCredentials(
-      account.apiKey,
-      account.apiSecret,
-      isTestnet,
-    );
+    const binanceService = BrokerFactory.getBinanceClient(account);
 
     const [
       accountInfo,
@@ -474,12 +455,7 @@ router.get(
       });
     }
 
-    const binanceService = new BinanceService();
-    binanceService.initializeWithCredentials(
-      account.apiKey,
-      account.apiSecret,
-      account.metadata?.testnet ?? false,
-    );
+    const binanceService = BrokerFactory.getBinanceClient(account);
 
     const now = Date.now();
     let startTime: number | undefined;
@@ -610,12 +586,7 @@ router.get(
       });
     }
 
-    const binanceService = new BinanceService();
-    binanceService.initializeWithCredentials(
-      account.apiKey,
-      account.apiSecret,
-      account.metadata?.testnet ?? false,
-    );
+    const binanceService = BrokerFactory.getBinanceClient(account);
 
     const now = Date.now();
     let startTime: number | undefined;

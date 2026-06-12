@@ -4,8 +4,18 @@ import { BinanceService } from "../lib/binance-service";
 import { getInstrumentModel } from "../models/instrument";
 import { requireAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 import { asyncHandler } from "../lib/async-handler";
+import { getAccountById } from "../models/account";
+import { demoAccountService } from "../lib/demo-account-service";
 
 const router: Router = Router();
+
+async function checkAccountAccess(accountId: string, userId: string): Promise<boolean> {
+  if (demoAccountService.isDemoAccountId(accountId)) {
+    return true;
+  }
+  const account = await getAccountById(accountId);
+  return !!account && account.userId === userId;
+}
 
 // All watchlist routes require authentication
 router.use(requireAuth);
@@ -16,6 +26,13 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
     const { accountId } = req.query;
+
+    if (accountId) {
+      const hasAccess = await checkAccountAccess(accountId as string, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied to account" });
+      }
+    }
 
     const query: any = { userId };
     if (accountId) {
@@ -44,6 +61,11 @@ router.post(
       });
     }
 
+    const hasAccess = await checkAccountAccess(accountId as string, userId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: "Access denied to account" });
+    }
+
     const watchlist = new Watchlist({
       userId,
       accountId,
@@ -68,6 +90,13 @@ router.get(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
     const { watchlistId, accountId, marketType, noCreate } = req.query;
+
+    if (accountId) {
+      const hasAccess = await checkAccountAccess(accountId as string, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied to account" });
+      }
+    }
 
     let watchlist;
 
@@ -163,6 +192,13 @@ router.post(
     const userId = req.user!.id;
     const { watchlistId, symbol, accountId, marketType, item } = req.body;
 
+    if (accountId) {
+      const hasAccess = await checkAccountAccess(accountId as string, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied to account" });
+      }
+    }
+
     let watchlist;
 
     if (watchlistId) {
@@ -244,6 +280,13 @@ router.delete(
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
     const { watchlistId, symbol, accountId, marketType } = req.query;
+
+    if (accountId) {
+      const hasAccess = await checkAccountAccess(accountId as string, userId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied to account" });
+      }
+    }
 
     let watchlist;
 

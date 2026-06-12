@@ -1,10 +1,11 @@
-import { Router, Request, Response } from "express";
-import kiteConnectService from "../lib/kiteconnect-service";
-import upstoxService from "../lib/upstox-service";
+import { Router, Response } from "express";
 import { getAccountById } from "../models/account";
 import { demoAccountService } from "../lib/demo-account-service";
 import axios, { AxiosRequestConfig } from "axios";
 import HistoricalDataCache from "../models/historical-data-cache";
+import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
+import { asyncHandler } from "../lib/async-handler";
+import { BrokerFactory } from "../lib/broker-factory";
 
 const router: Router = Router();
 
@@ -55,9 +56,12 @@ const fetchWithRetry = async (
 };
 
 // GET /api/historical-data - Get historical data for an instrument
-router.get("/", async (req: Request, res: Response) => {
-  try {
-    const {
+router.get(
+  "/",
+  optionalAuth,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const {
       accountId,
       instrumentToken,
       symbol,
@@ -101,20 +105,21 @@ router.get("/", async (req: Request, res: Response) => {
       };
 
       if (accountId) {
-        try {
-          let account;
-          if (demoAccountService.isDemoAccountId(accountId as string)) {
-            account = demoAccountService.getDemoAccount(true);
-          } else {
-            account = await getAccountById(accountId as string);
+        if (!req.user) {
+          return res.status(401).json({ error: "Authentication required for account-specific historical data" });
+        }
+        let account;
+        if (demoAccountService.isDemoAccountId(accountId as string)) {
+          account = demoAccountService.getDemoAccount(true);
+        } else {
+          account = await getAccountById(accountId as string);
+          if (!account || account.userId !== req.user.id) {
+            return res.status(403).json({ error: "Access denied to account" });
           }
-          if (account && account.accountType === "binance") {
-            tradingSegment = account.metadata?.tradingSegment || "spot";
-            isTestnet = account.metadata?.testnet || false;
-          }
-        } catch (err) {
-          // Account not found or error - use defaults
-          console.log("Using default Binance settings (spot, production)");
+        }
+        if (account && account.accountType === "binance") {
+          tradingSegment = account.metadata?.tradingSegment || "spot";
+          isTestnet = account.metadata?.testnet || false;
         }
       }
 
@@ -337,6 +342,10 @@ router.get("/", async (req: Request, res: Response) => {
       });
     }
 
+    if (!req.user) {
+      return res.status(401).json({ error: "Authentication required for account-specific historical data" });
+    }
+
     let account;
     if (demoAccountService.isDemoAccountId(accountId as string)) {
       account = demoAccountService.getDemoAccount(true);
@@ -347,6 +356,9 @@ router.get("/", async (req: Request, res: Response) => {
       account = await getAccountById(accountId as string);
       if (!account) {
         return res.status(404).json({ error: "Account not found" });
+      }
+      if (account.userId !== req.user.id) {
+        return res.status(403).json({ error: "Access denied to account" });
       }
     }
 
@@ -361,12 +373,8 @@ router.get("/", async (req: Request, res: Response) => {
         return res.status(401).json({ error: "Account not authenticated" });
       }
 
-      kiteConnectService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-      );
-      kiteConnectService.setAccessToken(account.accessToken);
-      historicalData = await kiteConnectService.getHistoricalData(
+      const kiteClient = BrokerFactory.getKiteClient(account);
+      historicalData = await kiteClient.getHistoricalData(
         instrumentToken as string,
         interval as string,
         (fromDate as string) ||
@@ -521,14 +529,8 @@ router.get("/", async (req: Request, res: Response) => {
         intervalMismatch = true;
       }
 
-      const isSandbox = account.metadata?.sandbox || false;
-      upstoxService.initializeWithCredentials(
-        account.apiKey,
-        account.apiSecret,
-        isSandbox,
-      );
-      upstoxService.setAccessToken(account.accessToken);
-      const rawCandles = await upstoxService.getHistoricalData(
+      const upstoxClient = BrokerFactory.getUpstoxClient(account);
+      const rawCandles = await upstoxClient.getHistoricalData(
         resolvedInstrumentToken,
         upstoxInterval,
         (toDate as string) || new Date().toISOString().split("T")[0],
@@ -575,13 +577,14 @@ router.get("/", async (req: Request, res: Response) => {
         .json({ error: "Unsupported account type for historical data" });
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    console.error("Error fetching historical data:", error);
-    return res.status(500).json({
-      error: "Failed to fetch historical data",
-      details: error.message,
-    });
-  }
-});
+    } catch (error: any) {
+      console.error("Error fetching historical data:", error);
+      return res.status(500).json({
+        error: "Failed to fetch historical data",
+        details: error.message,
+      });
+    }
+  })
+);
 
 export default router;

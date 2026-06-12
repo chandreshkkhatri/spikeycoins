@@ -4,6 +4,7 @@ import JournalTrade from "../models/journal-trade";
 import JournalSync from "../models/journal-sync";
 import { syncAccount, SyncProgressEvent } from "../lib/journal-sync-service";
 import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { BrokerFactory } from "../lib/broker-factory";
 import { demoAccountService } from "../lib/demo-account-service";
 import { asyncHandler } from "../lib/async-handler";
 
@@ -13,22 +14,14 @@ const router: Router = Router();
 router.use(requireAuth);
 router.use(requireAccountAccess);
 
-function initBinanceService(account: any): BinanceService {
-  const service = new BinanceService();
-  service.initializeWithCredentials(
-    account.apiKey,
-    account.apiSecret,
-    account.metadata?.testnet ?? false,
-  );
-  return service;
-}
+
 
 // ── POST /api/journal/sync ─────────────────────────────
 router.post(
   "/sync",
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const account = req.account!;
-    const userId = demoAccountService.isDemoAccountId(account._id) ? "system" : req.user!.id;
+    const userId = demoAccountService.isDemoAccountId(account._id as string) ? "system" : req.user!.id;
 
     if (account.accountType !== "binance") {
       return res.status(400).json({ error: "Only Binance accounts are supported" });
@@ -41,7 +34,7 @@ router.post(
       });
     }
 
-    const service = initBinanceService(account);
+    const service = BrokerFactory.getBinanceClient(account);
 
     // Fire-and-forget sync
     syncAccount(account._id!, userId, service).catch((err) => {
@@ -57,7 +50,7 @@ router.get(
   "/sync/stream",
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const account = req.account!;
-    const userId = demoAccountService.isDemoAccountId(account._id) ? "system" : req.user!.id;
+    const userId = demoAccountService.isDemoAccountId(account._id as string) ? "system" : req.user!.id;
 
     if (account.accountType !== "binance") {
       res.status(400).json({ error: "Only Binance accounts are supported" });
@@ -72,7 +65,7 @@ router.get(
       return;
     }
 
-    const service = initBinanceService(account);
+    const service = BrokerFactory.getBinanceClient(account);
 
     // Set SSE headers
     res.writeHead(200, {
