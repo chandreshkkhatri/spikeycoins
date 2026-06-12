@@ -24,7 +24,6 @@ class BinancePriceService {
   private ws: WebSocket | null = null;
   private priceCache: Map<string, TickerData> = new Map();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
   private reconnectDelay = 5000;
   private isConnecting = false;
   private subscribers: Set<PriceUpdateCallback> = new Set();
@@ -125,13 +124,11 @@ class BinancePriceService {
    * Handle reconnection logic
    */
   private handleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error("[BinancePriceService] Max reconnect attempts reached");
-      return;
-    }
-
     this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1);
+    const delay = Math.min(
+      this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
+      120000 // cap delay at 2 minutes
+    );
     
     console.log(`[BinancePriceService] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
     

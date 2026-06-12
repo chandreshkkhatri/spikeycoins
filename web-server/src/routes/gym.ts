@@ -38,7 +38,7 @@ async function fetchCandles(
   startTime: number,
   limit: number = 300
 ): Promise<Array<{ open: number; high: number; low: number; close: number; volume: number; timestamp: number }>> {
-  const marketType = "binance-futures";
+  const marketType = "usdm";
   
   // Try cache first
   const cachedCandles = await HistoricalDataCache.find({

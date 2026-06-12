@@ -895,14 +895,40 @@ export class BinanceService {
       type: string;
       side: string;
       stopPrice: string;
+      isAlgo?: boolean;
+      algoId?: number;
     }>
   > {
     try {
       const openOrders = await this.getFuturesOpenOrders(symbol);
-      return openOrders.filter(
+      const regularSlTps = openOrders.filter(
         (order: { type: string }) =>
           order.type === "STOP_MARKET" || order.type === "TAKE_PROFIT_MARKET",
       );
+
+      let algoSlTps: any[] = [];
+      try {
+        const algoOrders = await this.getFuturesOpenAlgoOrders(symbol);
+        const algoArray = Array.isArray(algoOrders) ? algoOrders : [];
+        algoSlTps = algoArray
+          .filter(
+            (order: { type: string }) =>
+              order.type === "STOP_MARKET" || order.type === "TAKE_PROFIT_MARKET",
+          )
+          .map((order: any) => ({
+            orderId: order.algoId,
+            symbol: order.symbol,
+            type: order.type,
+            side: order.side,
+            stopPrice: String(order.triggerPrice || order.price),
+            isAlgo: true,
+            algoId: order.algoId,
+          }));
+      } catch (algoErr: any) {
+        console.warn("Error fetching futures open algo orders:", algoErr.message);
+      }
+
+      return [...regularSlTps, ...algoSlTps];
     } catch (error: any) {
       console.error("Error fetching SL/TP orders:", error.message);
       return [];
@@ -924,7 +950,12 @@ export class BinanceService {
       const results = [];
       for (const order of ordersToCancel) {
         try {
-          const result = await this.cancelFuturesOrder(symbol, order.orderId);
+          let result;
+          if (order.isAlgo) {
+            result = await this.cancelFuturesAlgoOrder(symbol, order.orderId);
+          } else {
+            result = await this.cancelFuturesOrder(symbol, order.orderId);
+          }
           results.push({ orderId: order.orderId, success: true, result });
         } catch (cancelError: unknown) {
           const errorMessage =
