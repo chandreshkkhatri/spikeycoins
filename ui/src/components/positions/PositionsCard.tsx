@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import axios from "axios";
+import api from "@/lib/api";
 import {
   AlertTriangle,
   Package,
@@ -93,8 +94,8 @@ export default function PositionsCard({
         promise = (async () => {
           try {
             const cacheBust = Date.now();
-            const response = await axios.get(
-              `/api/positions?vendor=${account.accountType}&accountId=${account._id}&_=${cacheBust}`,
+            const response = await api.get(
+              `/positions?vendor=${account.accountType}&accountId=${account._id}&_=${cacheBust}`,
               {
                 headers: {
                   "Cache-Control": "no-cache",

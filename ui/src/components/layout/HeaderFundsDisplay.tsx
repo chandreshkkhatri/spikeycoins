@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
+import api from "@/lib/api";
 import { API_ROUTES, getApiUrl } from "@/lib/constants";
 import { useAccount } from "@/contexts/account-context";
 import { useAuth } from "@/contexts/auth-context";
@@ -40,8 +41,8 @@ export function HeaderFundsDisplay() {
         setError(false);
 
         try {
-            const response = await axios.get(
-                getApiUrl(`${API_ROUTES.funds}?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`),
+            const response = await api.get(
+                `/funds?vendor=${selectedAccount.accountType}&accountId=${selectedAccount._id}`,
                 {
                     signal,
                     timeout: FUNDS_REQUEST_TIMEOUT,

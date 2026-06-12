@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import axios from "axios";
+import api from "@/lib/api";
 import {
   AlertTriangle,
   Briefcase,
@@ -84,8 +85,8 @@ export default function HoldingsCard({
     }
 
     try {
-      const response = await axios.get(
-        `/api/holdings?vendor=${account.accountType}&accountId=${account._id}`
+      const response = await api.get(
+        `/holdings?vendor=${account.accountType}&accountId=${account._id}`
       );
 
       if (response.data?.success) {

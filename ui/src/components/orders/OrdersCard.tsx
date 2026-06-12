@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import axios from "axios";
+import api from "@/lib/api";
 import { AlertTriangle, Receipt, RefreshCw, ShoppingCart } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -79,8 +80,8 @@ export default function OrdersCard({
     }
 
     try {
-      const response = await axios.get(
-        `/api/orders?vendor=${account.accountType}&accountId=${account._id}`
+      const response = await api.get(
+        `/orders?vendor=${account.accountType}&accountId=${account._id}`
       );
 
       if (response.data?.success) {

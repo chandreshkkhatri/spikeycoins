@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { API_ROUTES } from "@/lib/constants";
 import axios from "axios";
+import api from "@/lib/api";
 import {
   AlertTriangle,
   RefreshCw,
@@ -78,8 +79,8 @@ export default function FundsCard({
     }
 
     try {
-      const response = await axios.get(
-        `${API_ROUTES.funds}?vendor=${account.accountType}&accountId=${account._id}`
+      const response = await api.get(
+        `/funds?vendor=${account.accountType}&accountId=${account._id}`
       );
 
       if (response.data?.success && response.data.funds) {
