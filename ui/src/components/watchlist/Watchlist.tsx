@@ -261,7 +261,8 @@ const Watchlist = memo(function Watchlist({
           if (isSystemRequest) {
             try {
               const sysRes = await fetch(
-                getApiUrl("/api/watchlist/system/binance-futures")
+                getApiUrl("/api/watchlist/system/binance-futures"),
+                { headers: getAuthHeaders() }
               );
               const sysData = await sysRes.json();
               if (sysData.success) {
