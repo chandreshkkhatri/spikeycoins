@@ -1,9 +1,9 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
-import { getAccountById } from "../models/account";
-import { demoAccountService } from "../lib/demo-account-service";
+import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { asyncHandler } from "../lib/async-handler";
 
 const router: Router = Router();
 
@@ -20,12 +20,6 @@ function parseBinanceError(error: any): {
   const errorCode = errorData?.code;
   const errorMsg = errorData?.msg || error.message || "Unknown error";
 
-  // Binance error codes related to permissions
-  // -2015: Invalid API-key, IP, or permissions for action
-  // -1022: Signature for this request is not valid (often means wrong permissions)
-  // -2014: API-key format invalid
-  // -1102: Mandatory parameter was not sent (could indicate missing feature access)
-  
   const permissionErrorCodes = [-2015, -1022, -2014];
   const isPermissionError = permissionErrorCodes.includes(errorCode) || 
     errorMsg.toLowerCase().includes('permission') ||
@@ -41,7 +35,6 @@ function parseBinanceError(error: any): {
     };
   }
 
-  // Check for IP restriction errors
   if (errorMsg.includes("IP") || errorCode === -2015) {
     return {
       message: errorMsg,
@@ -59,27 +52,12 @@ function parseBinanceError(error: any): {
 }
 
 // GET /api/holdings - Get holdings for an account
-router.get("/", async (req: Request, res: Response) => {
-  try {
-    const { accountId } = req.query;
-
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId as string)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId as string);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
-    }
-
+router.get(
+  "/",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
     let holdings;
 
     if (account.accountType === "kite") {
@@ -107,7 +85,6 @@ router.get("/", async (req: Request, res: Response) => {
       try {
         holdings = await upstoxService.getHoldings();
       } catch (upstoxError: any) {
-        // Handle Upstox SDK superagent bug - return empty array for now
         console.warn(
           "Upstox SDK error (known superagent issue):",
           upstoxError.message,
@@ -124,11 +101,9 @@ router.get("/", async (req: Request, res: Response) => {
         isTestnet,
       );
 
-      // Always fetch spot balances for holdings regardless of trading segment metadata
       try {
         holdings = await binanceService.getSpotBalances();
       } catch (binanceError: any) {
-        // Parse Binance-specific errors
         const parsedError = parseBinanceError(binanceError);
         console.error("Binance holdings error:", parsedError);
         
@@ -147,10 +122,8 @@ router.get("/", async (req: Request, res: Response) => {
         .json({ error: "Unsupported account type for holdings" });
     }
 
-    // Map holdings to unified format
     const unifiedHoldings = Array.isArray(holdings)
       ? holdings.map((holding: any) => {
-          // Transform Binance balance format to unified holding format
           if (account.accountType === "binance") {
             const free = parseFloat(holding.free || 0);
             const locked = parseFloat(holding.locked || 0);
@@ -158,11 +131,11 @@ router.get("/", async (req: Request, res: Response) => {
 
             return {
               id: `${account._id}-${holding.asset}`,
-              symbol: holding.asset, // BTC, ETH, USDT, etc.
+              symbol: holding.asset,
               exchange: "SPOT",
               quantity: quantity,
-              averagePrice: 0, // Binance doesn't provide avg price in balance endpoint
-              lastPrice: 0, // Would need to fetch from ticker
+              averagePrice: 0,
+              lastPrice: 0,
               currentValue: 0,
               pnl: 0,
               pnlPercentage: 0,
@@ -178,7 +151,6 @@ router.get("/", async (req: Request, res: Response) => {
             };
           }
 
-          // For other vendors, pass through with vendor info
           return {
             ...holding,
             accountId: account._id,
@@ -193,19 +165,7 @@ router.get("/", async (req: Request, res: Response) => {
       data: unifiedHoldings,
       accountType: account.accountType,
     });
-  } catch (error: any) {
-    console.error("Error fetching holdings:", error);
-    // Return consistent structure even on error
-    // Include actual error message for better debugging
-    const errorMessage = error.message || "Unknown error";
-    return res.status(500).json({
-      success: false,
-      error: `Failed to fetch holdings: ${errorMessage}`,
-      details: errorMessage,
-      data: [], // Ensure data is always present
-    });
-  }
-});
+  })
+);
 
 export default router;
-

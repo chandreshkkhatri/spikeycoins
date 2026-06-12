@@ -1,37 +1,22 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
 import pushNotificationService from "../lib/push-notification-service";
-import { getAccountById } from "../models/account";
-import { demoAccountService } from "../lib/demo-account-service";
-import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
+import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { asyncHandler } from "../lib/async-handler";
 
 const router: Router = Router();
 
+// All orders routes require authentication and account access check
+router.use(requireAuth);
+router.use(requireAccountAccess);
+
 // GET /api/orders - Get all orders for an account
-router.get("/", async (req: Request, res: Response) => {
-  try {
-    const { accountId } = req.query;
-
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    // Handle demo account
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId as string)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId as string);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
-    }
-
+router.get(
+  "/",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
     let orders;
 
     if (account.accountType === "kite") {
@@ -59,7 +44,6 @@ router.get("/", async (req: Request, res: Response) => {
       try {
         orders = await upstoxService.getOrders();
       } catch (upstoxError: any) {
-        // Handle Upstox SDK superagent bug - return empty array for now
         console.warn(
           "Upstox SDK error (known superagent issue):",
           upstoxError.message,
@@ -140,61 +124,20 @@ router.get("/", async (req: Request, res: Response) => {
       data: unifiedOrders,
       accountType: account.accountType,
     });
-  } catch (error: any) {
-    console.error("Error fetching orders:", error);
-    // Return consistent structure even on error
-    // Include actual error message for better debugging
-    const errorMessage = error.message || "Unknown error";
-    return res.status(500).json({
-      success: false,
-      error: `Failed to fetch orders: ${errorMessage}`,
-      details: errorMessage,
-      data: [], // Ensure data is always present
-    });
-  }
-});
+  })
+);
 
 // POST /api/orders/place - Place a new order
-router.post("/place", optionalAuth, async (req: Request, res: Response) => {
-  try {
+router.post(
+  "/place",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { accountId, ...orderParams } = req.body;
+    const account = req.account!;
 
     console.log(
       "[Orders/Place] Request body:",
       JSON.stringify(req.body, null, 2),
     );
-
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    // Handle demo account
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId)) {
-      // Check authentication for demo trading
-      const userId = (req as AuthenticatedRequest).user?.id;
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          error: "DEMO_TRADING_REQUIRES_AUTH",
-          message: "Please sign in to enable demo trading",
-        });
-      }
-
-      // Use demo account credentials from service
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-      console.log("[Orders/Place] Using demo account for authenticated user:", userId);
-    } else {
-      // Normal account lookup from database
-      account = await getAccountById(accountId);
-      if (!account) {
-        console.log("[Orders/Place] Account not found:", accountId);
-        return res.status(404).json({ error: "Account not found" });
-      }
-    }
 
     let result;
     // Track SL/TP errors for response
@@ -306,10 +249,8 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           precision: number,
           stepSizeVal: number = 0
         ): number => {
-          // First round to precision
           let rounded = parseFloat(value.toFixed(precision));
 
-          // Then round to stepSize if provided
           if (stepSizeVal > 0) {
             const stepPrecision =
               stepSizeVal.toString().split(".")[1]?.length || 0;
@@ -333,14 +274,12 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
             );
           } catch (leverageError: any) {
             const msg = leverageError.message || "";
-            // Ignore "No need to change leverage" errors (already at requested leverage)
             if (msg.includes("No need to change")) {
               // Already at the requested leverage — proceed normally
             } else if (
               msg.includes("not valid") ||
               msg.includes("exceeds maximum")
             ) {
-              // Leverage is truly invalid for this symbol — fail fast with a clear message
               throw new Error(
                 `Cannot set ${leverage}x leverage for ${orderParams.symbol}: ${msg}. ` +
                   `Please check the maximum allowed leverage for this symbol on Binance.`,
@@ -351,7 +290,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           }
         }
 
-        // Round quantity and price to correct precision
         const roundedQuantity = roundToPrecision(
           binanceOrderParams.quantity,
           quantityPrecision,
@@ -364,7 +302,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           ? roundToPrecision(binanceOrderParams.stopPrice, pricePrecision)
           : undefined;
 
-        // Validate quantity after rounding
         if (roundedQuantity <= 0) {
           throw new Error(
             `Order quantity after rounding is ${roundedQuantity}. Quantity must be greater than 0. ` +
@@ -379,18 +316,15 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           );
         }
 
-        // Validate notional value
         if (minNotional > 0) {
           let notionalPrice = roundedPrice || binanceOrderParams.price || 0;
 
-          // For MARKET orders, try to get mark price
           if (!notionalPrice && binanceOrderParams.type === "MARKET") {
             try {
               notionalPrice = await binanceService.getFuturesMarkPrice(
                 orderParams.symbol,
               );
             } catch {
-              // Cannot validate without price - must reject
               throw new Error(
                 `Cannot validate notional value for MARKET order: unable to fetch current price for ${orderParams.symbol}. ` +
                   `Please try a LIMIT order instead or check your connection.`
@@ -398,7 +332,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
             }
           }
 
-          // Check for zero/invalid price before division
           if (notionalPrice <= 0) {
             throw new Error(
               `Invalid price (${notionalPrice}) for notional validation. Cannot place order for ${orderParams.symbol}.`
@@ -418,7 +351,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           }
         }
 
-        // Build clean order params for Binance
         const cleanOrderParams: any = {
           symbol: binanceOrderParams.symbol,
           side: binanceOrderParams.side,
@@ -426,13 +358,11 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           quantity: roundedQuantity,
         };
 
-        // Add price for LIMIT orders
         if (binanceOrderParams.type === "LIMIT") {
           cleanOrderParams.price = roundedPrice;
           cleanOrderParams.timeInForce = "GTC";
         }
 
-        // Add stopPrice for conditional orders
         if (
           ["STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET"].includes(
             binanceOrderParams.type,
@@ -447,20 +377,16 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           }
         }
 
-        // Add reduceOnly if true (but not for initial position orders)
         if (reduceOnly) {
           cleanOrderParams.reduceOnly = true;
         }
 
-        // Pass closePosition if present (for MARKET retry)
         if (binanceOrderParams.closePosition) {
           cleanOrderParams.closePosition = true;
         }
 
         console.log("Placing Binance futures order:", cleanOrderParams);
 
-        // Place main order
-        // Use Algo Order API for conditional orders, regular API for LIMIT/MARKET
         const isConditionalOrder = [
           "STOP",
           "STOP_MARKET",
@@ -470,12 +396,11 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
         ].includes(cleanOrderParams.type);
 
         if (isConditionalOrder) {
-          // Use new Algo Order API for conditional orders
           const algoParams = {
             symbol: cleanOrderParams.symbol,
             side: cleanOrderParams.side,
             type: cleanOrderParams.type,
-            triggerPrice: cleanOrderParams.stopPrice, // Map stopPrice to triggerPrice
+            triggerPrice: cleanOrderParams.stopPrice,
             quantity: cleanOrderParams.quantity,
             reduceOnly: cleanOrderParams.reduceOnly,
             closePosition: cleanOrderParams.closePosition,
@@ -486,7 +411,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           result = await binanceService.placeFuturesOrder(cleanOrderParams);
         }
 
-        // Helper function to place SL/TP with retry logic using new Algo Order API
         const placeSLTPWithRetry = async (
           orderParams: Record<string, unknown>,
           orderType: string,
@@ -495,8 +419,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
         ): Promise<{ success: boolean; error?: string }> => {
           for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-              // Use the new Algo Order API for conditional orders
-              // Map stopPrice to triggerPrice for the new API
               const algoParams = {
                 symbol: orderParams.symbol as string,
                 side: orderParams.side as "BUY" | "SELL",
@@ -522,29 +444,24 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
                 errorMessage,
               );
 
-              // If it's the last attempt, return the error
               if (attempt === maxRetries) {
                 return { success: false, error: errorMessage };
               }
 
-              // Wait before retry
               await new Promise((resolve) => setTimeout(resolve, delayMs));
             }
           }
           return { success: false, error: "Max retries exceeded" };
         };
 
-        // Validate stop price against market price
         const validateStopPrice = (
           stopPrice: number,
           markPrice: number,
           side: "BUY" | "SELL",
           orderType: "SL" | "TP",
         ): { valid: boolean; error?: string } => {
-          // For a LONG position (BUY), SL should be below mark price, TP should be above
-          // For a SHORT position (SELL), SL should be above mark price, TP should be below
           const isLong = side === "BUY";
-          const tolerance = 0.001; // 0.1% tolerance for edge cases
+          const tolerance = 0.001;
 
           if (orderType === "SL") {
             if (isLong && stopPrice >= markPrice * (1 - tolerance)) {
@@ -560,7 +477,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
               };
             }
           } else {
-            // TP
             if (isLong && stopPrice <= markPrice * (1 + tolerance)) {
               return {
                 valid: false,
@@ -577,7 +493,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           return { valid: true };
         };
 
-        // Get current mark price for validation
         let markPrice: number | null = null;
         if (stopLoss || takeProfit) {
           try {
@@ -595,13 +510,9 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           }
         }
 
-        // Determine if we should use quantity-based SL/TP
-        // For LIMIT orders, the position doesn't exist yet so we use quantity
-        // For MARKET orders, the position exists immediately so we can use closePosition
         const isLimitOrder = orderParams.type === "LIMIT";
         const useQuantityBased = isLimitOrder;
 
-        // Cancel existing SL/TP orders for this symbol and side before placing new ones
         if (stopLoss || takeProfit) {
           try {
             const slTpSide = orderParams.side === "BUY" ? "SELL" : "BUY";
@@ -616,16 +527,13 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
             }
           } catch (cancelErr) {
             console.warn("Could not cancel existing SL/TP orders:", cancelErr);
-            // Continue anyway - new orders might still work
           }
         }
 
-        // Place stop loss order if provided
         if (stopLoss && stopLoss > 0) {
           const slSide = orderParams.side === "BUY" ? "SELL" : "BUY";
           const roundedSL = roundToPrecision(stopLoss, pricePrecision);
 
-          // Validate stop price
           if (markPrice !== null) {
             const validation = validateStopPrice(
               roundedSL,
@@ -639,7 +547,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
             }
           }
 
-          // Only place order if validation passed (or we couldn't validate)
           if (!slOrderError) {
             const slOrderParams: Record<string, unknown> = {
               symbol: orderParams.symbol,
@@ -649,11 +556,9 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
             };
 
             if (useQuantityBased) {
-              // For LIMIT orders, use quantity and reduceOnly
               slOrderParams.quantity = roundedQuantity;
               slOrderParams.reduceOnly = true;
             } else {
-              // For MARKET orders, use closePosition
               slOrderParams.closePosition = true;
             }
 
@@ -667,12 +572,10 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           }
         }
 
-        // Place take profit order if provided
         if (takeProfit && takeProfit > 0) {
           const tpSide = orderParams.side === "BUY" ? "SELL" : "BUY";
           const roundedTP = roundToPrecision(takeProfit, pricePrecision);
 
-          // Validate stop price
           if (markPrice !== null) {
             const validation = validateStopPrice(
               roundedTP,
@@ -686,7 +589,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
             }
           }
 
-          // Only place order if validation passed (or we couldn't validate)
           if (!tpOrderError) {
             const tpOrderParams: Record<string, unknown> = {
               symbol: orderParams.symbol,
@@ -696,11 +598,9 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
             };
 
             if (useQuantityBased) {
-              // For LIMIT orders, use quantity and reduceOnly
               tpOrderParams.quantity = roundedQuantity;
               tpOrderParams.reduceOnly = true;
             } else {
-              // For MARKET orders, use closePosition
               tpOrderParams.closePosition = true;
             }
 
@@ -714,11 +614,9 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
           }
         }
 
-        // Send push notification if SL or TP failed
         if (slOrderError || tpOrderError) {
           const userId = account.userId;
           if (userId) {
-            // Determine notification type
             let notificationType: "sl_failed" | "tp_failed" | "sl_tp_failed";
             if (slOrderError && tpOrderError) {
               notificationType = "sl_tp_failed";
@@ -728,7 +626,6 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
               notificationType = "tp_failed";
             }
 
-            // Send notification asynchronously (don't block response)
             pushNotificationService
               .sendOrderNotification(userId, notificationType, {
                 symbol: orderParams.symbol,
@@ -795,14 +692,12 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
         .json({ error: "Unsupported account type for orders" });
     }
 
-    // Build response with SL/TP status
     const response: any = {
       success: true,
       order: result,
       accountType: account.accountType,
     };
 
-    // Include SL/TP status if there were any errors
     if (slOrderError || tpOrderError) {
       response.warnings = [];
       if (slOrderError) {
@@ -820,37 +715,18 @@ router.post("/place", optionalAuth, async (req: Request, res: Response) => {
     }
 
     return res.json(response);
-  } catch (error: any) {
-    console.error("Error placing order:", error);
-    return res.status(500).json({
-      error: "Failed to place order",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // PUT /api/orders/modify - Modify an existing order
-router.put("/modify", async (req: Request, res: Response) => {
-  try {
+router.put(
+  "/modify",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { accountId, orderId, ...orderParams } = req.body;
+    const account = req.account!;
 
-    if (!accountId || !orderId) {
-      return res
-        .status(400)
-        .json({ error: "accountId and orderId are required" });
-    }
-
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
+    if (!orderId) {
+      return res.status(400).json({ error: "orderId is required" });
     }
 
     if (!account.accessToken) {
@@ -886,40 +762,19 @@ router.put("/modify", async (req: Request, res: Response) => {
       order: result,
       accountType: account.accountType,
     });
-  } catch (error: any) {
-    console.error("Error modifying order:", error);
-    return res.status(500).json({
-      error: "Failed to modify order",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // DELETE /api/orders/:orderId - Cancel an order (RESTful path param version)
-router.delete("/:orderId", async (req: Request, res: Response) => {
-  try {
+router.delete(
+  "/:orderId",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { orderId } = req.params;
-    // Accept accountId and symbol from query string OR request body
-    const accountId = (req.query.accountId as string) || req.body?.accountId;
     const symbol = (req.query.symbol as string) || req.body?.symbol;
+    const account = req.account!;
 
-    if (!accountId || !orderId) {
-      return res
-        .status(400)
-        .json({ error: "accountId and orderId are required" });
-    }
-
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId as string)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId as string);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
+    if (!orderId) {
+      return res.status(400).json({ error: "orderId is required" });
     }
 
     let result;
@@ -933,7 +788,7 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
         account.apiSecret,
       );
       kiteConnectService.setAccessToken(account.accessToken);
-      result = await kiteConnectService.cancelOrder(orderId as string);
+      result = await kiteConnectService.cancelOrder(orderId);
     } else if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
@@ -945,7 +800,7 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
         isSandbox,
       );
       upstoxService.setAccessToken(account.accessToken);
-      result = await upstoxService.cancelOrder(orderId as string);
+      result = await upstoxService.cancelOrder(orderId);
     } else if (account.accountType === "binance") {
       const tradingSegment = account.metadata?.tradingSegment || "spot";
       const isTestnet = account.metadata?.testnet || false;
@@ -964,30 +819,26 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
       }
 
       if (tradingSegment === "usdm") {
-        // USD(S)-M Futures
-        // Try standard cancel first, if fails with -2011 (Unknown order), try algo cancel
         try {
           result = await binanceService.cancelFuturesOrder(
-            symbol as string,
-            parseInt(orderId as string),
+            symbol,
+            parseInt(orderId),
           );
         } catch (standardCancelError: any) {
-          // Check if error is "Unknown order sent" (code -2011)
           if (standardCancelError.message?.includes("Unknown order")) {
             console.log("Standard cancel failed, trying Algo Order cancel...");
             result = await binanceService.cancelFuturesAlgoOrder(
-              symbol as string,
-              parseInt(orderId as string),
+              symbol,
+              parseInt(orderId),
             );
           } else {
             throw standardCancelError;
           }
         }
       } else {
-        // Spot
         result = await binanceService.cancelSpotOrder(
-          symbol as string,
-          parseInt(orderId as string),
+          symbol,
+          parseInt(orderId),
         );
       }
     } else {
@@ -1001,13 +852,7 @@ router.delete("/:orderId", async (req: Request, res: Response) => {
       order: result,
       accountType: account.accountType,
     });
-  } catch (error: any) {
-    console.error("Error cancelling order:", error);
-    return res.status(500).json({
-      error: "Failed to cancel order",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 export default router;

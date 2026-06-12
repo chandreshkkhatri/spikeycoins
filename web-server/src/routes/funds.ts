@@ -1,9 +1,9 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
-import { getAccountById } from "../models/account";
-import { demoAccountService } from "../lib/demo-account-service";
+import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { asyncHandler } from "../lib/async-handler";
 
 const router: Router = Router();
 
@@ -12,18 +12,15 @@ const FUNDS_RESPONSE_CACHE = new Map<string, { promise: Promise<any>; timestamp:
 const FUNDS_CACHE_TTL = 10_000;
 
 // GET /api/funds - Get funds/margins for an account
-router.get("/", async (req: Request, res: Response) => {
-  try {
-    const { accountId } = req.query;
-
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    // Check in-memory promise cache first
-    const cacheKey = `funds-${accountId}`;
+router.get(
+  "/",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
+    const cacheKey = `funds-${account._id}`;
     
-    // Clean up old entries
+    // Clean up old cached entries
     const now = Date.now();
     for (const [k, v] of FUNDS_RESPONSE_CACHE.entries()) {
       if (now - v.timestamp > FUNDS_CACHE_TTL) {
@@ -38,19 +35,6 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     const fetchPromise = (async () => {
-      let account;
-      if (demoAccountService.isDemoAccountId(accountId as string)) {
-        account = demoAccountService.getDemoAccount(true);
-        if (!account) {
-          throw new Error("Demo account not configured");
-        }
-      } else {
-        account = await getAccountById(accountId as string);
-        if (!account) {
-          throw new Error("Account not found");
-        }
-      }
-
       let funds;
 
       if (account.accountType === "kite") {
@@ -86,7 +70,7 @@ router.get("/", async (req: Request, res: Response) => {
           isTestnet,
         );
 
-        // Retry helper for Binance API calls (handles transient failures)
+        // Retry helper for Binance API calls
         const withRetry = async <T>(fn: () => Promise<T>, retries = 2, delayMs = 1000): Promise<T> => {
           for (let attempt = 0; attempt <= retries; attempt++) {
             try {
@@ -94,7 +78,7 @@ router.get("/", async (req: Request, res: Response) => {
             } catch (err: any) {
               const isLastAttempt = attempt === retries;
               const isRetryable = !err.message?.includes('Rate limited') &&
-                !err.message?.includes('recvWindow') && // -1021: stale timestamp, retrying won't help
+                !err.message?.includes('recvWindow') &&
                 err.status !== 401 && err.status !== 403;
               if (isLastAttempt || !isRetryable) throw err;
               console.warn(`[Funds] Binance API attempt ${attempt + 1} failed, retrying in ${delayMs}ms:`, err.message);
@@ -135,7 +119,6 @@ router.get("/", async (req: Request, res: Response) => {
       const unifiedFunds: Record<string, unknown> = { details: funds };
       
       if (funds.segment === "spot") {
-        // Find market value of the spot balances
         let calcTotalBalance = 0;
         let calcAvailableBalance = 0;
         
@@ -193,32 +176,13 @@ router.get("/", async (req: Request, res: Response) => {
 
     try {
       const responseData = await fetchPromise;
-      console.log(`[Funds Debug] fetchPromise resolved, calling res.json!`);
       return res.json(responseData);
     } catch (error: any) {
-      console.log(`[Funds Debug] fetchPromise rejected: ${error.message}`);
-      // If the promise fails, remove it from cache immediately so retries work
+      // Clean up cache immediately on failure
       FUNDS_RESPONSE_CACHE.delete(cacheKey);
       throw error;
     }
-  } catch (error: any) {
-    console.error("Error fetching funds:", error);
-    
-    // Handle specific auth errors mapped from exceptions
-    if (error.message?.includes("Account not authenticated") || error.message === "Account not found") {
-      const status = error.message === "Account not found" ? 404 : 401;
-      return res.status(status).json({
-        error: error.message.split(":")[0],
-        details: error.message,
-      });
-    }
-
-    return res.status(500).json({
-      error: "Failed to fetch funds",
-      details: error.message,
-      retryable: true,
-    });
-  }
-});
+  })
+);
 
 export default router;

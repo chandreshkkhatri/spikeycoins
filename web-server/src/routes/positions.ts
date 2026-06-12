@@ -1,9 +1,10 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
-import { getAccountById, IAccount } from "../models/account";
-import { demoAccountService } from "../lib/demo-account-service";
+import { IAccount } from "../models/account";
+import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { asyncHandler } from "../lib/async-handler";
 
 const router: Router = Router();
 
@@ -173,20 +174,17 @@ const formatPosition = (
 };
 
 // GET /api/positions - Get positions for an account
-router.get("/", async (req: Request, res: Response) => {
-  try {
+router.get(
+  "/",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     setNoCacheHeaders(res);
 
-    const { accountId } = req.query;
-
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    // Check in-memory promise cache first
-    const cacheKey = `positions-${accountId}`;
+    const account = req.account!;
+    const cacheKey = `positions-${account._id}`;
     
-    // Clean up old entries
+    // Clean up old cached entries
     const now = Date.now();
     for (const [k, v] of POSITIONS_RESPONSE_CACHE.entries()) {
       if (now - v.timestamp > POSITIONS_CACHE_TTL) {
@@ -201,19 +199,6 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     const fetchPromise = (async () => {
-      let account;
-      if (demoAccountService.isDemoAccountId(accountId as string)) {
-        account = demoAccountService.getDemoAccount(true);
-        if (!account) {
-          throw new Error("Demo account not configured");
-        }
-      } else {
-        account = await getAccountById(accountId as string);
-        if (!account) {
-          throw new Error("Account not found");
-        }
-      }
-
       let positions;
       let tradingSegment: string | undefined;
 
@@ -242,7 +227,7 @@ router.get("/", async (req: Request, res: Response) => {
         try {
           positions = await upstoxService.getPositions();
         } catch (upstoxError: any) {
-          // Handle Upstox SDK superagent bug - return empty array for now
+          // Handle Upstox SDK error
           console.warn(
             "Upstox SDK error (known superagent issue):",
             upstoxError.message,
@@ -265,7 +250,6 @@ router.get("/", async (req: Request, res: Response) => {
           positions = await binanceService.getFuturesPositions();
         } else {
           // Spot trading doesn't have positions in the traditional sense
-          // Return empty array for spot accounts
           positions = [];
         }
       } else {
@@ -297,29 +281,7 @@ router.get("/", async (req: Request, res: Response) => {
       POSITIONS_RESPONSE_CACHE.delete(cacheKey);
       throw error;
     }
-  } catch (error: any) {
-    console.error("Error fetching positions:", error);
-
-    // Handle specific auth errors mapped from exceptions
-    if (error.message?.includes("Account not authenticated") || error.message === "Account not found") {
-      const status = error.message === "Account not found" ? 404 : 401;
-      return res.status(status).json({
-        success: false,
-        error: error.message.split(":")[0],
-        details: error.message,
-        data: [],
-      });
-    }
-    // Return consistent structure even on error
-    // Include actual error message for better debugging
-    const errorMessage = error.message || "Unknown error";
-    return res.status(500).json({
-      success: false,
-      error: `Failed to fetch positions: ${errorMessage}`,
-      details: errorMessage,
-      data: [], // Ensure data is always present
-    });
-  }
-});
+  })
+);
 
 export default router;

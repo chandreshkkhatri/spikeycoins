@@ -1,9 +1,10 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import kiteConnectService from "../lib/kiteconnect-service";
 import upstoxService from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
-import { getAccountById, IAccount } from "../models/account";
-import { demoAccountService } from "../lib/demo-account-service";
+import { IAccount } from "../models/account";
+import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { asyncHandler } from "../lib/async-handler";
 
 const router: Router = Router();
 
@@ -28,7 +29,6 @@ function getCachedSummary(key: string): Promise<any> | null {
 
 function setCachedSummary(key: string, promise: Promise<any>): void {
   SUMMARY_RESPONSE_CACHE.set(key, { promise, timestamp: Date.now() });
-  // Evict stale entries periodically
   if (SUMMARY_RESPONSE_CACHE.size > 100) {
     const now = Date.now();
     for (const [k, v] of SUMMARY_RESPONSE_CACHE) {
@@ -39,7 +39,6 @@ function setCachedSummary(key: string, promise: Promise<any>): void {
   }
 }
 
-// Helper to convert values to numbers safely
 const toNumber = (value: unknown, fallback: number = 0): number => {
   if (value === null || value === undefined) return fallback;
   if (typeof value === "number") {
@@ -52,20 +51,18 @@ const toNumber = (value: unknown, fallback: number = 0): number => {
   return fallback;
 };
 
-// Format Binance futures position
 const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
   const quantity = toNumber(position.positionAmt, 0);
   const averagePrice = toNumber(position.entryPrice, 0);
-  const lastPrice = toNumber(position.markPrice, averagePrice); // Fallback to entry if mark not available
+  const lastPrice = toNumber(position.markPrice, averagePrice);
   const pnl = toNumber(position.unRealizedProfit, 0);
   const notional = Math.abs(quantity * averagePrice);
   const pnlPercentage = notional > 0 ? (pnl / notional) * 100 : 0;
   const symbol = position.symbol || "UNKNOWN_SYMBOL";
   const liquidationPrice = toNumber(position.liquidationPrice, 0);
   const initialMargin = toNumber(position.initialMargin, 0);
-  const leverage = toNumber(position.leverage, 1); // Default leverage 1 instead of 0
+  const leverage = toNumber(position.leverage, 1);
 
-  // Break Even Price calculation (entry price + trading fees)
   const TAKER_FEE = 0.0004;
   const breakEvenPrice =
     quantity > 0
@@ -83,7 +80,7 @@ const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
     pnlPercentage,
     leverage,
     liquidationPrice,
-    breakEvenPrice: Number.isFinite(breakEvenPrice) ? breakEvenPrice : averagePrice, // Validate breakEvenPrice
+    breakEvenPrice: Number.isFinite(breakEvenPrice) ? breakEvenPrice : averagePrice,
     margin: initialMargin,
     marginType: position.marginType,
     product: `Futures (${(position.marginType || "cross").toUpperCase()})`,
@@ -95,17 +92,16 @@ const formatBinanceFuturesPosition = (position: any, account: IAccount) => {
 };
 
 // GET /api/trading/summary - Aggregated endpoint for all trading data
-// Combines: positions, orders, account details, and symbol info in ONE call
-router.get("/summary", async (req: Request, res: Response) => {
-  try {
-    const { accountId, symbol } = req.query;
+router.get(
+  "/summary",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { symbol } = req.query;
+    const account = req.account!;
 
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    // Check in-memory cache first (deduplicates multi-tab/rapid requests)
-    const cacheKey = `summary-${accountId}-${symbol || ""}`;
+    // Check in-memory cache first
+    const cacheKey = `summary-${account._id}-${symbol || ""}`;
     const cached = getCachedSummary(cacheKey);
     if (cached) {
       res.set({
@@ -115,21 +111,7 @@ router.get("/summary", async (req: Request, res: Response) => {
       return res.json(cached);
     }
 
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId as string)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId as string);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
-    }
-
     const fetchPromise = (async () => {
-      // Initialize response structure
       const response: {
         success: boolean;
         positions: any[];
@@ -158,7 +140,6 @@ router.get("/summary", async (req: Request, res: Response) => {
         );
 
         if (tradingSegment === "usdm") {
-          // Fetch all data in parallel for maximum efficiency
           const [
             accountInfo,
             positions,
@@ -175,7 +156,6 @@ router.get("/summary", async (req: Request, res: Response) => {
             symbol ? binanceService.getFuturesLeverageBrackets(symbol as string) : Promise.resolve(null),
           ]);
 
-          // Process account details
           const totalMaintMargin = parseFloat(accountInfo.totalMaintMargin);
           const totalMarginBalance = parseFloat(accountInfo.totalMarginBalance);
           const availableBalance = parseFloat(accountInfo.availableBalance);
@@ -188,12 +168,10 @@ router.get("/summary", async (req: Request, res: Response) => {
             unrealizedPnl: totalUnrealizedProfit,
           };
 
-          // Process positions - only non-zero positions
           response.positions = (positions || [])
             .filter((p: any) => Math.abs(toNumber(p.positionAmt)) > 0)
             .map((p: any) => formatBinanceFuturesPosition(p, account));
 
-          // Process orders - combine basic and algo orders
           const normalizedBasic = (basicOrders || []).map((o: any) => ({
             ...o,
             id: o.orderId?.toString(),
@@ -222,7 +200,6 @@ router.get("/summary", async (req: Request, res: Response) => {
 
           response.orders = [...normalizedBasic, ...normalizedAlgo];
 
-          // Process symbol info if symbol provided
           if (symbol && exchangeInfo) {
             const symbolData = exchangeInfo.symbols?.find(
               (s: any) => s.symbol === symbol
@@ -238,7 +215,6 @@ router.get("/summary", async (req: Request, res: Response) => {
                 (f: any) => f.filterType === "MIN_NOTIONAL"
               );
 
-              // Get max leverage from brackets
               let maxLeverage = 125;
               if (leverageBrackets && Array.isArray(leverageBrackets) && leverageBrackets.length > 0) {
                 maxLeverage = leverageBrackets[0]?.initialLeverage || 125;
@@ -254,13 +230,11 @@ router.get("/summary", async (req: Request, res: Response) => {
             }
           }
         } else {
-          // Spot trading
           const [accountInfo, spotOrders] = await Promise.all([
             binanceService.getSpotAccount(),
             binanceService.getSpotOpenOrders(),
           ]);
 
-          // Process spot account
           const usdtBalance = accountInfo.balances?.find(
             (b: any) => b.asset === "USDT"
           );
@@ -269,7 +243,6 @@ router.get("/summary", async (req: Request, res: Response) => {
             availableBalance: parseFloat(usdtBalance?.free || "0"),
           };
 
-          // Process spot orders
           response.orders = (spotOrders || []).map((o: any) => ({
             ...o,
             id: o.orderId?.toString(),
@@ -278,7 +251,6 @@ router.get("/summary", async (req: Request, res: Response) => {
             vendor: account.accountType,
           }));
 
-          // Spot doesn't have positions
           response.positions = [];
         }
       } else if (account.accountType === "kite") {
@@ -291,7 +263,6 @@ router.get("/summary", async (req: Request, res: Response) => {
         );
         kiteConnectService.setAccessToken(account.accessToken);
 
-        // Fetch positions and orders in parallel
         const [positions, orders, margins] = await Promise.all([
           kiteConnectService.getPositions(),
           kiteConnectService.getOrders(),
@@ -310,7 +281,6 @@ router.get("/summary", async (req: Request, res: Response) => {
           vendor: account.accountType,
         }));
 
-        // Extract available margin
         const equity = margins?.equity || {};
         response.accountDetails = {
           equity: equity.net || 0,
@@ -328,7 +298,6 @@ router.get("/summary", async (req: Request, res: Response) => {
         );
         upstoxService.setAccessToken(account.accessToken);
 
-        // Fetch positions and orders in parallel
         try {
           const [positions, orders, funds] = await Promise.all([
             upstoxService.getPositions().catch(() => []),
@@ -356,7 +325,6 @@ router.get("/summary", async (req: Request, res: Response) => {
           }
         } catch (upstoxError: any) {
           console.warn("Upstox SDK error:", upstoxError.message);
-          // Return empty arrays for Upstox on error
         }
       } else {
         throw new Error("Unsupported account type");
@@ -365,65 +333,56 @@ router.get("/summary", async (req: Request, res: Response) => {
       return response;
     })();
 
-    // Cache promise in memory for server-side deduplication
     setCachedSummary(cacheKey, fetchPromise);
 
     try {
       const result = await fetchPromise;
-      // Set cache headers - allow 5 second cache for aggregated data
       res.set({
         "Cache-Control": "private, max-age=5, stale-while-revalidate=10",
       });
       return res.json(result);
     } catch (error: any) {
-      // Clear cache on error
       SUMMARY_RESPONSE_CACHE.delete(cacheKey);
       throw error;
     }
-  } catch (error: any) {
-    console.error("Error fetching trading summary:", error);
-    
-    // Handle specific auth errors mapped from exceptions
-    if (error.message?.includes("Account not authenticated") || error.message === "Account not found") {
-      const status = error.message === "Account not found" ? 404 : 401;
-      return res.status(status).json({
-        success: false,
-        error: error.message.split(":")[0],
-        details: error.message,
-      });
-    }
+  })
+);
 
-    return res.status(500).json({
-      success: false,
-      error: "Failed to fetch trading summary",
-      details: error.message,
+// Deprecated placeholder endpoints (requiring requireAuth to be secure)
+router.get(
+  "/orders",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    return res.json({
+      success: true,
+      orders: [],
+      message: "Use /api/trading/summary for aggregated data",
     });
-  }
-});
+  })
+);
 
-// Legacy placeholder endpoints (to be deprecated)
-router.get("/orders", async (req: Request, res: Response) => {
-  return res.json({
-    success: true,
-    orders: [],
-    message: "Use /api/trading/summary for aggregated data",
-  });
-});
+router.get(
+  "/positions",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    return res.json({
+      success: true,
+      positions: [],
+      message: "Use /api/trading/summary for aggregated data",
+    });
+  })
+);
 
-router.get("/positions", async (req: Request, res: Response) => {
-  return res.json({
-    success: true,
-    positions: [],
-    message: "Use /api/trading/summary for aggregated data",
-  });
-});
-
-router.get("/holdings", async (req: Request, res: Response) => {
-  return res.json({
-    success: true,
-    holdings: [],
-    message: "Use /api/trading/summary for aggregated data",
-  });
-});
+router.get(
+  "/holdings",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    return res.json({
+      success: true,
+      holdings: [],
+      message: "Use /api/trading/summary for aggregated data",
+    });
+  })
+);
 
 export default router;

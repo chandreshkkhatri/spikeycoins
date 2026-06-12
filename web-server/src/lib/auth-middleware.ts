@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
+import { IAccount, getAccountById } from "../models/account";
+import { demoAccountService } from "./demo-account-service";
 
 // JWT implementation without external dependencies
 const JWT_SECRET = process.env.JWT_SECRET || "spikey-coins-jwt-secret-change-in-production";
@@ -17,6 +19,7 @@ export interface AuthenticatedRequest extends Request {
     id: string;
     email: string;
   };
+  account?: IAccount;
 }
 
 // Simple base64url encoding/decoding
@@ -148,6 +151,49 @@ export function optionalAuth(
 // Get refresh token expiry (30 days)
 export function getRefreshTokenExpiry(): Date {
   return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+}
+
+// Middleware to verify account access and ownership
+export async function requireAccountAccess(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const accountId = (req.query.accountId || req.body.accountId || req.params.accountId || req.params.id) as string;
+
+    if (!accountId) {
+      res.status(400).json({ error: "accountId is required" });
+      return;
+    }
+
+    if (demoAccountService.isDemoAccountId(accountId)) {
+      const demoAccount = demoAccountService.getDemoAccount(true);
+      if (!demoAccount) {
+        res.status(500).json({ error: "Demo account not configured" });
+        return;
+      }
+      req.account = demoAccount;
+      return next();
+    }
+
+    const account = await getAccountById(accountId);
+    if (!account) {
+      res.status(404).json({ error: "Account not found" });
+      return;
+    }
+
+    // Verify ownership: req.user must exist (from requireAuth) and match the account's userId
+    if (!req.user || account.userId !== req.user.id) {
+      res.status(403).json({ error: "Access denied: Account does not belong to this user" });
+      return;
+    }
+
+    req.account = account;
+    next();
+  } catch (error) {
+    next(error);
+  }
 }
 
 export { JWT_EXPIRY_SECONDS };

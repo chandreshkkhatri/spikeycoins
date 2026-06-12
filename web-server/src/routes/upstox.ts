@@ -1,25 +1,26 @@
 import { Router, Request, Response } from "express";
 import upstoxService from "../lib/upstox-service";
-import { getAccountById } from "../models/account";
+import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { asyncHandler } from "../lib/async-handler";
 
 const router: Router = Router();
 
 // Upstox-specific endpoints
 
 // GET /api/upstox/market-data/ltp - Get LTP (Last Traded Price)
-router.get("/market-data/ltp", async (req: Request, res: Response) => {
-  try {
-    const { accountId, instruments } = req.query;
+router.get(
+  "/market-data/ltp",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
+    const { instruments } = req.query;
 
-    if (!accountId || !instruments) {
-      return res
-        .status(400)
-        .json({ error: "accountId and instruments are required" });
+    if (!instruments) {
+      return res.status(400).json({ error: "instruments are required" });
     }
 
-    const account = await getAccountById(accountId as string);
-
-    if (!account || account.accountType !== "upstox") {
+    if (account.accountType !== "upstox") {
       return res.status(404).json({ error: "Upstox account not found" });
     }
 
@@ -42,29 +43,23 @@ router.get("/market-data/ltp", async (req: Request, res: Response) => {
       success: true,
       data: ltp,
     });
-  } catch (error: any) {
-    console.error("Error fetching LTP:", error);
-    return res.status(500).json({
-      error: "Failed to fetch LTP",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // GET /api/upstox/market-data/ohlc - Get OHLC data
-router.get("/market-data/ohlc", async (req: Request, res: Response) => {
-  try {
-    const { accountId, instruments } = req.query;
+router.get(
+  "/market-data/ohlc",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
+    const { instruments } = req.query;
 
-    if (!accountId || !instruments) {
-      return res
-        .status(400)
-        .json({ error: "accountId and instruments are required" });
+    if (!instruments) {
+      return res.status(400).json({ error: "instruments are required" });
     }
 
-    const account = await getAccountById(accountId as string);
-
-    if (!account || account.accountType !== "upstox") {
+    if (account.accountType !== "upstox") {
       return res.status(404).json({ error: "Upstox account not found" });
     }
 
@@ -87,29 +82,23 @@ router.get("/market-data/ohlc", async (req: Request, res: Response) => {
       success: true,
       data: ohlc,
     });
-  } catch (error: any) {
-    console.error("Error fetching OHLC:", error);
-    return res.status(500).json({
-      error: "Failed to fetch OHLC",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // GET /api/upstox/market-data/quotes - Get market quotes
-router.get("/market-data/quotes", async (req: Request, res: Response) => {
-  try {
-    const { accountId, instruments } = req.query;
+router.get(
+  "/market-data/quotes",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
+    const { instruments } = req.query;
 
-    if (!accountId || !instruments) {
-      return res
-        .status(400)
-        .json({ error: "accountId and instruments are required" });
+    if (!instruments) {
+      return res.status(400).json({ error: "instruments are required" });
     }
 
-    const account = await getAccountById(accountId as string);
-
-    if (!account || account.accountType !== "upstox") {
+    if (account.accountType !== "upstox") {
       return res.status(404).json({ error: "Upstox account not found" });
     }
 
@@ -132,27 +121,18 @@ router.get("/market-data/quotes", async (req: Request, res: Response) => {
       success: true,
       data: quotes,
     });
-  } catch (error: any) {
-    console.error("Error fetching quotes:", error);
-    return res.status(500).json({
-      error: "Failed to fetch quotes",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // GET /api/upstox/market-data/authorize - Authorize WebSocket
-router.get("/market-data/authorize", async (req: Request, res: Response) => {
-  try {
-    const { accountId } = req.query;
+router.get(
+  "/market-data/authorize",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
 
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    const account = await getAccountById(accountId as string);
-
-    if (!account || account.accountType !== "upstox") {
+    if (account.accountType !== "upstox") {
       return res.status(404).json({ error: "Upstox account not found" });
     }
 
@@ -165,7 +145,6 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
       });
     }
 
-    // Check if sandbox account - WebSocket not supported in sandbox mode
     const isSandbox = account.metadata?.sandbox || false;
     if (isSandbox) {
       return res.status(400).json({
@@ -176,8 +155,6 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
       });
     }
 
-    // Call Upstox API to get authorized WebSocket URL
-    // This is required - direct WebSocket connection with access_token doesn't work
     try {
       const authResponse = await fetch(
         "https://api.upstox.com/v2/feed/market-data-feed/authorize",
@@ -196,7 +173,6 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
       if (!authResponse.ok) {
         console.error("Upstox WebSocket auth failed:", authData);
 
-        // Check for specific error codes
         if (authResponse.status === 401) {
           return res.status(401).json({
             success: false,
@@ -207,7 +183,6 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
           });
         }
 
-        // Check if market is closed
         if (authData?.errors?.[0]?.message?.toLowerCase().includes("market")) {
           return res.status(503).json({
             success: false,
@@ -226,7 +201,6 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
         });
       }
 
-      // Upstox returns the authorized WebSocket URL in data.authorizedRedirectUri
       const wsUrl = authData?.data?.authorizedRedirectUri;
 
       if (!wsUrl) {
@@ -253,18 +227,13 @@ router.get("/market-data/authorize", async (req: Request, res: Response) => {
         details: fetchError.message,
       });
     }
-  } catch (error: any) {
-    console.error("Error authorizing Upstox WebSocket:", error);
-    return res.status(500).json({
-      error: "Failed to authorize WebSocket",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
-// POST /api/upstox/instruments/resolve - Resolve symbols to instrument keys
-router.post("/instruments/resolve", async (req: Request, res: Response) => {
-  try {
+// POST /api/upstox/instruments/resolve - Resolve symbols to instrument keys (Optional Auth for generic resolution)
+router.post(
+  "/instruments/resolve",
+  asyncHandler(async (req: Request, res: Response) => {
     const { symbols } = req.body;
 
     if (!symbols || !Array.isArray(symbols)) {
@@ -277,22 +246,16 @@ router.post("/instruments/resolve", async (req: Request, res: Response) => {
       success: true,
       mappings,
     });
-  } catch (error: any) {
-    console.error("Error resolving instruments:", error);
-    return res.status(500).json({
-      error: "Failed to resolve instruments",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // GET /api/upstox/market-data/proto - Get Protobuf schema
-router.get("/market-data/proto", async (req: Request, res: Response) => {
-  try {
+router.get(
+  "/market-data/proto",
+  asyncHandler(async (req: Request, res: Response) => {
     const fs = require("fs");
     const path = require("path");
 
-    // Try to find the proto file in potential locations
     const possiblePaths = [
       path.join(process.cwd(), "src", "proto", "MarketDataFeed.proto"),
       path.join(process.cwd(), "proto", "MarketDataFeed.proto"),
@@ -315,13 +278,7 @@ router.get("/market-data/proto", async (req: Request, res: Response) => {
     const content = fs.readFileSync(protoPath, "utf-8");
     res.setHeader("Content-Type", "text/plain");
     return res.send(content);
-  } catch (error: any) {
-    console.error("Error serving proto file:", error);
-    return res.status(500).json({
-      error: "Failed to serve proto file",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 export default router;

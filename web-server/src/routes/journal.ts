@@ -1,26 +1,17 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import { BinanceService } from "../lib/binance-service";
-import { getAccountById } from "../models/account";
-import { demoAccountService } from "../lib/demo-account-service";
 import JournalTrade from "../models/journal-trade";
 import JournalSync from "../models/journal-sync";
 import { syncAccount, SyncProgressEvent } from "../lib/journal-sync-service";
+import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { demoAccountService } from "../lib/demo-account-service";
+import { asyncHandler } from "../lib/async-handler";
 
 const router: Router = Router();
 
-/**
- * Resolve account from accountId, handling demo account pattern.
- */
-async function resolveAccount(accountId: string) {
-  if (demoAccountService.isDemoAccountId(accountId)) {
-    const account = demoAccountService.getDemoAccount(true);
-    if (!account) throw new Error("Demo account not configured");
-    return { account, userId: "system" };
-  }
-  const account = await getAccountById(accountId);
-  if (!account) throw new Error("Account not found");
-  return { account, userId: account.userId };
-}
+// All journal routes require authentication and account access check
+router.use(requireAuth);
+router.use(requireAccountAccess);
 
 function initBinanceService(account: any): BinanceService {
   const service = new BinanceService();
@@ -33,18 +24,16 @@ function initBinanceService(account: any): BinanceService {
 }
 
 // ── POST /api/journal/sync ─────────────────────────────
+router.post(
+  "/sync",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
+    const userId = demoAccountService.isDemoAccountId(account._id) ? "system" : req.user!.id;
 
-router.post("/sync", async (req: Request, res: Response) => {
-  try {
-    const { accountId } = req.body;
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    const { account, userId } = await resolveAccount(accountId);
     if (account.accountType !== "binance") {
       return res.status(400).json({ error: "Only Binance accounts are supported" });
     }
+
     const tradingSegment = account.metadata?.tradingSegment || "spot";
     if (tradingSegment !== "usdm") {
       return res.status(400).json({
@@ -54,39 +43,27 @@ router.post("/sync", async (req: Request, res: Response) => {
 
     const service = initBinanceService(account);
 
-    // Fire-and-forget — respond immediately, sync runs in background
-    syncAccount(accountId, userId, service).catch((err) => {
+    // Fire-and-forget sync
+    syncAccount(account._id!, userId, service).catch((err) => {
       console.error("Journal background sync error:", err);
     });
 
     return res.status(202).json({ success: true, message: "Sync started" });
-  } catch (error: any) {
-    if (error.message === "Sync already in progress for this account") {
-      return res.status(409).json({ error: error.message });
-    }
-    console.error("Journal sync error:", error);
-    return res.status(500).json({
-      error: "Failed to sync journal",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // ── GET /api/journal/sync/stream (SSE) ─────────────────
+router.get(
+  "/sync/stream",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
+    const userId = demoAccountService.isDemoAccountId(account._id) ? "system" : req.user!.id;
 
-router.get("/sync/stream", async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { accountId } = req.query;
-    if (!accountId) {
-      res.status(400).json({ error: "accountId is required" });
-      return;
-    }
-
-    const { account, userId } = await resolveAccount(accountId as string);
     if (account.accountType !== "binance") {
       res.status(400).json({ error: "Only Binance accounts are supported" });
       return;
     }
+
     const tradingSegment = account.metadata?.tradingSegment || "spot";
     if (tradingSegment !== "usdm") {
       res.status(400).json({
@@ -109,41 +86,23 @@ router.get("/sync/stream", async (req: Request, res: Response): Promise<void> =>
     };
 
     try {
-      await syncAccount(accountId as string, userId, service, send);
+      await syncAccount(account._id!, userId, service, send);
     } catch {
-      // error event already sent by syncAccount via onProgress
+      // error event already sent by syncAccount
     }
 
     res.end();
-  } catch (error: any) {
-    // If headers already sent (unlikely but defensive), just end
-    if (res.headersSent) {
-      res.end();
-      return;
-    }
-    if (error.message === "Sync already in progress for this account") {
-      res.status(409).json({ error: error.message });
-      return;
-    }
-    console.error("Journal sync stream error:", error);
-    res.status(500).json({
-      error: "Failed to start sync stream",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // ── GET /api/journal/sync/status ───────────────────────
-
-router.get("/sync/status", async (req: Request, res: Response) => {
-  try {
-    const { accountId } = req.query;
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
+router.get(
+  "/sync/status",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
 
     const syncState = await JournalSync.findOne({
-      accountId: accountId as string,
+      accountId: account._id,
     }).lean();
 
     if (!syncState) {
@@ -170,21 +129,15 @@ router.get("/sync/status", async (req: Request, res: Response) => {
         symbolsSynced: syncState.symbolsSynced,
       },
     });
-  } catch (error: any) {
-    console.error("Error fetching sync status:", error);
-    return res.status(500).json({
-      error: "Failed to fetch sync status",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // ── GET /api/journal/trades ────────────────────────────
-
-router.get("/trades", async (req: Request, res: Response) => {
-  try {
+router.get(
+  "/trades",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
     const {
-      accountId,
       status,
       symbol,
       direction,
@@ -196,17 +149,12 @@ router.get("/trades", async (req: Request, res: Response) => {
       sortOrder,
     } = req.query;
 
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    const query: any = { accountId: accountId as string };
+    const query: any = { accountId: account._id };
 
     if (status) query.status = status;
     if (symbol) query.symbol = (symbol as string).toUpperCase();
     if (direction) query.direction = direction;
 
-    // Date filtering on entryTime
     if (startDate || endDate) {
       query.entryTime = {};
       if (startDate) query.entryTime.$gte = new Date(startDate as string);
@@ -242,31 +190,21 @@ router.get("/trades", async (req: Request, res: Response) => {
         hasMore: skip + pageSizeNum < total,
       },
     });
-  } catch (error: any) {
-    console.error("Error fetching journal trades:", error);
-    return res.status(500).json({
-      error: "Failed to fetch trades",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // ── GET /api/journal/stats ─────────────────────────────
-
-router.get("/stats", async (req: Request, res: Response) => {
-  try {
-    const { accountId, period, startDate, endDate } = req.query;
-
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
+router.get(
+  "/stats",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
+    const { period, startDate, endDate } = req.query;
 
     const match: any = {
-      accountId: accountId as string,
+      accountId: account._id,
       status: "CLOSED",
     };
 
-    // Apply time filter
     if (startDate || endDate) {
       match.exitTime = {};
       if (startDate) match.exitTime.$gte = new Date(startDate as string);
@@ -381,27 +319,18 @@ router.get("/stats", async (req: Request, res: Response) => {
         expectancy,
       },
     });
-  } catch (error: any) {
-    console.error("Error fetching journal stats:", error);
-    return res.status(500).json({
-      error: "Failed to fetch stats",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // ── GET /api/journal/chart/equity ──────────────────────
-
-router.get("/chart/equity", async (req: Request, res: Response) => {
-  try {
-    const { accountId, period, startDate, endDate } = req.query;
-
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
+router.get(
+  "/chart/equity",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
+    const { period, startDate, endDate } = req.query;
 
     const match: any = {
-      accountId: accountId as string,
+      accountId: account._id,
       status: "CLOSED",
       exitTime: { $ne: null },
     };
@@ -439,27 +368,18 @@ router.get("/chart/equity", async (req: Request, res: Response) => {
     });
 
     return res.json({ success: true, data });
-  } catch (error: any) {
-    console.error("Error fetching equity chart:", error);
-    return res.status(500).json({
-      error: "Failed to fetch equity chart data",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 // ── GET /api/journal/chart/daily-pnl ───────────────────
-
-router.get("/chart/daily-pnl", async (req: Request, res: Response) => {
-  try {
-    const { accountId, period, startDate, endDate } = req.query;
-
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
+router.get(
+  "/chart/daily-pnl",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const account = req.account!;
+    const { period, startDate, endDate } = req.query;
 
     const match: any = {
-      accountId: accountId as string,
+      accountId: account._id,
       status: "CLOSED",
       exitTime: { $ne: null },
     };
@@ -499,7 +419,6 @@ router.get("/chart/daily-pnl", async (req: Request, res: Response) => {
     const results = await JournalTrade.aggregate(pipeline);
 
     const data = results.map((r: any) => {
-      // Convert date string to unix timestamp (start of day UTC)
       const dateMs = new Date(r._id + "T00:00:00Z").getTime();
       return {
         time: Math.floor(dateMs / 1000),
@@ -509,13 +428,7 @@ router.get("/chart/daily-pnl", async (req: Request, res: Response) => {
     });
 
     return res.json({ success: true, data });
-  } catch (error: any) {
-    console.error("Error fetching daily PnL chart:", error);
-    return res.status(500).json({
-      error: "Failed to fetch daily PnL chart data",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 export default router;

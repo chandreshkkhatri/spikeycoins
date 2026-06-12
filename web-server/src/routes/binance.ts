@@ -1,8 +1,9 @@
 import { Router, Request, Response } from "express";
 import { BinanceService } from "../lib/binance-service";
 import binancePriceService from "../lib/binance-price-service";
-import { getAccountById } from "../models/account";
+import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
 import { demoAccountService } from "../lib/demo-account-service";
+import { asyncHandler } from "../lib/async-handler";
 
 const router: Router = Router();
 const AGGREGATED_HISTORY_SYMBOL_LIMIT = 20;
@@ -11,11 +12,7 @@ const normalizeSymbol = (symbol?: string) =>
   typeof symbol === "string" ? symbol.trim().toUpperCase() : undefined;
 
 /**
- * Derive symbols for history queries. Priority:
- * 1. If a specific symbol is provided, use it
- * 2. Get symbols from income history (realized PnL) - this covers all traded symbols
- * 3. Get symbols from current positions
- * 4. Get symbols from open orders
+ * Derive symbols for history queries.
  */
 const deriveHistorySymbols = async (
   service: BinanceService,
@@ -27,8 +24,6 @@ const deriveHistorySymbols = async (
     return [preferredSymbol];
   }
 
-  // Try to get symbols from income history first (covers all traded symbols)
-  // Fetch up to 1000 records (max allowed by Binance) to capture all symbols
   try {
     const income = await service.getFuturesIncomeHistory(
       "REALIZED_PNL",
@@ -51,7 +46,6 @@ const deriveHistorySymbols = async (
     console.warn("Failed to derive history symbols from income:", err);
   }
 
-  // Fallback to current positions
   try {
     const positions = await service.getFuturesPositions();
     if (Array.isArray(positions)) {
@@ -70,7 +64,6 @@ const deriveHistorySymbols = async (
     console.warn("Failed to derive history symbols from positions:", err);
   }
 
-  // Fallback to open orders
   try {
     const openOrders = await service.getFuturesOpenOrders();
     if (Array.isArray(openOrders)) {
@@ -88,10 +81,10 @@ const deriveHistorySymbols = async (
   return [];
 };
 
-// GET /api/binance/price - Get current price for a symbol
-// IMPORTANT: Uses websocket cache to avoid excessive API calls and rate limits
-router.get("/price", async (req: Request, res: Response) => {
-  try {
+// GET /api/binance/price - Get current price for a symbol (Public)
+router.get(
+  "/price",
+  asyncHandler(async (req: Request, res: Response) => {
     const { symbol, segment } = req.query;
 
     if (!symbol) {
@@ -99,9 +92,8 @@ router.get("/price", async (req: Request, res: Response) => {
     }
 
     const upperSymbol = (symbol as string).toUpperCase();
-    const tradingSegment = (segment as string) || "usdm"; // Default to futures as that's what's cached
+    const tradingSegment = (segment as string) || "usdm";
 
-    // Use websocket-cached prices instead of REST API to avoid rate limits
     const cachedPrice = binancePriceService.getPrice(upperSymbol);
 
     if (!cachedPrice) {
@@ -112,7 +104,6 @@ router.get("/price", async (req: Request, res: Response) => {
       });
     }
 
-    // Format response to match Binance API structure
     const price = {
       symbol: cachedPrice.symbol,
       price: cachedPrice.lastPrice.toString(),
@@ -124,19 +115,13 @@ router.get("/price", async (req: Request, res: Response) => {
       segment: tradingSegment,
       source: "websocket_cache",
     });
-  } catch (error: any) {
-    console.error("Error fetching Binance price:", error);
-    return res.status(500).json({
-      error: "Failed to fetch price",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
-// GET /api/binance/ticker - Get 24hr ticker statistics
-// IMPORTANT: Uses websocket cache to avoid excessive API calls and rate limits
-router.get("/ticker", async (req: Request, res: Response) => {
-  try {
+// GET /api/binance/ticker - Get 24hr ticker statistics (Public)
+router.get(
+  "/ticker",
+  asyncHandler(async (req: Request, res: Response) => {
     const { symbol, segment } = req.query;
 
     if (!symbol) {
@@ -144,9 +129,8 @@ router.get("/ticker", async (req: Request, res: Response) => {
     }
 
     const upperSymbol = (symbol as string).toUpperCase();
-    const tradingSegment = (segment as string) || "usdm"; // Default to futures as that's what's cached
+    const tradingSegment = (segment as string) || "usdm";
 
-    // Use websocket-cached prices which include 24hr ticker data
     const cachedPrice = binancePriceService.getPrice(upperSymbol);
 
     if (!cachedPrice) {
@@ -157,7 +141,6 @@ router.get("/ticker", async (req: Request, res: Response) => {
       });
     }
 
-    // Format response to match Binance 24hr ticker structure
     const ticker = {
       symbol: cachedPrice.symbol,
       priceChange: cachedPrice.priceChange.toString(),
@@ -175,30 +158,17 @@ router.get("/ticker", async (req: Request, res: Response) => {
       segment: tradingSegment,
       source: "websocket_cache",
     });
-  } catch (error: any) {
-    console.error("Error fetching Binance ticker:", error);
-    return res.status(500).json({
-      error: "Failed to fetch ticker",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
-// GET /api/binance/exchange-info - Get all symbols and their rules
-// IMPORTANT: Uses static cache in service to avoid rate limits
-router.get("/exchange-info", async (req: Request, res: Response) => {
-  try {
+// GET /api/binance/exchange-info - Get all symbols and their rules (Public)
+router.get(
+  "/exchange-info",
+  asyncHandler(async (req: Request, res: Response) => {
     const { segment } = req.query;
     const tradingSegment = (segment as string) || "usdm";
 
-    // Only supporting USD-M futures for now as that's what the service methods focused on
-    if (tradingSegment !== "usdm") {
-         // Fallback or error?
-         // For now, let's just return futures info as that's the main usage.
-    }
-
     const binanceService = new BinanceService();
-    // No credentials needed for public info
     const info = await binanceService.getFuturesExchangeInfo();
 
     return res.json({
@@ -206,18 +176,13 @@ router.get("/exchange-info", async (req: Request, res: Response) => {
       data: info,
       segment: tradingSegment,
     });
-  } catch (error: any) {
-    console.error("Error fetching exchange info:", error);
-    return res.status(500).json({
-      error: "Failed to fetch exchange info",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
-// GET /api/binance/test - Test connectivity
-router.get("/test", async (req: Request, res: Response) => {
-  try {
+// GET /api/binance/test - Test connectivity (Public)
+router.get(
+  "/test",
+  asyncHandler(async (req: Request, res: Response) => {
     const { segment } = req.query;
     const tradingSegment = (segment as string) || "spot";
 
@@ -236,37 +201,22 @@ router.get("/test", async (req: Request, res: Response) => {
       success: true,
       segment: tradingSegment,
     });
-  } catch (error: any) {
-    console.error("Error testing Binance connectivity:", error);
-    return res.status(500).json({
-      error: "Failed to test connectivity",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
-// POST /api/binance/leverage - Change leverage for futures
-router.post("/leverage", async (req: Request, res: Response) => {
-  try {
-    const { accountId, symbol, leverage } = req.body;
+// POST /api/binance/leverage - Change leverage for futures (Authenticated)
+router.post(
+  "/leverage",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { symbol, leverage } = req.body;
+    const account = req.account!;
 
-    if (!accountId || !symbol || !leverage) {
+    if (!symbol || !leverage) {
       return res.status(400).json({
-        error: "accountId, symbol, and leverage are required",
+        error: "symbol and leverage are required",
       });
-    }
-
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
     }
 
     if (account.accountType !== "binance") {
@@ -296,37 +246,22 @@ router.post("/leverage", async (req: Request, res: Response) => {
       success: true,
       result,
     });
-  } catch (error: any) {
-    console.error("Error changing leverage:", error);
-    return res.status(500).json({
-      error: "Failed to change leverage",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
-// POST /api/binance/margin-type - Change margin type for futures
-router.post("/margin-type", async (req: Request, res: Response) => {
-  try {
-    const { accountId, symbol, marginType } = req.body;
+// POST /api/binance/margin-type - Change margin type for futures (Authenticated)
+router.post(
+  "/margin-type",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { symbol, marginType } = req.body;
+    const account = req.account!;
 
-    if (!accountId || !symbol || !marginType) {
+    if (!symbol || !marginType) {
       return res.status(400).json({
-        error: "accountId, symbol, and marginType are required",
+        error: "symbol and marginType are required",
       });
-    }
-
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
     }
 
     if (account.accountType !== "binance") {
@@ -359,36 +294,18 @@ router.post("/margin-type", async (req: Request, res: Response) => {
       success: true,
       result,
     });
-  } catch (error: any) {
-    console.error("Error changing margin type:", error);
-    return res.status(500).json({
-      error: "Failed to change margin type",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
-// GET /api/binance/position-details - Get detailed position info including calculated values
-router.get("/position-details", async (req: Request, res: Response) => {
-  try {
-    const { accountId, symbol } = req.query;
+// GET /api/binance/position-details - Get detailed position info including calculated values (Authenticated)
+router.get(
+  "/position-details",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { symbol } = req.query;
+    const account = req.account!;
 
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId as string)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId as string);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
-    }
     if (account.accountType !== "binance")
       return res.status(400).json({ error: "Not a Binance account" });
 
@@ -400,7 +317,6 @@ router.get("/position-details", async (req: Request, res: Response) => {
       isTestnet,
     );
 
-    // Fetch all necessary data in parallel
     const [
       accountInfo,
       positions,
@@ -415,7 +331,6 @@ router.get("/position-details", async (req: Request, res: Response) => {
       symbol ? binanceService.getFuturesExchangeInfo() : Promise.resolve(null),
     ]);
 
-    // Get symbol filters for tick size and quantity precision
     let tickSize = "0.01";
     let stepSize = "0.001";
     if (exchangeInfo && symbol) {
@@ -434,25 +349,16 @@ router.get("/position-details", async (req: Request, res: Response) => {
       }
     }
 
-    // 1. Account Level Calculations
     const totalMaintMargin = parseFloat(accountInfo.totalMaintMargin);
     const totalMarginBalance = parseFloat(accountInfo.totalMarginBalance);
-    const totalPositionInitialMargin = parseFloat(
-      accountInfo.totalPositionInitialMargin,
-    );
     const totalUnrealizedProfit = parseFloat(accountInfo.totalUnrealizedProfit);
     const availableBalance = parseFloat(accountInfo.availableBalance);
 
-    // Account Margin Ratio = Maintenance Margin / Margin Balance
     const accountMarginRatio =
       totalMarginBalance > 0
         ? (totalMaintMargin / totalMarginBalance) * 100
         : 0;
 
-    // Actual Leverage = Total Notional / Margin Balance
-    // Note: totalNotional isn't directly in accountInfo v2, usually sum of abs(position.notional)
-    // But we can approximate or calculate from positions if needed.
-    // For now, let's use what we have or calculate from positions list.
     let totalNotional = 0;
     positions.forEach((p: any) => {
       totalNotional += Math.abs(parseFloat(p.notional));
@@ -460,9 +366,8 @@ router.get("/position-details", async (req: Request, res: Response) => {
     const actualAccountLeverage =
       totalMarginBalance > 0 ? totalNotional / totalMarginBalance : 0;
 
-    // 2. Position Level Calculations (if symbol provided)
     let positionDetails = null;
-    let symbolMaxLeverage = 20; // Default safe value
+    let symbolMaxLeverage = 20;
 
     if (symbol) {
       const position = positions.find(
@@ -470,18 +375,16 @@ router.get("/position-details", async (req: Request, res: Response) => {
       );
       const bracket = Array.isArray(leverageBrackets)
         ? leverageBrackets[0]
-        : leverageBrackets; // if symbol passed, returns object or array of 1
+        : leverageBrackets;
       const funding = Array.isArray(premiumIndex)
         ? premiumIndex.find((p: any) => p.symbol === symbol)
         : premiumIndex;
 
-      // Get max leverage from brackets
       if (bracket && bracket.brackets && bracket.brackets.length > 0) {
         symbolMaxLeverage = bracket.brackets[0].initialLeverage;
       }
 
       if (position) {
-        // Safe number parsing helper
         const toSafeNumber = (value: unknown, fallback: number = 0): number => {
           if (value === null || value === undefined) return fallback;
           const num = typeof value === 'number' ? value : parseFloat(String(value));
@@ -493,24 +396,20 @@ router.get("/position-details", async (req: Request, res: Response) => {
         const size = toSafeNumber(position.positionAmt, 0);
         const leverage = toSafeNumber(position.leverage, 1);
         const unrealizedProfit = toSafeNumber(position.unRealizedProfit, 0);
-        const initialMargin = toSafeNumber(position.initialMargin, 0); // Position Margin
+        const initialMargin = toSafeNumber(position.initialMargin, 0);
         const maintMargin = toSafeNumber(position.maintMargin, 0);
         const marginBalance = toSafeNumber(position.marginBalance, 1);
 
-        // ROI %
         const roi =
           initialMargin > 0 ? (unrealizedProfit / initialMargin) * 100 : 0;
 
-        // Est. Funding Fee = Size * Mark Price * Funding Rate
         const fundingRate = funding ? toSafeNumber(funding.lastFundingRate, 0) : 0;
         const estFundingFee = Math.abs(size * markPrice) * fundingRate;
 
-        // Break Even Price (Approximate, ignoring fees for now or using standard 0.04% taker)
-        // Long: Entry * (1 + fee), Short: Entry * (1 - fee)
-        const TAKER_FEE = 0.0004; // 0.04%
+        const TAKER_FEE = 0.0004;
         const breakEvenPrice =
           size > 0
-            ? entryPrice * (1 + TAKER_FEE * 2) // Entry + Exit fee
+            ? entryPrice * (1 + TAKER_FEE * 2)
             : entryPrice * (1 - TAKER_FEE * 2);
 
         positionDetails = {
@@ -520,7 +419,7 @@ router.get("/position-details", async (req: Request, res: Response) => {
           markPrice,
           liquidationPrice: toSafeNumber(position.liquidationPrice, 0),
           margin: initialMargin,
-          marginRatio: marginBalance > 0 ? maintMargin / marginBalance : 0, // Position specific if isolated
+          marginRatio: marginBalance > 0 ? maintMargin / marginBalance : 0,
           pnl: unrealizedProfit,
           roi,
           estFundingFee,
@@ -552,36 +451,18 @@ router.get("/position-details", async (req: Request, res: Response) => {
           }
         : null,
     });
-  } catch (error: any) {
-    console.error("Error fetching position details:", error);
-    return res.status(500).json({
-      error: "Failed to fetch position details",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
-// GET /api/binance/order-history - Get order history
-router.get("/order-history", async (req: Request, res: Response) => {
-  try {
-    const { accountId, symbol, limit, timeframe, page, pageSize } = req.query;
+// GET /api/binance/order-history - Get order history (Authenticated)
+router.get(
+  "/order-history",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { symbol, limit, timeframe, page, pageSize } = req.query;
+    const account = req.account!;
 
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId as string)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId as string);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
-    }
     if (account.accountType !== "binance") {
       return res.status(400).json({ error: "Not a Binance account" });
     }
@@ -600,7 +481,6 @@ router.get("/order-history", async (req: Request, res: Response) => {
       account.metadata?.testnet ?? false,
     );
 
-    // Calculate time range based on timeframe
     const now = Date.now();
     let startTime: number | undefined;
     switch (timeframe) {
@@ -628,7 +508,6 @@ router.get("/order-history", async (req: Request, res: Response) => {
       ),
     );
 
-    // Fetch enough records to serve the requested page. We add +1 to detect hasMore.
     const fetchTarget = pageNumber * pageSizeValue + 1;
 
     const symbolsToFetch = await deriveHistorySymbols(
@@ -708,36 +587,18 @@ router.get("/order-history", async (req: Request, res: Response) => {
         updateTime: o.updateTime,
       })),
     });
-  } catch (error: any) {
-    console.error("Error fetching order history:", error);
-    return res.status(500).json({
-      error: "Failed to fetch order history",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
-// GET /api/binance/trade-history - Get trade history (executed trades)
-router.get("/trade-history", async (req: Request, res: Response) => {
-  try {
-    const { accountId, symbol, limit, timeframe, page, pageSize } = req.query;
+// GET /api/binance/trade-history - Get trade history (executed trades) (Authenticated)
+router.get(
+  "/trade-history",
+  requireAuth,
+  requireAccountAccess,
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { symbol, limit, timeframe, page, pageSize } = req.query;
+    const account = req.account!;
 
-    if (!accountId) {
-      return res.status(400).json({ error: "accountId is required" });
-    }
-
-    let account;
-    if (demoAccountService.isDemoAccountId(accountId as string)) {
-      account = demoAccountService.getDemoAccount(true);
-      if (!account) {
-        return res.status(500).json({ error: "Demo account not configured" });
-      }
-    } else {
-      account = await getAccountById(accountId as string);
-      if (!account) {
-        return res.status(404).json({ error: "Account not found" });
-      }
-    }
     if (account.accountType !== "binance") {
       return res.status(400).json({ error: "Not a Binance account" });
     }
@@ -756,7 +617,6 @@ router.get("/trade-history", async (req: Request, res: Response) => {
       account.metadata?.testnet ?? false,
     );
 
-    // Calculate time range based on timeframe
     const now = Date.now();
     let startTime: number | undefined;
     switch (timeframe) {
@@ -784,7 +644,6 @@ router.get("/trade-history", async (req: Request, res: Response) => {
       ),
     );
 
-    // Fetch enough records to serve the requested page. We add +1 to detect hasMore.
     const fetchTarget = pageNumber * pageSizeValue + 1;
 
     const symbolsToFetch = await deriveHistorySymbols(
@@ -859,13 +718,7 @@ router.get("/trade-history", async (req: Request, res: Response) => {
         maker: t.maker,
       })),
     });
-  } catch (error: any) {
-    console.error("Error fetching trade history:", error);
-    return res.status(500).json({
-      error: "Failed to fetch trade history",
-      details: error.message,
-    });
-  }
-});
+  })
+);
 
 export default router;
