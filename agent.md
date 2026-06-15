@@ -7,7 +7,7 @@ Welcome, Agent! This guide outlines the codebase structure, engineering design p
 ## 📂 Repository Structure
 
 Spikey Coins is a monorepo consisting of:
-*   **`ui/`**: Frontend React application built with Next.js 14+ (App Router), Tailwind CSS, Radix UI, and TypeScript.
+*   **`ui/`**: Frontend React application built with Next.js 16 (App Router), Tailwind CSS, Radix UI, and TypeScript.
 *   **`web-server/`**: Backend REST API built with Node.js, Express, TypeScript, and MongoDB (Mongoose).
 *   **`docs/`**: Documentation folder containing roadmaps, backlogs, and developer guides.
 
@@ -52,7 +52,7 @@ Backend routes utilize custom middlewares located in [auth-middleware.ts](file:/
     ```
 
 ### 3. Price Feeds & WebSockets
-*   **Binance Price Service:** [binance-price-service.ts](file:///home/ubuntu/code/spikeycoins/web-server/src/lib/binance-price-service.ts) caches prices from Binance Futures. It uses exponential backoff reconnection logic to ensure stability under network drops.
+*   **Binance Price Service:** [binance-price-service.ts](file:///home/ubuntu/code/spikeycoins/web-server/src/lib/binance-price-service.ts) caches 24hr ticker prices from Binance Futures WebSocket. It uses infinite retry logic with exponential backoff (capped at 2 minutes per attempt) to ensure stability under network drops.
 *   **Client Connections:** Live prices are pushed to the frontend via active WebSocket connections, using local storage state index validation on components to prevent state/visual synchronization mismatches.
 
 ---
@@ -75,7 +75,55 @@ Backend routes utilize custom middlewares located in [auth-middleware.ts](file:/
 
 ---
 
+---
+
+## 📊 Sprint Organization & Deliverables
+
+Spikey Coins is organized in **sprints**. Each sprint has:
+
+1. **Scope Definition**: Clear list of features, fixes, or refactorings (from the [Backlog](docs/BACKLOG.md))
+2. **Implementation**: Code changes with type safety, middleware enforcement, and state stabilization
+3. **Documentation**: Update relevant docs (README, architecture, guides) to reflect new features
+4. **Verification**: Run tests, type-check, lint, and manually test the UI
+
+### Current Status: Sprint 0
+
+**What's Done** (as of June 2026):
+- ✅ Multi-broker unification (Kite, Upstox, Binance) via BrokerFactory
+- ✅ Real-time price feeds via Binance WebSocket with infinite retry + exponential backoff
+- ✅ Order execution with SL/TP auto-cancellation logic
+- ✅ API key encryption at rest (AES-256-GCM)
+- ✅ Trade journal auto-sync from Binance fills
+- ✅ PWA support with offline IndexedDB candle cache
+- ✅ Centralized API client on frontend with token refresh
+- ✅ Authentication via OAuth 2.0 (Google, Kite, Upstox)
+- ✅ Multi-session support with refresh token rotation
+
+### Future Sprints
+
+Each sprint will:
+1. Pick 3-5 items from the [Backlog](docs/BACKLOG.md)
+2. Estimate effort (small/medium/large)
+3. Document completion in this handbook and backlog
+4. Update [Roadmap](docs/ROADMAP.md) if timeline changes
+
+**Backlog Items** (next sprint candidates):
+- BG-002: Trailing Stop Loss tracking
+- BG-003: TradingView webhook integration
+- BG-004: Screener sorting persistence
+- BG-005: Upstox WebSocket heartbeat monitoring
+
+When picking backlog items, prioritize:
+1. **Security**: Any auth/encryption/key management issues
+2. **Reliability**: WebSocket reconnection, error handling, data sync
+3. **User Impact**: Features that improve trading experience
+
+---
+
 ## 📚 Further Reading
 
+*   [Architecture](docs/ARCHITECTURE.md) — System design, broker layer, WebSocket services, data models
 *   [Roadmap](docs/ROADMAP.md) — Project phases and milestones
 *   [Backlog](docs/BACKLOG.md) — Prioritized engineering task list
+*   [Backend README](web-server/README.md) / [Quickstart](web-server/QUICKSTART.md) — API reference
+*   [Frontend README](ui/README.md) — UI setup & state management

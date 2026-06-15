@@ -70,7 +70,7 @@ Expected response:
 ### Get Accounts (empty initially)
 
 ```bash
-curl "http://localhost:3001/api/accounts?userId=default_user"
+curl "http://localhost:8000/api/accounts?userId=default_user"
 ```
 
 Expected response:
@@ -85,7 +85,7 @@ Expected response:
 ### Create an Account
 
 ```bash
-curl -X POST http://localhost:3001/api/accounts \
+curl -X POST http://localhost:8000/api/accounts \
   -H "Content-Type: application/json" \
   -d '{
     "userId": "default_user",
@@ -108,13 +108,13 @@ If you see `Failed to connect to MongoDB`, ensure:
 
 ### Port Already in Use
 
-If port 3001 is busy:
+If port 8000 is busy:
 
 - Change `PORT` in `.env` to another port (e.g., 3002)
 - Or kill the process using the port:
   ```bash
   # Find process
-  lsof -i :3001
+  lsof -i :8000
   # Kill it
   kill -9 <PID>
   ```
@@ -153,8 +153,8 @@ web-server/
 
 - Configure your trading accounts via the API
 - Test authentication flows for Kite/Upstox
-- Start building the Vite frontend
-- Connect frontend to this Express backend
+- See the [Architecture guide](../docs/ARCHITECTURE.md) to understand the system design
+- Check the [Contributing guidelines](../CONTRIBUTING.md) for development workflow
 
 ## 10. Useful Commands
 

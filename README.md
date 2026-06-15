@@ -6,8 +6,9 @@ Spikey Coins is a comprehensive trading platform that unifies multiple brokerage
 
 The project is organized as a monorepo with two main components:
 
-- **`vite-ui/`**: The Frontend application built with React, Vite, TypeScript, and Tailwind CSS.
+- **`ui/`**: The Frontend application built with Next.js (App Router), React, TypeScript, and Tailwind CSS.
 - **`web-server/`**: The Backend REST API built with Express, Node.js, TypeScript, and MongoDB.
+- **`docs/`**: Architecture notes, product roadmap, and engineering backlog.
 
 ## ✨ Features
 
@@ -21,11 +22,12 @@ The project is organized as a monorepo with two main components:
 ## 🛠️ Tech Stack
 
 ### Frontend
-- **Framework**: React 18 with Vite
+- **Framework**: Next.js 16 (App Router) with React 19
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS, Radix UI
 - **State Management**: React Context API
 - **Charts**: Lightweight Charts
+- **PWA**: Installable with offline IndexedDB candle cache
 
 ### Backend
 - **Runtime**: Node.js
@@ -71,7 +73,7 @@ The server will start on `http://localhost:8000` (default).
 Open a new terminal, navigate to the frontend directory, and install dependencies:
 
 ```bash
-cd vite-ui
+cd ui
 npm install
 ```
 
@@ -81,14 +83,21 @@ Create a `.env` file:
 cp .env.example .env
 ```
 
-Ensure `VITE_API_URL` points to your backend (e.g., `http://localhost:8000`).
+Ensure `NEXT_PUBLIC_API_URL` points to your backend (e.g., `http://localhost:8000`). Set it only when the backend is non-local; for local dev the app proxies `/api` to the same host.
 
 Start the frontend development server:
 
 ```bash
 npm run dev
 ```
-The application will be available at `http://localhost:5173` (default).
+The application will be available at `http://localhost:3020` (default; configurable via `PORT`). The dev server is launched through a custom `scripts/dev.mjs` wrapper.
+
+## 📚 Further Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — system design, broker layer, WebSocket services, data model
+- [Contributing](CONTRIBUTING.md) — setup, coding standards, and PR workflow
+- [Backend README](web-server/README.md) / [Quickstart](web-server/QUICKSTART.md) — API reference and onboarding
+- [Roadmap](docs/ROADMAP.md) · [Backlog](docs/BACKLOG.md)
 
 ## 📄 License
 

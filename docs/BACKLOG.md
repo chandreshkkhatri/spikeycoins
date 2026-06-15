@@ -8,7 +8,7 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 
 | ID | Category | Task Description | Target Component | Status |
 |---|---|---|---|---|
-| **BG-001** | Security | Encrypt all stored API keys & secrets in MongoDB using AES-256-GCM. | `web-server` / Database | 🟥 To Do |
+| **BG-001** | Security | Encrypt all stored API keys & secrets in MongoDB using AES-256-GCM. | `web-server` / Database | ✅ Done |
 | **BG-002** | Execution | Implement server-side tracking of Trailing Stop Loss logic. | `web-server` / `lib` | 🟥 To Do |
 | **BG-003** | Execution | Build external webhook trade execution endpoint (for TradingView alerts integration). | `web-server` / `routes` | 🟥 To Do |
 | **BG-004** | UI/UX | Persist user sorting preferences in the Screener across browser refreshes. | `ui` / Screener | 🟥 To Do |
@@ -20,7 +20,7 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 
 | ID | Category | Task Description | Target Component | Status |
 |---|---|---|---|---|
-| **BG-006** | Analytics | Implement automated trade journal syncing to save execution history. | `web-server` / MongoDB | 🟥 To Do |
+| **BG-006** | Analytics | Implement automated trade journal syncing to save execution history. | `web-server` / MongoDB | ✅ Done |
 | **BG-007** | UI/UX | Integrate standard drawing tools (Trendlines, Fibonacci) into MultiTimeframeChart. | `ui` / Charts | 🟥 To Do |
 | **BG-008** | Analytics | Build initial Win Rate / Sharpe Ratio calculation modules. | `web-server` / Analytics | 🟥 To Do |
 | **BG-009** | Gym | Support loading multi-day historical data for replay simulation backtesting. | `web-server` / Gym | 🟥 To Do |

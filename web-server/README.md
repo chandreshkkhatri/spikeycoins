@@ -48,7 +48,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Server will start on `http://localhost:3001` with hot reload enabled.
+Server will start on `http://localhost:8000` with hot reload enabled.
 
 #### Production
 
@@ -126,27 +126,35 @@ Server will start with Node.js inspector on port 9229.
 ```
 web-server/
 ├── src/
-│   ├── lib/               # Utility libraries
-│   │   ├── mongodb.ts     # MongoDB connection
-│   │   ├── limiter.ts     # Rate limiter
-│   │   ├── kiteconnect-service.ts
-│   │   └── upstox-service.ts
-│   ├── models/            # MongoDB models
-│   │   ├── account.ts
-│   │   ├── instrument.ts
-│   │   ├── session.ts
-│   │   ├── watchlist.ts
-│   │   └── simulator.ts
-│   ├── routes/            # API route handlers
-│   │   ├── accounts.ts
-│   │   ├── auth.ts
-│   │   ├── funds.ts
-│   │   ├── holdings.ts
-│   │   ├── orders.ts
-│   │   ├── positions.ts
-│   │   ├── watchlist.ts
-│   │   └── ...
-│   └── server.ts          # Main server file
+│   ├── lib/               # Core services & utilities
+│   │   ├── broker-factory.ts          # Unified broker client factory
+│   │   ├── binance-service.ts         # Binance API client
+│   │   ├── binance-price-service.ts   # Binance ticker WebSocket (futures)
+│   │   ├── binance-order-monitor.ts   # Binance order fill tracking
+│   │   ├── kiteconnect-service.ts     # Zerodha Kite API
+│   │   ├── upstox-service.ts          # Upstox API
+│   │   ├── encryption.ts              # AES-256-GCM for API keys
+│   │   ├── journal-sync-service.ts    # Trade history synchronization
+│   │   ├── push-notification-service.ts  # Web push (VAPID)
+│   │   ├── auth-middleware.ts         # Session & account access control
+│   │   ├── format-utils.ts            # Response formatting helpers
+│   │   └── mongodb.ts, limiter.ts, async-handler.ts
+│   ├── models/            # MongoDB schemas (14 models)
+│   │   ├── account.ts, user.ts, session.ts, refresh-token.ts
+│   │   ├── watchlist.ts, journal-trade.ts, journal-sync.ts
+│   │   ├── instrument.ts, gym-session.ts, historical-data-cache.ts
+│   │   ├── push-subscription.ts, user-settings.ts, app-config.ts, invite.ts
+│   ├── routes/            # API endpoints (20 route modules)
+│   │   ├── auth.ts, accounts.ts, trading.ts, orders.ts
+│   │   ├── positions.ts, holdings.ts, funds.ts, prices.ts
+│   │   ├── binance.ts, upstox.ts, watchlist.ts, historical-data.ts
+│   │   ├── journal.ts, notifications.ts, settings.ts, gym.ts
+│   │   ├── invite.ts, admin.ts, search.ts, db.ts
+│   ├── crypto/            # Market data microservice (independent)
+│   │   └── (Binance 24hr ticker, candlestick caching, Gemini research)
+│   ├── proto/             # Protocol buffers (MarketDataFeed.proto)
+│   ├── jobs/              # Background cron jobs (e.g., researchCron)
+│   └── server.ts          # Main Express server
 ├── package.json
 ├── tsconfig.json
 └── .env
@@ -179,10 +187,10 @@ Build output will be in the `dist/` directory.
 
 | Variable          | Description                            | Default                                     |
 | ----------------- | -------------------------------------- | ------------------------------------------- |
-| `PORT`            | Server port                            | 3001                                        |
+| `PORT`            | Server port                            | 8000                                        |
 | `NODE_ENV`        | Environment                            | development                                 |
-| `MONGODB_URI`     | MongoDB connection string              | mongodb://localhost:27017/spikey-coins         |
-| `ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | http://localhost:3000,http://localhost:5173 |
+| `MONGODB_URI`     | MongoDB connection string              | mongodb://localhost:27017/spikey-coins      |
+| `ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | http://localhost:8000,http://localhost:5173 |
 | `SESSION_SECRET`  | Session encryption secret              | (required)                                  |
 
 ## Security Notes
@@ -193,19 +201,9 @@ Build output will be in the `dist/` directory.
 - Session cookies are httpOnly and secure in production
 - CORS is configured to allow only specific origins
 
-## Next Steps
-
-To complete the migration from Next.js:
-
-1. ✅ Express backend created
-2. ⏳ Create Vite frontend
-3. ⏳ Update frontend to call Express API
-4. ⏳ Test all API endpoints
-5. ⏳ Deploy backend and frontend separately
-
 ## Support
 
-For issues or questions, check the main project README or contact the development team.
+For issues or questions, check the [root README](../README.md), [Architecture guide](../docs/ARCHITECTURE.md), or [Contributing guidelines](../CONTRIBUTING.md).
 
 
 
