@@ -152,4 +152,137 @@ export const handlers = [
       data: filtered,
     });
   }),
+
+  // Fetch funds
+  http.get("*/api/funds", ({ request }) => {
+    requestCounters.funds++;
+    const url = new URL(request.url);
+    const vendor = url.searchParams.get("vendor");
+
+    const isUpstox = vendor === "upstox";
+    const funds = isUpstox
+      ? {
+          totalBalance: "150000.00",
+          availableBalance: "125000.00",
+          usedMargin: "25000.00",
+          unrealizedPnl: "1500.00",
+        }
+      : {
+          totalBalance: "2500.50",
+          availableBalance: "2200.00",
+          usedMargin: "300.50",
+          unrealizedPnl: "-50.25",
+        };
+
+    return HttpResponse.json({
+      success: true,
+      funds,
+    });
+  }),
+
+  // Fetch holdings
+  http.get("*/api/holdings", ({ request }) => {
+    requestCounters.holdings++;
+    const url = new URL(request.url);
+    const accountId = url.searchParams.get("accountId");
+    const vendor = url.searchParams.get("vendor");
+
+    const allHoldings = [
+      {
+        id: "holding-1",
+        symbol: "RELIANCE",
+        exchange: "NSE",
+        quantity: 10,
+        averagePrice: 2400.00,
+        lastPrice: 2500.00,
+        currentValue: 25000.00,
+        pnl: 1000.00,
+        pnlPercentage: 4.17,
+        companyName: "Reliance Industries Ltd.",
+        isin: "INE002A01018",
+        vendor: "upstox",
+        accountId: accountId || "acc-upstox",
+        accountName: "My Upstox"
+      },
+      {
+        id: "holding-2",
+        symbol: "BTC",
+        exchange: "BINANCE",
+        quantity: 0.1,
+        averagePrice: 60000.00,
+        lastPrice: 65000.00,
+        currentValue: 6500.00,
+        pnl: 500.00,
+        pnlPercentage: 8.33,
+        companyName: "Bitcoin",
+        vendor: "binance",
+        accountId: accountId || "acc-binance",
+        accountName: "My Binance"
+      }
+    ];
+
+    const filtered = allHoldings.filter(
+      (h) => !vendor || h.vendor.toLowerCase() === vendor.toLowerCase()
+    );
+
+    return HttpResponse.json({
+      success: true,
+      data: filtered,
+    });
+  }),
+
+  // Fetch positions
+  http.get("*/api/positions", ({ request }) => {
+    requestCounters.positions++;
+    const url = new URL(request.url);
+    const accountId = url.searchParams.get("accountId");
+    const vendor = url.searchParams.get("vendor");
+
+    const allPositions = [
+      {
+        id: "position-1",
+        symbol: "NIFTY26JUNFUT",
+        exchange: "NFO",
+        quantity: 75,
+        averagePrice: 23500.00,
+        lastPrice: 23600.00,
+        pnl: 7500.00,
+        pnlPercentage: 0.43,
+        product: "futures",
+        vendor: "upstox",
+        accountId: accountId || "acc-upstox",
+        accountName: "My Upstox"
+      },
+      {
+        id: "position-2",
+        symbol: "ETHUSDT",
+        exchange: "BINANCE",
+        quantity: 1.5,
+        averagePrice: 3400.00,
+        lastPrice: 3500.00,
+        pnl: 150.00,
+        pnlPercentage: 2.94,
+        product: "futures",
+        vendor: "binance",
+        accountId: accountId || "acc-binance",
+        accountName: "My Binance"
+      }
+    ];
+
+    const filtered = allPositions.filter(
+      (p) => !vendor || p.vendor.toLowerCase() === vendor.toLowerCase()
+    );
+
+    return HttpResponse.json({
+      success: true,
+      data: filtered,
+    });
+  }),
 ];
+
+export const requestCounters = {
+  funds: 0,
+  holdings: 0,
+  positions: 0,
+};
+

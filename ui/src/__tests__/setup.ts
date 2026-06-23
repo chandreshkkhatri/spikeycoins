@@ -63,3 +63,24 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: vi.fn(),
   })),
 });
+
+// Polyfills for Radix Select and other components in jsdom
+if (typeof window !== "undefined") {
+  if (!window.HTMLElement.prototype.scrollIntoView) {
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+  }
+  if (!window.Element.prototype.hasPointerCapture) {
+    window.Element.prototype.hasPointerCapture = vi.fn();
+  }
+  if (!window.Element.prototype.releasePointerCapture) {
+    window.Element.prototype.releasePointerCapture = vi.fn();
+  }
+  if (!window.ResizeObserver) {
+    window.ResizeObserver = class ResizeObserver {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    };
+  }
+}
+
