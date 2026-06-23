@@ -4,7 +4,6 @@ import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import api from "@/lib/api";
 import {
   AlertTriangle,
   Package,
@@ -13,19 +12,9 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import { getVendorColor, formatBrokerAmount } from "@/lib/format-utils";
-
-// Global promise cache to deduplicate simultaneous fetches
-const POSITIONS_PROMISE_CACHE = new Map<string, Promise<unknown>>();
-
-interface TradingAccount {
-  _id: string;
-  accountName: string;
-  accountType: "binance" | "upstox";
-  isActive?: boolean;
-  accessToken?: string;
-}
+import { useAccountCardData } from "@/hooks/useAccountCardData";
+import { TradingAccount } from "@/hooks/account-card-types";
 
 interface UnifiedPositionResponse {
   id: string;
@@ -50,167 +39,45 @@ interface PositionsCardProps {
   className?: string;
 }
 
-interface AccountError {
-  accountId: string;
-  accountName: string;
-  requiresReauth: boolean;
-  message: string;
-}
-
 export default function PositionsCard({
   accounts,
   selectedAccountId,
   className,
 }: PositionsCardProps) {
   const router = useRouter();
-  const [positionsData, setPositionsData] = useState<UnifiedPositionResponse[]>(
-    []
-  );
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [accountErrors, setAccountErrors] = useState<AccountError[]>([]);
-  const [refreshing, setRefreshing] = useState<string | null>(null);
 
   // Filter accounts to show - if selectedAccountId is provided, show only that account
   const accountsToShow = selectedAccountId
     ? accounts.filter((acc) => acc._id === selectedAccountId)
     : accounts;
 
-  const fetchPositionsForAccount = async (
-    account: TradingAccount,
-    isRefresh = false
-  ) => {
-    if (isRefresh) {
-      setRefreshing(account._id);
-    }
+  const {
+    data: positionsData,
+    loading,
+    error,
+    accountErrors,
+    refreshing,
+    refresh,
+  } = useAccountCardData<UnifiedPositionResponse>({
+    endpoint: "/positions",
+    accounts,
+    selectedAccountId,
+    extractItems: (responseData) =>
+      Array.isArray(responseData?.data) ? responseData.data : [],
+    buildRequestUrl: (account) => {
+      const cacheBust = Date.now();
+      return `/positions?vendor=${account.accountType}&accountId=${account._id}&_=${cacheBust}`;
+    },
+    requestConfig: {
+      headers: {
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    },
+    dedupeInFlight: true,
+  });
 
-    try {
-      const cacheKey = `${account._id}-${isRefresh}`;
-
-      // If refreshing, bypass cache. Otherwise check cache.
-      let promise = !isRefresh ? POSITIONS_PROMISE_CACHE.get(cacheKey) : null;
-
-      if (!promise) {
-        promise = (async () => {
-          try {
-            const cacheBust = Date.now();
-            const response = await api.get(
-              `/positions?vendor=${account.accountType}&accountId=${account._id}&_=${cacheBust}`,
-              {
-                headers: {
-                  "Cache-Control": "no-cache",
-                  Pragma: "no-cache",
-                },
-              }
-            );
-            return response;
-          } finally {
-            // Clear cache after 2 seconds to allow subsequent fetches
-            setTimeout(() => {
-              POSITIONS_PROMISE_CACHE.delete(cacheKey);
-            }, 2000);
-          }
-        })();
-
-        if (!isRefresh) {
-          POSITIONS_PROMISE_CACHE.set(cacheKey, promise);
-        }
-      }
-
-      const response = (await promise) as { data?: { success?: boolean; data?: unknown; error?: string } };
-
-      if (response.data?.success) {
-        // Ensure data is an array before spreading
-        const positionsArray = Array.isArray(response.data.data)
-          ? response.data.data
-          : [];
-
-        setPositionsData((prev) => {
-          const filtered = prev.filter((p) => p.accountId !== account._id);
-          return [...filtered, ...positionsArray];
-        });
-
-        // Clear any previous errors for this account
-        setAccountErrors((prev) =>
-          prev.filter((e) => e.accountId !== account._id)
-        );
-        setError(null);
-      } else {
-        throw new Error(response.data?.error || "Failed to fetch positions");
-      }
-    } catch (err: unknown) {
-      const axiosError = err as {
-        response?: {
-          status?: number;
-          data?: {
-            requiresReauth?: boolean;
-            error?: string;
-            details?: string;
-          };
-        };
-        message?: string;
-      };
-      // Check if it's a 401 error (authentication failure)
-      if (axiosError.response?.status === 401) {
-        const errorData = axiosError.response?.data;
-        setAccountErrors((prev) => {
-          const filtered = prev.filter((e) => e.accountId !== account._id);
-          return [
-            ...filtered,
-            {
-              accountId: account._id,
-              accountName: account.accountName,
-              requiresReauth: errorData?.requiresReauth || true,
-              message:
-                errorData?.error ||
-                "Authentication failed. Please re-authenticate your account.",
-            },
-          ];
-        });
-      } else {
-        const errorMessage =
-          axiosError.response?.data?.error ||
-          axiosError.response?.data?.details ||
-          axiosError.message ||
-          "Failed to fetch positions";
-        setError(`${account.accountName}: ${errorMessage}`);
-      }
-    } finally {
-      if (isRefresh) {
-        setRefreshing(null);
-      }
-    }
-  };
-
-  const fetchAllPositions = async () => {
-    if (accountsToShow.length === 0) return;
-
-    setLoading(true);
-    setError(null);
-    setAccountErrors([]);
-    setPositionsData([]);
-
-    try {
-      // Fetch positions for all accounts in parallel
-      await Promise.allSettled(
-        accountsToShow.map((account) => fetchPositionsForAccount(account))
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRefresh = async (account: TradingAccount) => {
-    await fetchPositionsForAccount(account, true);
-  };
-
-  useEffect(() => {
-    // Only fetch if we have accounts to show
-    if (accountsToShow.length > 0) {
-      fetchAllPositions();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(accounts.map((a) => a._id)), selectedAccountId]);
+  const handleRefresh = refresh;
 
 
 

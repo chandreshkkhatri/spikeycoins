@@ -4,19 +4,11 @@ import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import api from "@/lib/api";
 import { AlertTriangle, Receipt, RefreshCw, ShoppingCart } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import { getVendorColor, formatBrokerAmount } from "@/lib/format-utils";
-
-interface TradingAccount {
-  _id: string;
-  accountName: string;
-  accountType: "binance" | "upstox";
-  isActive?: boolean;
-  accessToken?: string;
-}
+import { useAccountCardData } from "@/hooks/useAccountCardData";
+import { TradingAccount } from "@/hooks/account-card-types";
 
 interface UnifiedOrderResponse {
   id: string;
@@ -47,136 +39,34 @@ interface OrdersCardProps {
   className?: string;
 }
 
-interface AccountError {
-  accountId: string;
-  accountName: string;
-  requiresReauth: boolean;
-  message: string;
-}
-
 export default function OrdersCard({
   accounts = [],
   selectedAccountId,
   className,
 }: OrdersCardProps) {
   const router = useRouter();
-  const [ordersData, setOrdersData] = useState<UnifiedOrderResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [accountErrors, setAccountErrors] = useState<AccountError[]>([]);
-  const [refreshing, setRefreshing] = useState<string | null>(null);
 
   // Filter accounts to show - if selectedAccountId is provided, show only that account
   const accountsToShow = selectedAccountId
     ? accounts.filter((acc) => acc._id === selectedAccountId)
     : accounts;
 
-  const fetchOrdersForAccount = async (
-    account: TradingAccount,
-    isRefresh = false
-  ) => {
-    if (isRefresh) {
-      setRefreshing(account._id);
-    }
+  const {
+    data: ordersData,
+    loading,
+    error,
+    accountErrors,
+    refreshing,
+    refresh,
+  } = useAccountCardData<UnifiedOrderResponse>({
+    endpoint: "/orders",
+    accounts,
+    selectedAccountId,
+    extractItems: (responseData) =>
+      Array.isArray(responseData?.data) ? responseData.data : [],
+  });
 
-    try {
-      const response = await api.get(
-        `/orders?vendor=${account.accountType}&accountId=${account._id}`
-      );
-
-      if (response.data?.success) {
-        // Ensure data is an array before spreading
-        const ordersArray = Array.isArray(response.data.data)
-          ? response.data.data
-          : [];
-
-        setOrdersData((prev) => {
-          const filtered = prev.filter((o) => o.accountId !== account._id);
-          return [...filtered, ...ordersArray];
-        });
-
-        // Clear any previous errors for this account
-        setAccountErrors((prev) =>
-          prev.filter((e) => e.accountId !== account._id)
-        );
-        setError(null);
-      } else {
-        throw new Error(response.data?.error || "Failed to fetch orders");
-      }
-    } catch (err: unknown) {
-      const axiosError = err as {
-        response?: {
-          status?: number;
-          data?: {
-            requiresReauth?: boolean;
-            error?: string;
-            details?: string;
-          };
-        };
-        message?: string;
-      };
-      // Check if it's a 401 error (authentication failure)
-      if (axiosError.response?.status === 401) {
-        const errorData = axiosError.response?.data;
-        setAccountErrors((prev) => {
-          const filtered = prev.filter((e) => e.accountId !== account._id);
-          return [
-            ...filtered,
-            {
-              accountId: account._id,
-              accountName: account.accountName,
-              requiresReauth: errorData?.requiresReauth || true,
-              message:
-                errorData?.error ||
-                "Authentication failed. Please re-authenticate your account.",
-            },
-          ];
-        });
-      } else {
-        // Check both 'error' and 'details' fields for the actual error message
-        const errorMessage =
-          axiosError.response?.data?.error ||
-          axiosError.response?.data?.details ||
-          axiosError.message ||
-          "Failed to fetch orders";
-        setError(`${account.accountName}: ${errorMessage}`);
-      }
-    } finally {
-      if (isRefresh) {
-        setRefreshing(null);
-      }
-    }
-  };
-
-  const fetchAllOrders = async () => {
-    if (accountsToShow.length === 0) return;
-
-    setLoading(true);
-    setError(null);
-    setAccountErrors([]);
-    setOrdersData([]);
-
-    try {
-      // Fetch orders for all accounts in parallel
-      await Promise.allSettled(
-        accountsToShow.map((account) => fetchOrdersForAccount(account))
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRefresh = async (account: TradingAccount) => {
-    await fetchOrdersForAccount(account, true);
-  };
-
-  useEffect(() => {
-    // Only fetch if we have accounts to show
-    if (accountsToShow.length > 0) {
-      fetchAllOrders();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(accounts?.map((a) => a._id) || []), selectedAccountId]);
+  const handleRefresh = refresh;
 
 
 

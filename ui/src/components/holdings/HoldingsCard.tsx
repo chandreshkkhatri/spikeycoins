@@ -5,7 +5,6 @@ import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import api from "@/lib/api";
 import {
   AlertTriangle,
   Briefcase,
@@ -14,16 +13,9 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import { getVendorColor, formatBrokerAmount } from "@/lib/format-utils";
-
-interface TradingAccount {
-  _id: string;
-  accountName: string;
-  accountType: "binance" | "upstox";
-  isActive?: boolean;
-  accessToken?: string;
-}
+import { useAccountCardData } from "@/hooks/useAccountCardData";
+import { TradingAccount } from "@/hooks/account-card-types";
 
 interface UnifiedHoldingResponse {
   id: string;
@@ -50,160 +42,50 @@ interface HoldingsCardProps {
   className?: string;
 }
 
-interface AccountError {
-  accountId: string;
-  accountName: string;
-  requiresReauth: boolean;
-  message: string;
-}
-
 export default function HoldingsCard({
   accounts,
   selectedAccountId,
   className,
 }: HoldingsCardProps) {
   const router = useRouter();
-  const [holdingsData, setHoldingsData] = useState<UnifiedHoldingResponse[]>(
-    []
-  );
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [accountErrors, setAccountErrors] = useState<AccountError[]>([]);
-  const [refreshing, setRefreshing] = useState<string | null>(null);
 
   // Filter accounts to show - if selectedAccountId is provided, show only that account
   const accountsToShow = selectedAccountId
     ? accounts.filter((acc) => acc._id === selectedAccountId)
     : accounts;
 
-  const fetchHoldingsForAccount = async (
-    account: TradingAccount,
-    isRefresh = false
-  ) => {
-    if (isRefresh) {
-      setRefreshing(account._id);
-    }
-
-    try {
-      const response = await api.get(
-        `/holdings?vendor=${account.accountType}&accountId=${account._id}`
-      );
-
-      if (response.data?.success) {
-        // Ensure data is an array before spreading
-        const holdingsArray = Array.isArray(response.data.data)
-          ? response.data.data
-          : [];
-
-        setHoldingsData((prev) => {
-          const filtered = prev.filter((h) => h.accountId !== account._id);
-          return [...filtered, ...holdingsArray];
-        });
-
-        // Clear any previous errors for this account
-        setAccountErrors((prev) =>
-          prev.filter((e) => e.accountId !== account._id)
-        );
-        setError(null);
-      } else {
-        throw new Error(response.data?.error || "Failed to fetch holdings");
-      }
-    } catch (err: unknown) {
-      const axiosError = err as {
-        response?: {
-          status?: number;
-          data?: {
-            isPermissionError?: boolean;
-            requiresReauth?: boolean;
-            suggestion?: string;
-            error?: string;
-            details?: string;
-          };
-        };
-        message?: string;
-      };
-      const responseData = axiosError.response?.data;
-      const status = axiosError.response?.status;
-
-      // Check if it's a permission error (403) from Binance
+  const {
+    data: holdingsData,
+    loading,
+    error,
+    accountErrors,
+    refreshing,
+    refresh,
+  } = useAccountCardData<UnifiedHoldingResponse>({
+    endpoint: "/holdings",
+    accounts,
+    selectedAccountId,
+    extractItems: (responseData) =>
+      Array.isArray(responseData?.data) ? responseData.data : [],
+    classifyError: (err, account) => {
+      const status = err.response?.status;
+      const responseData = err.response?.data;
       if (status === 403 && responseData?.isPermissionError) {
-        setAccountErrors((prev) => {
-          const filtered = prev.filter((e) => e.accountId !== account._id);
-          return [
-            ...filtered,
-            {
-              accountId: account._id,
-              accountName: account.accountName,
-              requiresReauth: false,
-              message:
-                responseData.suggestion ||
-                responseData.error ||
-                "Permission denied",
-            },
-          ];
-        });
-      } else if (status === 401) {
-        // Handle authentication errors
-        setAccountErrors((prev) => {
-          const filtered = prev.filter((e) => e.accountId !== account._id);
-          return [
-            ...filtered,
-            {
-              accountId: account._id,
-              accountName: account.accountName,
-              requiresReauth: true,
-              message:
-                responseData?.error ||
-                "Authentication failed. Please re-authenticate your account.",
-            },
-          ];
-        });
-      } else {
-        // Check both 'error' and 'details' fields for the actual error message
-        const errorMessage =
-          responseData?.suggestion ||
-          responseData?.error ||
-          responseData?.details ||
-          axiosError.message ||
-          "Failed to fetch holdings";
-        setError(`${account.accountName}: ${errorMessage}`);
+        return {
+          accountId: account._id,
+          accountName: account.accountName,
+          requiresReauth: false,
+          message:
+            responseData.suggestion ||
+            responseData.error ||
+            "Permission denied",
+        };
       }
-    } finally {
-      if (isRefresh) {
-        setRefreshing(null);
-      }
-    }
-  };
+      return null;
+    },
+  });
 
-  const fetchAllHoldings = async () => {
-    if (accountsToShow.length === 0) return;
-
-    setLoading(true);
-    setError(null);
-    setAccountErrors([]);
-    setHoldingsData([]);
-
-    try {
-      // Fetch holdings for all accounts in parallel
-      await Promise.allSettled(
-        accountsToShow.map((account) => fetchHoldingsForAccount(account))
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRefresh = async (account: TradingAccount) => {
-    await fetchHoldingsForAccount(account, true);
-  };
-
-  useEffect(() => {
-    // Only fetch if we have accounts to show
-    if (accountsToShow.length > 0) {
-      fetchAllHoldings();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(accounts.map((a) => a._id)), selectedAccountId]); // Use stable stringified IDs
+  const handleRefresh = refresh;
 
 
 

@@ -5,7 +5,6 @@ import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import api from "@/lib/api";
 import {
   AlertTriangle,
   RefreshCw,
@@ -14,17 +13,10 @@ import {
   Wallet,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
 import { getVendorColor, formatBrokerAmount } from "@/lib/format-utils";
-
-// Use a flexible account type that works with both IAccount and TradingAccount from context
-interface TradingAccount {
-  _id: string;
-  accountName: string;
-  accountType: "binance" | "upstox";
-  isActive?: boolean;
-  accessToken?: string;
-}
+import { useAccountCardData } from "@/hooks/useAccountCardData";
+import { TradingAccount } from "@/hooks/account-card-types";
 
 interface UnifiedFundsResponse {
   totalBalance: string;
@@ -44,24 +36,12 @@ interface FundsCardProps {
   className?: string;
 }
 
-interface AccountError {
-  accountId: string;
-  accountName: string;
-  requiresReauth: boolean;
-  message: string;
-}
-
 export default function FundsCard({
   accounts,
   selectedAccountId,
   className,
 }: FundsCardProps) {
   const router = useRouter();
-  const [fundsData, setFundsData] = useState<UnifiedFundsResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [accountErrors, setAccountErrors] = useState<AccountError[]>([]);
-  const [refreshing, setRefreshing] = useState<string | null>(null);
 
   // Filter accounts to show - if selectedAccountId is provided, show only that account
   const accountsToShow = useMemo(
@@ -72,90 +52,33 @@ export default function FundsCard({
     [accounts, selectedAccountId]
   );
 
-  const fetchFundsForAccount = async (account: TradingAccount, isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(account._id);
-    }
-
-    try {
-      const response = await api.get(
-        `/funds?vendor=${account.accountType}&accountId=${account._id}`
-      );
-
-      if (response.data?.success && response.data.funds) {
-        const fundsResponse = {
-          ...response.data.funds,
+  const {
+    data: fundsData,
+    loading,
+    error,
+    accountErrors,
+    refreshing,
+    refresh,
+    refetchAll,
+  } = useAccountCardData<UnifiedFundsResponse>({
+    endpoint: "/funds",
+    accounts,
+    selectedAccountId,
+    extractItems: (responseData, account) => {
+      if (!responseData?.funds) return [];
+      return [
+        {
+          ...(responseData.funds as UnifiedFundsResponse),
           accountId: account._id,
           accountName: account.accountName,
           vendor: account.accountType,
           timestamp: new Date().toISOString(),
-        };
+        },
+      ];
+    },
+  });
 
-        setFundsData((prev) => {
-          const filtered = prev.filter((f) => f && f.accountId !== account._id);
-          return [...filtered, fundsResponse];
-        });
-        setError(null);
-      } else {
-        throw new Error(response.data?.error || "Failed to fetch funds");
-      }
-    } catch (err: unknown) {
-      const axiosError = err as { response?: { status?: number; data?: { requiresReauth?: boolean; error?: string } }; message?: string };
-      // Check if it's a 401 error (authentication failure)
-      if (axiosError.response?.status === 401) {
-        const errorData = axiosError.response?.data;
-        setAccountErrors((prev) => {
-          const filtered = prev.filter((e) => e.accountId !== account._id);
-          return [
-            ...filtered,
-            {
-              accountId: account._id,
-              accountName: account.accountName,
-              requiresReauth: errorData?.requiresReauth || true,
-              message:
-                errorData?.error ||
-                "Authentication failed. Please re-authenticate your account.",
-            },
-          ];
-        });
-      } else {
-        const errorMessage =
-          axiosError.response?.data?.error || axiosError.message || "Failed to fetch funds";
-        setError(`${account.accountName}: ${errorMessage}`);
-      }
-    } finally {
-      if (isRefresh) {
-        setRefreshing(null);
-      }
-    }
-  };
-
-  const fetchAllFunds = async () => {
-    if (accountsToShow.length === 0) return;
-
-    setLoading(true);
-    setError(null);
-    setAccountErrors([]);
-    setFundsData([]);
-
-    try {
-      // Fetch funds for all accounts in parallel
-      await Promise.allSettled(
-        accountsToShow.map((account) => fetchFundsForAccount(account))
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRefresh = async (account: TradingAccount) => {
-    await fetchFundsForAccount(account, true);
-  };
-
-  useEffect(() => {
-    fetchAllFunds();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(accountsToShow.map((a) => a._id))]);
+  const handleRefresh = refresh;
 
 
 
@@ -433,7 +356,7 @@ export default function FundsCard({
           <Wallet className="empty-icon" size={48} />
           <h3>No Funds Data</h3>
           <p>Unable to fetch funds information for your accounts.</p>
-          <Button onClick={fetchAllFunds} className="mt-4">
+          <Button onClick={refetchAll} className="mt-4">
             Try Again
           </Button>
         </div>

@@ -14,7 +14,7 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-004** | UI/UX | Persist user sorting preferences in the Screener across browser refreshes. | `ui` / Screener | 🟥 To Do |
 | **BG-005** | Performance| Implement connection heartbeat monitoring for Upstox WebSocket streams. | `web-server` / WebSocket | 🟥 To Do |
 | **BG-017** | Security | Tighten CORS: replace the `*.vercel.app` wildcard origin with an explicit allow-list. Deferred from the Sprint-0 audit. | `web-server` / config | 🟥 To Do |
-| **BG-018** | Security | Add auth-route ownership checks — verify the authenticated user owns the `accountId` they act on. Deferred from the Sprint-0 audit. | `web-server` / `routes` | 🟥 To Do |
+| **BG-018** | Security | Auth-route ownership checks — verify the authenticated user owns the `accountId` they act on. Already enforced by `requireAccountAccess` (`auth-middleware.ts`) across account routes + inline in `historical-data.ts`; confirmed during Sprint-1 planning. | `web-server` / `routes` | ✅ Done |
 
 ---
 
@@ -29,8 +29,12 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-010** | UI/UX | Improve toast notification layout for real-time order fill alerts. | `ui` / Layout | 🟥 To Do |
 | **BG-015** | Testing | Add MSW (Mock Service Worker) + a custom RTL `render` wrapper that injects `AuthContext`/`AccountContext`, then write integration tests for `useWatchlist.ts` and the trading cards — the highest-risk, most recently AI-refactored UI paths. See [sprint-0-summary.md](sprints/sprint-0-summary.md). | `ui` / Tests | ✅ Done |
 | **BG-016** | Testing | Stand up Vitest for `web-server` and write the first backend test for `binance-futures-order.service.ts` (DI-mocked `BinanceService`). Unblocks BG-014. See [sprint-0-summary.md](sprints/sprint-0-summary.md). | `web-server` / Tests | ✅ Done |
-| **BG-019** | Tech Debt | De-duplicate `format-utils` across `ui/` and `web-server/` — decide on a shared location or accept the split deliberately. Last dedup target deferred from Sprint-0 refactor iteration 2. | `ui` / `web-server` | 🟥 To Do |
+| **BG-019** | Tech Debt | ~~De-duplicate `format-utils` across `ui/` and `web-server/`~~ — Sprint-1 planning confirmed the two files share **zero** functions (UI = display formatters, backend = API normalizers); not actually duplicated. Optional: rename `web-server/format-utils` for clarity. | `ui` / `web-server` | ⬜ Won't Do |
 | **BG-020** | Testing | Extend integration tests to the remaining trading cards (`Funds`/`Holdings`/`Positions`) and `AccountSelector` on the MSW + `renderWithProviders` harness built in BG-015. | `ui` / Tests | 🟥 To Do |
+| **BG-022** | Tech Debt | Dedup the four trading cards' data-fetching into a shared `useAccountCardData` hook (each repeats ~6 `useState` + fetch/401/error machine). Do before BG-020. Sprint-1. | `ui` / `components` | 🟥 To Do |
+| **BG-023** | Tech Debt | Split the 936-line `auth.ts` into `routes/auth/{user,google,session,upstox,binance}.ts` by concern (behavior-preserving move). Sprint-1. | `web-server` / `routes` | 🟥 To Do |
+| **BG-024** | Tech Debt | Extract a `useTradingWindow` hook from the 2800-line `TradingWindow.tsx` (33 `useState`/11 `useEffect`/31 handlers), mirroring `useWatchlist`. Heavy, order-entry path — Sprint-2 candidate. | `ui` / `components` | 🟥 To Do |
+| **BG-025** | Tech Debt | Reduce `any`-type debt in `binance-futures.service.ts` (31), `upstox-service.ts` (24), `trading.ts` (21); pair with BG-014 tests. | `web-server` / `lib` | 🟥 To Do |
 
 ---
 
