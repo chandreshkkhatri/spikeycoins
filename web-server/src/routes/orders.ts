@@ -17,13 +17,7 @@ router.get(
     const account = req.account!;
     let orders;
 
-    if (account.accountType === "kite") {
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-      const kiteClient = BrokerFactory.getKiteClient(account);
-      orders = await kiteClient.getOrders();
-    } else if (account.accountType === "upstox") {
+    if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
@@ -132,13 +126,7 @@ router.post(
       testnet: account.metadata?.testnet,
     });
 
-    if (account.accountType === "kite") {
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-      const kiteClient = BrokerFactory.getKiteClient(account);
-      result = await kiteClient.placeOrder(orderParams);
-    } else if (account.accountType === "upstox") {
+    if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
@@ -700,10 +688,7 @@ router.put(
 
     let result;
 
-    if (account.accountType === "kite") {
-      const kiteClient = BrokerFactory.getKiteClient(account);
-      result = await kiteClient.modifyOrder(orderId, orderParams);
-    } else if (account.accountType === "upstox") {
+    if (account.accountType === "upstox") {
       const upstoxClient = BrokerFactory.getUpstoxClient(account);
       result = await upstoxClient.modifyOrder(orderId, orderParams);
     } else {
@@ -734,13 +719,7 @@ router.delete(
 
     let result;
 
-    if (account.accountType === "kite") {
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-      const kiteClient = BrokerFactory.getKiteClient(account);
-      result = await kiteClient.cancelOrder(orderId);
-    } else if (account.accountType === "upstox") {
+    if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }

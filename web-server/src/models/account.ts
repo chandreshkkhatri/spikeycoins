@@ -5,7 +5,7 @@ import mongoose from "mongoose";
 export interface IAccount {
   _id?: string;
   userId: string;
-  accountType: "kite" | "upstox" | "binance";
+  accountType: "upstox" | "binance";
   accountName: string;
   apiKey: string;
   apiSecret: string;
@@ -36,7 +36,7 @@ const accountSchema = new mongoose.Schema<IAccount>(
     accountType: {
       type: String,
       required: true,
-      enum: ["kite", "upstox", "binance"],
+      enum: ["upstox", "binance"],
     },
     accountName: {
       type: String,

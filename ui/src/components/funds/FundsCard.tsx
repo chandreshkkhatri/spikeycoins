@@ -22,7 +22,7 @@ import { useEffect, useState, useMemo } from "react";
 interface TradingAccount {
   _id: string;
   accountName: string;
-  accountType: "binance" | "kite" | "upstox";
+  accountType: "binance" | "upstox";
   isActive?: boolean;
   accessToken?: string;
 }
@@ -168,8 +168,6 @@ export default function FundsCard({
 
   const getVendorColor = (vendor: string) => {
     switch (vendor.toLowerCase()) {
-      case "kite":
-        return "#ff6600";
       case "upstox":
         return "#387ed1";
       case "binance":
@@ -287,8 +285,6 @@ export default function FundsCard({
                     // Handle re-authentication based on account type
                     if (account.accountType === "upstox") {
                       window.location.href = `/api/auth/upstox/login?accountId=${account._id}`;
-                    } else if (account.accountType === "kite") {
-                      window.location.href = `/api/auth/kite/login?accountId=${account._id}`;
                     }
                   }}
                 >
@@ -355,9 +351,7 @@ export default function FundsCard({
                       }}
                     >
                       <span className="account-type-icon">
-                        {account.accountType === "kite"
-                          ? "🟠"
-                          : account.accountType === "upstox"
+                        {account.accountType === "upstox"
                           ? "🔵"
                           : account.accountType === "binance"
                           ? "🟡"

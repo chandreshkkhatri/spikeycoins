@@ -22,7 +22,7 @@ const POSITIONS_PROMISE_CACHE = new Map<string, Promise<unknown>>();
 interface TradingAccount {
   _id: string;
   accountName: string;
-  accountType: "binance" | "kite" | "upstox";
+  accountType: "binance" | "upstox";
   isActive?: boolean;
   accessToken?: string;
 }
@@ -221,8 +221,6 @@ export default function PositionsCard({
 
   const getVendorColor = (vendor: string) => {
     switch (vendor.toLowerCase()) {
-      case "kite":
-        return "#ff6600";
       case "upstox":
         return "#387ed1";
       case "binance":
@@ -334,8 +332,6 @@ export default function PositionsCard({
                     // Handle re-authentication based on account type
                     if (account.accountType === "upstox") {
                       window.location.href = `/api/auth/upstox/login?accountId=${account._id}`;
-                    } else if (account.accountType === "kite") {
-                      window.location.href = `/api/auth/kite/login?accountId=${account._id}`;
                     }
                   }}
                 >

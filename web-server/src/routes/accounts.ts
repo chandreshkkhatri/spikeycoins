@@ -66,7 +66,7 @@ router.post(
       });
     }
 
-    if (!["kite", "upstox", "binance"].includes(accountType)) {
+    if (!["upstox", "binance"].includes(accountType)) {
       return res.status(400).json({ error: "Invalid account type" });
     }
 

@@ -193,31 +193,6 @@ router.get(
 
           response.positions = [];
         }
-      } else if (account.accountType === "kite") {
-        if (!account.accessToken) {
-          throw new Error("Account not authenticated");
-        }
-        const kiteClient = BrokerFactory.getKiteClient(account);
-
-        const [positions, orders, margins] = await Promise.all([
-          kiteClient.getPositions(),
-          kiteClient.getOrders(),
-          kiteClient.getMargins(),
-        ]);
-
-        response.positions = (positions || []).map((p: any) => formatPosition(account, p));
-
-        response.orders = (orders || []).map((o: any) => ({
-          ...o,
-          accountId: account._id,
-          vendor: account.accountType,
-        }));
-
-        const equity = margins?.equity || {};
-        response.accountDetails = {
-          equity: equity.net || 0,
-          availableBalance: equity.available?.cash || equity.available?.live_balance || 0,
-        };
       } else if (account.accountType === "upstox") {
         if (!account.accessToken) {
           throw new Error("Account not authenticated");

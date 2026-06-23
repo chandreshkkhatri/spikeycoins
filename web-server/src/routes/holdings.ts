@@ -59,13 +59,7 @@ router.get(
     const account = req.account!;
     let holdings;
 
-    if (account.accountType === "kite") {
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-      const kiteClient = BrokerFactory.getKiteClient(account);
-      holdings = await kiteClient.getHoldings();
-    } else if (account.accountType === "upstox") {
+    if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }

@@ -25,14 +25,14 @@ interface TradingWindowProps {
   accounts: Array<{
     _id: string;
     accountName: string;
-    accountType: "binance" | "kite" | "upstox";
+    accountType: "binance" | "upstox";
     isActive: boolean;
     isDemo?: boolean;
   }>;
   selectedAccount?: {
     _id: string;
     accountName: string;
-    accountType: "binance" | "kite" | "upstox";
+    accountType: "binance" | "upstox";
     isActive: boolean;
     isDemo?: boolean;
   } | null;

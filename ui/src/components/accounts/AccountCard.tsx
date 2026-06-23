@@ -8,7 +8,7 @@ import { useState } from "react";
 // Use a flexible account type that works with both IAccount and TradingAccount from context
 interface AccountCardAccount {
   _id: string;
-  accountType: "kite" | "upstox" | "binance";
+  accountType: "upstox" | "binance";
   accountName: string;
   apiKey?: string;
   apiSecret?: string;
@@ -30,13 +30,11 @@ interface AccountCardProps {
 }
 
 const accountTypeLabels: Record<string, string> = {
-  kite: "Zerodha Kite",
   upstox: "Upstox",
   binance: "Binance",
 };
 
 const accountTypeColors: Record<string, string> = {
-  kite: "#4CAF50",
   upstox: "#FF9800",
   binance: "#FFC107",
 };
@@ -48,8 +46,6 @@ const getConnectButtonText = (accountType: string, account?: AccountCardAccount)
     case "upstox":
       // Different text for sandbox vs production Upstox accounts
       return account?.metadata?.sandbox === true ? "Add Token" : "Authorize";
-    case "kite":
-      return "Login";
     default:
       return "Connect";
   }

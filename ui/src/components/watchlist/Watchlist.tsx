@@ -183,7 +183,7 @@ const Watchlist = memo(function Watchlist({
 
   // Track previous account to avoid unnecessary disconnects on watchlist changes
   const prevAccountIdRef = useRef<string | null>(null);
-  const prevAccountTypeRef = useRef<"binance" | "kite" | "upstox" | null>(null);
+  const prevAccountTypeRef = useRef<"binance" | "upstox" | null>(null);
   const shouldDisconnectRef = useRef<boolean>(false);
 
   // Fetch watchlist symbols from database when account changes
@@ -1211,8 +1211,7 @@ const Watchlist = memo(function Watchlist({
               <span className="font-mono font-medium text-foreground">
                 {selectedAccount?.accountType === "binance"
                   ? formatPrice(currentPrice, "$")
-                  : selectedAccount?.accountType === "upstox" ||
-                    selectedAccount?.accountType === "kite"
+                  : selectedAccount?.accountType === "upstox"
                     ? formatPrice(currentPrice, "₹")
                     : formatPrice(currentPrice)}
               </span>

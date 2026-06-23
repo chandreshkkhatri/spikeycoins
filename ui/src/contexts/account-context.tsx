@@ -16,7 +16,7 @@ import { API_ROUTES, getApiUrl } from '@/lib/constants';
 interface TradingAccount {
   _id: string;
   accountName: string;
-  accountType: 'binance' | 'kite' | 'upstox';
+  accountType: 'binance' | 'upstox';
   isActive: boolean;
   isDemo?: boolean;
   accessToken?: string;

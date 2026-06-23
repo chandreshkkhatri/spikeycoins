@@ -15,7 +15,7 @@ interface MarketDepthProps {
   symbol: string;
   currentPrice: number;
   onPriceSelect: (price: string) => void;
-  accountType?: "binance" | "kite" | "upstox";
+  accountType?: "binance" | "upstox";
   marketType?: string;
 }
 

@@ -100,9 +100,6 @@ export default function AccountsPage() {
         // Redirect to Upstox OAuth
         window.location.href = `/api/auth/upstox/login?accountId=${accountId}`;
       }
-    } else if (account.accountType === "kite") {
-      // Redirect to Kite OAuth
-      window.location.href = `/api/auth/kite/login?accountId=${accountId}`;
     }
   };
 
@@ -111,7 +108,7 @@ export default function AccountsPage() {
   };
 
   const handleAddAccountSubmit = async (accountData: {
-    accountType: "kite" | "upstox" | "binance";
+    accountType: "upstox" | "binance";
     accountName: string;
     apiKey: string;
     apiSecret: string;
@@ -350,23 +347,6 @@ export default function AccountsPage() {
                   style={{ fontSize: "0.9rem", color: "#666", fontWeight: 500 }}
                 >
                   Upstox
-                </div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div
-                  style={{
-                    fontSize: "2rem",
-                    fontWeight: 700,
-                    color: "#2196f3",
-                    marginBottom: "4px",
-                  }}
-                >
-                  {accounts.filter((acc) => acc.accountType === "kite").length}
-                </div>
-                <div
-                  style={{ fontSize: "0.9rem", color: "#666", fontWeight: 500 }}
-                >
-                  Kite
                 </div>
               </div>
             </div>

@@ -16,7 +16,7 @@ interface WatchlistItemRowProps {
   item: WatchlistItem;
   isSelected: boolean;
   isContextTarget: boolean;
-  accountType?: "binance" | "kite" | "upstox";
+  accountType?: "binance" | "upstox";
   isSystemWatchlist: boolean;
   onSelect: (symbol: string) => void;
   onContextMenu: (symbol: string, x: number, y: number) => void;
@@ -36,7 +36,7 @@ const WatchlistItemRow = memo(function WatchlistItemRow({
   const currencyPrefix =
     accountType === "binance"
       ? "$"
-      : accountType === "upstox" || accountType === "kite"
+      : accountType === "upstox"
         ? "₹"
         : "";
 

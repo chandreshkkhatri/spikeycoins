@@ -129,7 +129,7 @@ router.get("/symbols", async (req: Request, res: Response) => {
       } catch (error) {
         console.error("Error fetching Binance symbols:", error);
       }
-    } else if (vendor === "upstox" || vendor === "kite") {
+    } else if (vendor === "upstox") {
       // Determine which exchanges to search
       let exchangesToSearch: string[] = [];
 

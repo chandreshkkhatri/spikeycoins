@@ -13,7 +13,7 @@ import { Loader2 } from "lucide-react";
 interface TradingAccount {
   _id: string;
   accountName: string;
-  accountType: "binance" | "kite" | "upstox";
+  accountType: "binance" | "upstox";
   isActive: boolean;
   isDemo?: boolean;
   accessToken?: string;
@@ -67,8 +67,6 @@ export default function AccountSelector({
     switch (accountType) {
       case "binance":
         return "🟡";
-      case "kite":
-        return "🟠";
       case "upstox":
         return "🔵";
       default:

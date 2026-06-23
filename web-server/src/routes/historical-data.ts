@@ -362,34 +362,7 @@ router.get(
       }
     }
 
-    if (account.accountType === "kite") {
-      if (!instrumentToken) {
-        return res.status(400).json({
-          error: "instrumentToken is required for Kite accounts",
-        });
-      }
-
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-
-      const kiteClient = BrokerFactory.getKiteClient(account);
-      historicalData = await kiteClient.getHistoricalData(
-        instrumentToken as string,
-        interval as string,
-        (fromDate as string) ||
-          new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-        (toDate as string) || new Date().toISOString(),
-        false,
-      );
-
-      // Return Kite response
-      return res.json({
-        success: true,
-        data: historicalData,
-        accountType: account.accountType,
-      });
-    } else if (account.accountType === "upstox") {
+    if (account.accountType === "upstox") {
       // Resolve instrumentToken from symbol if not provided
       let resolvedInstrumentToken = instrumentToken as string | undefined;
 

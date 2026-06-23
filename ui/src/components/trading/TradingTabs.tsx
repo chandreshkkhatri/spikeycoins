@@ -86,7 +86,6 @@ export default function TradingTabs({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Accounts</SelectItem>
-                  <SelectItem value="kite">Zerodha Kite</SelectItem>
                   <SelectItem value="upstox">Upstox</SelectItem>
                 </SelectContent>
               </Select>

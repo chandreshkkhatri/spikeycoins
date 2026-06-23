@@ -49,13 +49,7 @@ router.get(
       let positions;
       let tradingSegment: string | undefined;
 
-      if (account.accountType === "kite") {
-        if (!account.accessToken) {
-          throw new Error("Account not authenticated:kite");
-        }
-        const kiteClient = BrokerFactory.getKiteClient(account);
-        positions = await kiteClient.getPositions();
-      } else if (account.accountType === "upstox") {
+      if (account.accountType === "upstox") {
         if (!account.accessToken) {
           throw new Error("Account not authenticated:upstox");
         }

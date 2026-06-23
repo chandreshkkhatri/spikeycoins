@@ -34,7 +34,6 @@ spikeycoins/
 Spikey Coins unifies multiple brokers under a single API surface.
 *   **Initialization:** Never instantiate broker API SDKs directly in routes. Instead, always use `BrokerFactory` in [broker-factory.ts](file:///home/ubuntu/code/spikeycoins/web-server/src/lib/broker-factory.ts):
     ```typescript
-    const kiteClient = BrokerFactory.getKiteClient(account);
     const upstoxClient = BrokerFactory.getUpstoxClient(account);
     const binanceClient = BrokerFactory.getBinanceClient(account);
     ```
@@ -89,14 +88,14 @@ Spikey Coins is organized in **sprints**. Each sprint has:
 ### Current Status: Sprint 0
 
 **What's Done** (as of June 2026):
-- ✅ Multi-broker unification (Kite, Upstox, Binance) via BrokerFactory
+- ✅ Multi-broker unification (Upstox, Binance) via BrokerFactory
 - ✅ Real-time price feeds via Binance WebSocket with infinite retry + exponential backoff
 - ✅ Order execution with SL/TP auto-cancellation logic
 - ✅ API key encryption at rest (AES-256-GCM)
 - ✅ Trade journal auto-sync from Binance fills
 - ✅ PWA support with offline IndexedDB candle cache
 - ✅ Centralized API client on frontend with token refresh
-- ✅ Authentication via OAuth 2.0 (Google, Kite, Upstox)
+- ✅ Authentication via OAuth 2.0 (Google, Upstox)
 - ✅ Multi-session support with refresh token rotation
 
 ### Future Sprints

@@ -1,6 +1,6 @@
 # Spikey Coins - Unified Trading Platform
 
-Spikey Coins is a comprehensive trading platform that unifies multiple brokerage accounts into a single, modern interface. It supports trading on **Zerodha Kite**, **Upstox**, and **Binance**, allowing users to manage positions, orders, and watchlists across different brokers from one dashboard.
+Spikey Coins is a comprehensive trading platform that unifies multiple brokerage accounts into a single, modern interface. It supports trading on **Upstox** and **Binance**, allowing users to manage positions, orders, and watchlists across different brokers from one dashboard.
 
 ## 🚀 Project Structure
 
@@ -12,7 +12,7 @@ The project is organized as a monorepo with two main components:
 
 ## ✨ Features
 
-- **Multi-Broker Support**: Connect and trade with Kite, Upstox, and Binance accounts simultaneously.
+- **Multi-Broker Support**: Connect and trade with Upstox and Binance accounts simultaneously.
 - **Unified Dashboard**: View total portfolio value, combined positions, and active orders in one place.
 - **Real-time Trading**: Fast order execution and real-time price updates.
 - **Advanced Charting**: Integrated TradingView Lightweight Charts for technical analysis.
@@ -34,7 +34,7 @@ The project is organized as a monorepo with two main components:
 - **Framework**: Express.js
 - **Language**: TypeScript
 - **Database**: MongoDB (Mongoose)
-- **Broker SDKs**: Kite Connect, Upstox JS SDK, Binance API
+- **Broker SDKs**: Upstox JS SDK, Binance API
 
 ## 📋 Prerequisites
 

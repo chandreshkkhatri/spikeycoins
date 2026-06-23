@@ -31,13 +31,13 @@ export interface WatchlistProps {
   accounts: Array<{
     _id: string;
     accountName: string;
-    accountType: "binance" | "kite" | "upstox";
+    accountType: "binance" | "upstox";
     isActive: boolean;
   }>;
   selectedAccount?: {
     _id: string;
     accountName: string;
-    accountType: "binance" | "kite" | "upstox";
+    accountType: "binance" | "upstox";
     isActive: boolean;
   } | null;
   marketType?: string;
@@ -137,7 +137,7 @@ export const formatSymbolForTooltip = (
       return `${base}/USD`;
     }
   }
-  if (accountType === "kite" || accountType === "upstox") {
+  if (accountType === "upstox") {
     return symbol.replace(":", " - ");
   }
   return symbol;
