@@ -1,0 +1,5 @@
+- [ ] `BG-002` | kind: implement | Implement server-side tracking of Trailing Stop Loss logic
+- [ ] `BG-003` | kind: implement | Build external webhook trade execution endpoint for TradingView alerts
+- [ ] `BG-004` | kind: implement | Persist user sorting preferences in the Screener across browser refreshes
+- [ ] `BG-005` | kind: implement | Implement connection heartbeat monitoring for Upstox WebSocket streams
+- [ ] `BG-014` | kind: implement | Set up comprehensive unit tests using Vitest for format-utils and BrokerFactory
