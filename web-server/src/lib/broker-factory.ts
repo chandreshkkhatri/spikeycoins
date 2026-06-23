@@ -1,5 +1,5 @@
 import { IAccount } from "../models/account";
-import upstoxService from "./upstox-service";
+import { UpstoxService } from "./upstox-service";
 import { BinanceService } from "./binance-service";
 
 /**
@@ -12,15 +12,16 @@ export class BrokerFactory {
       throw new Error("Invalid account type for Upstox client");
     }
     const isSandbox = account.metadata?.sandbox || false;
-    upstoxService.initializeWithCredentials(
+    const service = new UpstoxService();
+    service.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
       isSandbox
     );
     if (account.accessToken) {
-      upstoxService.setAccessToken(account.accessToken);
+      service.setAccessToken(account.accessToken);
     }
-    return upstoxService;
+    return service;
   }
 
   static getBinanceClient(account: IAccount) {

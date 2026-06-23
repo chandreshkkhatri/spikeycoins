@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import upstoxService from "../lib/upstox-service";
+import { UpstoxService } from "../lib/upstox-service";
 import { BinanceService } from "../lib/binance-service";
 import connectDB from "../lib/mongodb";
 import Account from "../models/account";
@@ -669,6 +669,7 @@ router.get("/upstox/login", async (req: Request, res: Response) => {
     }
 
     const isSandbox = account.metadata?.sandbox || false;
+    const upstoxService = new UpstoxService();
     upstoxService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
@@ -724,6 +725,7 @@ router.post("/upstox/login", async (req: Request, res: Response) => {
     }
 
     const isSandbox = account.metadata?.sandbox || false;
+    const upstoxService = new UpstoxService();
     upstoxService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
@@ -777,6 +779,7 @@ router.get("/upstox/callback", async (req: Request, res: Response) => {
     }
 
     const isSandbox = account.metadata?.sandbox || false;
+    const upstoxService = new UpstoxService();
     upstoxService.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,

@@ -28,6 +28,7 @@ interface AccountConnection {
   keepAliveInterval: NodeJS.Timeout | null;
   reconnectTimeout: NodeJS.Timeout | null;
   lastPositions: Map<string, number>; // symbol -> positionAmt
+  binanceService: BinanceService;
 }
 
 interface OrderTradeUpdate {
@@ -133,7 +134,7 @@ class BinanceOrderMonitor {
     }
 
     // Close all WebSocket connections
-    for (const [accountId, conn] of this.connections) {
+    for (const accountId of this.connections.keys()) {
       await this.disconnectAccount(accountId);
     }
 
@@ -190,6 +191,13 @@ class BinanceOrderMonitor {
       );
     }
 
+    const binanceService = new BinanceService();
+    binanceService.initializeWithCredentials(
+      account.apiKey,
+      account.apiSecret,
+      isTestnet,
+    );
+
     // Create connection record
     const conn: AccountConnection = {
       accountId,
@@ -202,6 +210,7 @@ class BinanceOrderMonitor {
       keepAliveInterval: null,
       reconnectTimeout: null,
       lastPositions: new Map(),
+      binanceService,
     };
 
     this.connections.set(accountId, conn);
@@ -215,23 +224,8 @@ class BinanceOrderMonitor {
    */
   private async establishWebSocket(conn: AccountConnection): Promise<void> {
     try {
-      // Create axios instance for this account
-      const axios = (await import("axios")).default;
-      const baseUrl = conn.testnet
-        ? "https://testnet.binancefuture.com"
-        : "https://fapi.binance.com";
-
-      const client = axios.create({
-        baseURL: baseUrl,
-        timeout: 10000,
-        headers: { "X-MBX-APIKEY": conn.apiKey },
-      });
-
       // Get listenKey
-      const response = await BinanceService.scheduleRequest(() =>
-        client.post("/fapi/v1/listenKey"),
-      );
-      conn.listenKey = response.data.listenKey;
+      conn.listenKey = await conn.binanceService.createFuturesListenKey();
 
       // Reset reconnect backoff on success
       this.reconnectAttempts.set(conn.accountId, 0);
@@ -430,48 +424,14 @@ class BinanceOrderMonitor {
     filledType: "SL" | "TP",
   ): Promise<void> {
     try {
-      const axios = (await import("axios")).default;
-      const crypto = (await import("crypto")).default;
-
-      const baseUrl = conn.testnet
-        ? "https://testnet.binancefuture.com"
-        : "https://fapi.binance.com";
-
-      const client = axios.create({
-        baseURL: baseUrl,
-        timeout: 10000,
-        headers: { "X-MBX-APIKEY": conn.apiKey },
-      });
-
-      // Helper to sign requests
-      const signRequest = (params: Record<string, any>) => {
-        const timestamp = Date.now();
-        params.timestamp = timestamp;
-        const queryString = new URLSearchParams(
-          Object.entries(params).map(([k, v]) => [k, String(v)]),
-        ).toString();
-        const signature = crypto
-          .createHmac("sha256", conn.apiSecret)
-          .update(queryString)
-          .digest("hex");
-        return `${queryString}&signature=${signature}`;
-      };
-
       // Get open orders for the symbol
-      const openOrdersParams = signRequest({ symbol });
-      const ordersResponse = await BinanceService.scheduleRequest(() =>
-        client.get(`/fapi/v1/openOrders?${openOrdersParams}`),
-      );
-      const openOrders = ordersResponse.data;
+      const openOrders = await conn.binanceService.getFuturesOpenOrders(symbol);
 
       // Also check Algo orders
-      const algoOrdersParams = signRequest({ symbol });
       let algoOrders: any[] = [];
       try {
-        const algoResponse = await BinanceService.scheduleRequest(() =>
-          client.get(`/fapi/v1/openAlgoOrders?${algoOrdersParams}`),
-        );
-        algoOrders = algoResponse.data?.orders || [];
+        const algoResponse = await conn.binanceService.getFuturesOpenAlgoOrders(symbol);
+        algoOrders = Array.isArray(algoResponse) ? algoResponse : [];
       } catch (e) {
         // Algo orders endpoint might fail, continue with regular orders
       }
@@ -487,13 +447,7 @@ class BinanceOrderMonitor {
       for (const order of openOrders) {
         if (typesToCancel.includes(order.type)) {
           try {
-            const cancelParams = signRequest({
-              symbol,
-              orderId: order.orderId,
-            });
-            await BinanceService.scheduleRequest(() =>
-              client.delete(`/fapi/v1/order?${cancelParams}`),
-            );
+            await conn.binanceService.cancelFuturesOrder(symbol, order.orderId);
             console.log(
               `[OrderMonitor] Cancelled ${order.type} order ${order.orderId} for ${symbol}`,
             );
@@ -512,10 +466,7 @@ class BinanceOrderMonitor {
         const orderType = order.orderType || order.type;
         if (typesToCancel.includes(orderType)) {
           try {
-            const cancelParams = signRequest({ symbol, algoId: order.algoId });
-            await BinanceService.scheduleRequest(() =>
-              client.delete(`/fapi/v1/algoOrder?${cancelParams}`),
-            );
+            await conn.binanceService.cancelFuturesAlgoOrder(symbol, order.algoId);
             console.log(
               `[OrderMonitor] Cancelled ${orderType} algo order ${order.algoId} for ${symbol}`,
             );
@@ -533,161 +484,15 @@ class BinanceOrderMonitor {
   }
 
   /**
-   * Optimized cleanup for SL/TP orders using already fetched data
+   * Shared helper to cancel conditional SL/TP orders if there are no pending entry orders
    */
-  private async cleanupOrdersForSymbolOptimized(
+  private async cancelConditionalOrders(
     conn: AccountConnection,
     symbol: string,
-    currentAmt: number,
     openOrders: any[],
-    algoOrders: any[]
+    algoOrders: any[],
   ): Promise<void> {
     try {
-      const axios = (await import("axios")).default;
-      const crypto = (await import("crypto")).default;
-
-      const baseUrl = conn.testnet
-        ? "https://testnet.binancefuture.com"
-        : "https://fapi.binance.com";
-
-      const client = axios.create({
-        baseURL: baseUrl,
-        timeout: 10000,
-        headers: { "X-MBX-APIKEY": conn.apiKey },
-      });
-
-      const signRequest = (params: Record<string, any> = {}) => {
-        const timestamp = Date.now();
-        params.timestamp = timestamp;
-        const queryString = new URLSearchParams(
-          Object.entries(params).map(([k, v]) => [k, String(v)]),
-        ).toString();
-        const signature = crypto
-          .createHmac("sha256", conn.apiSecret)
-          .update(queryString)
-          .digest("hex");
-        return `${queryString}&signature=${signature}`;
-      };
-
-      if (currentAmt !== 0) {
-        console.log(`[OrderMonitor] Cleanup aborted for ${symbol}: Position is not 0 (${currentAmt})`);
-        return;
-      }
-
-      // Check for pending entry orders (reduceOnly = false)
-      const hasPendingEntryOrder = openOrders.some((o: any) => {
-        const isReduceOnly = o.reduceOnly === true || o.reduceOnly === "true";
-        const isClosePosition = o.closePosition === true || o.closePosition === "true";
-        return !isReduceOnly && !isClosePosition;
-      });
-
-      if (hasPendingEntryOrder) {
-        console.log(`[OrderMonitor] Cleanup aborted for ${symbol}: Found pending entry order(s). SL/TP orders preserved.`);
-        return;
-      }
-
-      const conditionalTypes = ["STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"];
-      
-      // Cancel SL/TP orders
-      for (const order of openOrders) {
-        if (conditionalTypes.includes(order.type)) {
-          try {
-            const cancelParams = signRequest({ symbol: order.symbol, orderId: order.orderId });
-            await BinanceService.scheduleRequest(() => client.delete(`/fapi/v1/order?${cancelParams}`));
-            console.log(`[OrderMonitor] Cleanup: Cancelled ${order.type} for ${order.symbol}`);
-          } catch (e: any) {
-            console.error(`[OrderMonitor] Cleanup: Failed to cancel ${order.orderId}:`, e.message);
-          }
-        }
-      }
-
-      for (const order of algoOrders) {
-        const orderType = order.orderType || order.type;
-        if (conditionalTypes.includes(orderType)) {
-          try {
-            const cancelParams = signRequest({ symbol: order.symbol, algoId: order.algoId });
-            await BinanceService.scheduleRequest(() => client.delete(`/fapi/v1/algoOrder?${cancelParams}`));
-            console.log(`[OrderMonitor] Cleanup: Cancelled algo ${orderType} for ${order.symbol}`);
-          } catch (e: any) {
-            console.error(`[OrderMonitor] Cleanup: Failed to cancel algo ${order.algoId}:`, e.message);
-          }
-        }
-      }
-    } catch (error) {
-      console.error(`[OrderMonitor] Error in optimized cleanup for ${symbol}:`, error);
-    }
-  }
-
-  /**
-   * Clean up all SL/TP orders for a specific symbol (used when position is closed)
-   */
-  private async cleanupOrdersForSymbol(
-    conn: AccountConnection,
-    symbol: string,
-  ): Promise<void> {
-    try {
-      const axios = (await import("axios")).default;
-      const crypto = (await import("crypto")).default;
-
-      const baseUrl = conn.testnet
-        ? "https://testnet.binancefuture.com"
-        : "https://fapi.binance.com";
-
-      const client = axios.create({
-        baseURL: baseUrl,
-        timeout: 10000,
-        headers: { "X-MBX-APIKEY": conn.apiKey },
-      });
-
-      const signRequest = (params: Record<string, any> = {}) => {
-        const timestamp = Date.now();
-        params.timestamp = timestamp;
-        const queryString = new URLSearchParams(
-          Object.entries(params).map(([k, v]) => [k, String(v)]),
-        ).toString();
-        const signature = crypto
-          .createHmac("sha256", conn.apiSecret)
-          .update(queryString)
-          .digest("hex");
-        return `${queryString}&signature=${signature}`;
-      };
-
-      console.log(
-        `[OrderMonitor] cleanupOrdersForSymbol: Starting cleanup for ${symbol}`,
-      );
-
-      // Re-verify position is actually 0 before proceeding to cleanup
-      const posParams = signRequest();
-      const posResponse = await BinanceService.scheduleRequest(() =>
-        client.get(`/fapi/v2/positionRisk?${posParams}`),
-      );
-      const position = (posResponse.data || []).find(
-        (p: any) => p.symbol === symbol,
-      );
-      const currentAmt = position ? parseFloat(position.positionAmt) : 0;
-
-      console.log(
-        `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} position amount = ${currentAmt}`,
-      );
-
-      if (currentAmt !== 0) {
-        console.log(
-          `[OrderMonitor] Cleanup aborted for ${symbol}: Position is not 0 (${currentAmt})`,
-        );
-        return;
-      }
-
-      // Get all open orders
-      const ordersParams = signRequest({ symbol });
-      const ordersResponse = await BinanceService.scheduleRequest(() =>
-        client.get(`/fapi/v1/openOrders?${ordersParams}`),
-      );
-      const openOrders = ordersResponse.data || [];
-
-      console.log(
-        `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} has ${openOrders.length} regular open orders`,
-      );
-
       // Check for pending entry orders (reduceOnly = false)
       // If we have a pending entry order, we should NOT cancel the SL/TP orders
       // because they might be attached to that entry order.
@@ -708,7 +513,6 @@ class BinanceOrderMonitor {
         return;
       }
 
-      // Cancel SL/TP orders (all conditional order types)
       const conditionalTypes = [
         "STOP",
         "STOP_MARKET",
@@ -716,78 +520,101 @@ class BinanceOrderMonitor {
         "TAKE_PROFIT_MARKET",
         "TRAILING_STOP_MARKET",
       ];
+
+      // Cancel regular conditional orders
       for (const order of openOrders) {
-        console.log(
-          `[OrderMonitor] cleanupOrdersForSymbol: Checking regular order type=${order.type}, id=${order.orderId}`,
-        );
         if (conditionalTypes.includes(order.type)) {
           try {
-            const cancelParams = signRequest({
-              symbol: order.symbol,
-              orderId: order.orderId,
-            });
-            await BinanceService.scheduleRequest(() =>
-              client.delete(`/fapi/v1/order?${cancelParams}`),
-            );
+            await conn.binanceService.cancelFuturesOrder(symbol, order.orderId);
             console.log(
               `[OrderMonitor] Cleanup: Cancelled ${order.type} for ${order.symbol}`,
             );
           } catch (e: any) {
             console.error(
-              `[OrderMonitor] Cleanup: Failed to cancel ${order.orderId}:`,
+              `[OrderMonitor] Cleanup: Failed to cancel order ${order.orderId}:`,
               e.message,
             );
           }
         }
       }
 
-      // Also check and cancel Algo orders
-      try {
-        const algoParams = signRequest({ symbol });
-        const algoResponse = await BinanceService.scheduleRequest(() =>
-          client.get(`/fapi/v1/openAlgoOrders?${algoParams}`),
-        );
-        // Binance Algo API returns Array directly
-        const algoOrders = Array.isArray(algoResponse.data)
-          ? algoResponse.data
-          : [];
-
-        console.log(
-          `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} has ${algoOrders.length} algo orders`,
-        );
-
-        for (const order of algoOrders) {
-          // Note: Algo orders use 'orderType' instead of 'type'
-          const orderType = order.orderType || order.type;
-          console.log(
-            `[OrderMonitor] cleanupOrdersForSymbol: Checking algo order orderType=${orderType}, algoId=${order.algoId}`,
-          );
-          if (conditionalTypes.includes(orderType)) {
-            try {
-              const cancelParams = signRequest({
-                symbol: order.symbol,
-                algoId: order.algoId,
-              });
-              await BinanceService.scheduleRequest(() =>
-                client.delete(`/fapi/v1/algoOrder?${cancelParams}`),
-              );
-              console.log(
-                `[OrderMonitor] Cleanup: Cancelled algo ${orderType} for ${order.symbol}`,
-              );
-            } catch (e: any) {
-              console.error(
-                `[OrderMonitor] Cleanup: Failed to cancel algo ${order.algoId}:`,
-                e.message,
-              );
-            }
+      // Cancel algo conditional orders
+      for (const order of algoOrders) {
+        const orderType = order.orderType || order.type;
+        if (conditionalTypes.includes(orderType)) {
+          try {
+            await conn.binanceService.cancelFuturesAlgoOrder(symbol, order.algoId);
+            console.log(
+              `[OrderMonitor] Cleanup: Cancelled algo ${orderType} for ${order.symbol}`,
+            );
+          } catch (e: any) {
+            console.error(
+              `[OrderMonitor] Cleanup: Failed to cancel algo ${order.algoId}:`,
+              e.message,
+            );
           }
         }
+      }
+    } catch (error) {
+      console.error(
+        `[OrderMonitor] Error in cancelConditionalOrders for ${symbol}:`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Clean up all SL/TP orders for a specific symbol (used when position is closed)
+   */
+  private async cleanupOrdersForSymbol(
+    conn: AccountConnection,
+    symbol: string,
+  ): Promise<void> {
+    try {
+      console.log(
+        `[OrderMonitor] cleanupOrdersForSymbol: Starting cleanup for ${symbol}`,
+      );
+
+      // Re-verify position is actually 0 before proceeding to cleanup
+      const positions = await conn.binanceService.getFuturesPositions();
+      const position = positions.find((p: any) => p.symbol === symbol);
+      const currentAmt = position ? parseFloat(position.positionAmt) : 0;
+
+      console.log(
+        `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} position amount = ${currentAmt}`,
+      );
+
+      if (currentAmt !== 0) {
+        console.log(
+          `[OrderMonitor] Cleanup aborted for ${symbol}: Position is not 0 (${currentAmt})`,
+        );
+        return;
+      }
+
+      // Get all open orders
+      const openOrders = await conn.binanceService.getFuturesOpenOrders(symbol);
+
+      console.log(
+        `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} has ${openOrders.length} regular open orders`,
+      );
+
+      // Get Algo orders
+      let algoOrders: any[] = [];
+      try {
+        const algoResponse = await conn.binanceService.getFuturesOpenAlgoOrders(symbol);
+        algoOrders = Array.isArray(algoResponse) ? algoResponse : [];
       } catch (e: any) {
         console.error(
           `[OrderMonitor] cleanupOrdersForSymbol: Error fetching algo orders for ${symbol}:`,
           e.message,
         );
       }
+
+      console.log(
+        `[OrderMonitor] cleanupOrdersForSymbol: ${symbol} has ${algoOrders.length} algo orders`,
+      );
+
+      await this.cancelConditionalOrders(conn, symbol, openOrders, algoOrders);
 
       console.log(
         `[OrderMonitor] cleanupOrdersForSymbol: Finished cleanup for ${symbol}`,
@@ -807,22 +634,7 @@ class BinanceOrderMonitor {
     if (!conn.listenKey) return;
 
     try {
-      const axios = (await import("axios")).default;
-      const baseUrl = conn.testnet
-        ? "https://testnet.binancefuture.com"
-        : "https://fapi.binance.com";
-
-      const client = axios.create({
-        baseURL: baseUrl,
-        timeout: 10000,
-        headers: { "X-MBX-APIKEY": conn.apiKey },
-      });
-
-      await BinanceService.scheduleRequest(() =>
-        client.put("/fapi/v1/listenKey", null, {
-          params: { listenKey: conn.listenKey },
-        }),
-      );
+      await conn.binanceService.keepAliveFuturesListenKey(conn.listenKey);
 
       console.log(
         `[OrderMonitor] Renewed listenKey for account ${conn.accountId}`,
@@ -924,22 +736,7 @@ class BinanceOrderMonitor {
     // Delete listenKey
     if (conn.listenKey) {
       try {
-        const axios = (await import("axios")).default;
-        const baseUrl = conn.testnet
-          ? "https://testnet.binancefuture.com"
-          : "https://fapi.binance.com";
-
-        const client = axios.create({
-          baseURL: baseUrl,
-          timeout: 10000,
-          headers: { "X-MBX-APIKEY": conn.apiKey },
-        });
-
-        await BinanceService.scheduleRequest(() =>
-          client.delete("/fapi/v1/listenKey", {
-            params: { listenKey: conn.listenKey },
-          }),
-        );
+        await conn.binanceService.closeFuturesListenKey(conn.listenKey);
       } catch (e) {
         // Ignore delete errors
       }
@@ -994,38 +791,8 @@ class BinanceOrderMonitor {
       }
       for (const [accountId, conn] of this.connections) {
         try {
-          const axios = (await import("axios")).default;
-          const crypto = (await import("crypto")).default;
-
-          const baseUrl = conn.testnet
-            ? "https://testnet.binancefuture.com"
-            : "https://fapi.binance.com";
-
-          const client = axios.create({
-            baseURL: baseUrl,
-            timeout: 10000,
-            headers: { "X-MBX-APIKEY": conn.apiKey },
-          });
-
-          const signRequest = (params: Record<string, any> = {}) => {
-            const timestamp = Date.now();
-            params.timestamp = timestamp;
-            const queryString = new URLSearchParams(
-              Object.entries(params).map(([k, v]) => [k, String(v)]),
-            ).toString();
-            const signature = crypto
-              .createHmac("sha256", conn.apiSecret)
-              .update(queryString)
-              .digest("hex");
-            return `${queryString}&signature=${signature}`;
-          };
-
           // Get current positions
-          const posParams = signRequest();
-          const posResponse = await BinanceService.scheduleRequest(() =>
-            client.get(`/fapi/v2/positionRisk?${posParams}`),
-          );
-          const positions = posResponse.data || [];
+          const positions = await conn.binanceService.getFuturesPositions();
 
           // Build map of symbol -> positionAmt
           const symbolPositions = new Map<string, number>();
@@ -1034,20 +801,13 @@ class BinanceOrderMonitor {
           }
 
           // Get all open orders (regular orders)
-          const ordersParams = signRequest();
-          const ordersResponse = await BinanceService.scheduleRequest(() =>
-            client.get(`/fapi/v1/openOrders?${ordersParams}`),
-          );
-          const openOrders = ordersResponse.data || [];
+          const openOrders = await conn.binanceService.getFuturesOpenOrders();
 
           // Also get Algo orders
           let algoOrders: any[] = [];
           try {
-            const algoParams = signRequest();
-            const algoResponse = await BinanceService.scheduleRequest(() =>
-              client.get(`/fapi/v1/openAlgoOrders?${algoParams}`),
-            );
-            algoOrders = Array.isArray(algoResponse.data) ? algoResponse.data : [];
+            const algoResponse = await conn.binanceService.getFuturesOpenAlgoOrders();
+            algoOrders = Array.isArray(algoResponse) ? algoResponse : [];
           } catch (e) {
             console.warn(`[OrderMonitor] Could not fetch algo orders for account ${accountId}`);
           }
@@ -1065,7 +825,7 @@ class BinanceOrderMonitor {
               
               if (symbolOpenOrders.length > 0 || symbolAlgoOrders.length > 0) {
                 console.log(`[OrderMonitor] Found orphaned orders for ${symbol}, cleaning up...`);
-                await this.cleanupOrdersForSymbolOptimized(conn, symbol, currentAmt, symbolOpenOrders, symbolAlgoOrders);
+                await this.cancelConditionalOrders(conn, symbol, symbolOpenOrders, symbolAlgoOrders);
               }
             }
           }

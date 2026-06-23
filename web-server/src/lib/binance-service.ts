@@ -865,6 +865,68 @@ export class BinanceService {
   }
 
   /**
+   * Create a new user data stream listenKey for Futures
+   */
+  async createFuturesListenKey(): Promise<string> {
+    try {
+      const response = await BinanceService.scheduleRequest(() =>
+        this.futuresClient.post("/fapi/v1/listenKey"),
+      );
+      return response.data.listenKey;
+    } catch (error: any) {
+      console.error(
+        "Binance Futures createListenKey error:",
+        error.response?.data || error.message,
+      );
+      throw new Error(
+        error.response?.data?.msg || "Failed to create Binance Futures listenKey",
+      );
+    }
+  }
+
+  /**
+   * Keep alive user data stream listenKey for Futures
+   */
+  async keepAliveFuturesListenKey(listenKey: string): Promise<void> {
+    try {
+      await BinanceService.scheduleRequest(() =>
+        this.futuresClient.put("/fapi/v1/listenKey", null, {
+          params: { listenKey },
+        }),
+      );
+    } catch (error: any) {
+      console.error(
+        "Binance Futures keepAliveListenKey error:",
+        error.response?.data || error.message,
+      );
+      throw new Error(
+        error.response?.data?.msg || "Failed to keep alive Binance Futures listenKey",
+      );
+    }
+  }
+
+  /**
+   * Close user data stream listenKey for Futures
+   */
+  async closeFuturesListenKey(listenKey: string): Promise<void> {
+    try {
+      await BinanceService.scheduleRequest(() =>
+        this.futuresClient.delete("/fapi/v1/listenKey", {
+          params: { listenKey },
+        }),
+      );
+    } catch (error: any) {
+      console.error(
+        "Binance Futures closeListenKey error:",
+        error.response?.data || error.message,
+      );
+      throw new Error(
+        error.response?.data?.msg || "Failed to close Binance Futures listenKey",
+      );
+    }
+  }
+
+  /**
    * Cancel all open Futures orders for a symbol
    */
   async cancelAllFuturesOrders(symbol: string) {

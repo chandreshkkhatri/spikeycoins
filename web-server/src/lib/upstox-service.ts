@@ -7,7 +7,7 @@ const UpstoxClient = require("upstox-js-sdk");
  * Upstox Service - Unified service for all Upstox operations
  * Implements Upstox API v2 with proper typing and error handling
  */
-class UpstoxService {
+export class UpstoxService {
   private client: any;
   private accessToken: string | null = null;
   private apiKey: string | null = null;
@@ -15,7 +15,7 @@ class UpstoxService {
   private isSandbox: boolean = false;
   private static instance: UpstoxService;
 
-  private constructor() {
+  constructor() {
     this.client = null;
   }
 
