@@ -148,7 +148,7 @@ export class UpstoxService {
       } else {
         throw new Error("Invalid response from token endpoint");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw error;
     }
   }

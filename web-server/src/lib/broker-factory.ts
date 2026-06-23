@@ -7,7 +7,7 @@ import { BinanceService } from "./binance-service";
  * for broker-specific SDK services.
  */
 export class BrokerFactory {
-  static getUpstoxClient(account: IAccount): any {
+  static getUpstoxClient(account: IAccount): UpstoxService {
     if (account.accountType !== "upstox") {
       throw new Error("Invalid account type for Upstox client");
     }

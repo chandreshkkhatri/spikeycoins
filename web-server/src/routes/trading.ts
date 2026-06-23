@@ -10,13 +10,13 @@ const router: Router = Router();
 // In-Memory Response Cache (deduplicates rapid requests from multiple tabs)
 // ============================================================================
 interface CachedResponse {
-  promise: Promise<any>;
+  promise: Promise<unknown>;
   timestamp: number;
 }
 const SUMMARY_RESPONSE_CACHE = new Map<string, CachedResponse>();
 const SUMMARY_CACHE_TTL = 10_000; // 10 seconds
 
-function getCachedSummary(key: string): Promise<any> | null {
+function getCachedSummary(key: string): Promise<unknown> | null {
   const cached = SUMMARY_RESPONSE_CACHE.get(key);
   if (cached && Date.now() - cached.timestamp < SUMMARY_CACHE_TTL) {
     return cached.promise;
@@ -25,7 +25,7 @@ function getCachedSummary(key: string): Promise<any> | null {
   return null;
 }
 
-function setCachedSummary(key: string, promise: Promise<any>): void {
+function setCachedSummary(key: string, promise: Promise<unknown>): void {
   SUMMARY_RESPONSE_CACHE.set(key, { promise, timestamp: Date.now() });
   if (SUMMARY_RESPONSE_CACHE.size > 100) {
     const now = Date.now();
@@ -220,8 +220,8 @@ router.get(
               availableBalance: parseFloat(funds.available_margin || "0"),
             };
           }
-        } catch (upstoxError: any) {
-          console.warn("Upstox SDK error:", upstoxError.message);
+        } catch (upstoxError: unknown) {
+          console.warn("Upstox SDK error:", upstoxError instanceof Error ? upstoxError.message : "Unknown error");
         }
       } else {
         throw new Error("Unsupported account type");
@@ -238,7 +238,7 @@ router.get(
         "Cache-Control": "private, max-age=5, stale-while-revalidate=10",
       });
       return res.json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       SUMMARY_RESPONSE_CACHE.delete(cacheKey);
       throw error;
     }

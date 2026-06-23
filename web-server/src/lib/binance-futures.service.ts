@@ -15,7 +15,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.get(`/fapi/v2/account?${this.client.signRequest()}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getAccount error:",
         error.response?.data || error.message,
@@ -35,7 +36,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.get(`/fapi/v2/balance?${this.client.signRequest()}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getBalance error:",
         error.response?.data || error.message,
@@ -58,7 +60,8 @@ export class BinanceFuturesService {
       return response.data.filter(
         (position: any) => parseFloat(position.positionAmt) !== 0,
       );
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getPositions error:",
         error.response?.data || error.message,
@@ -80,7 +83,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.get(`/fapi/v1/openOrders?${this.client.signRequest(params)}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getOpenOrders error:",
         error.response?.data || error.message,
@@ -106,7 +110,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.get(`/fapi/v1/openAlgoOrders?${this.client.signRequest(params)}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getOpenAlgoOrders error:",
         error.response?.data || error.message,
@@ -136,7 +141,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.get(`/fapi/v1/allOrders?${this.client.signRequest(params)}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getAllOrders error:",
         error.response?.data || error.message,
@@ -166,7 +172,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.get(`/fapi/v1/userTrades?${this.client.signRequest(params)}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getUserTrades error:",
         error.response?.data || error.message,
@@ -196,7 +203,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.get(`/fapi/v1/income?${this.client.signRequest(params)}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getIncomeHistory error:",
         error.response?.data || error.message,
@@ -240,7 +248,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.post(`/fapi/v1/order?${this.client.signRequest(apiParams as Record<string, any>)}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures placeOrder error:",
         error.response?.data || error.message,
@@ -314,7 +323,8 @@ export class BinanceFuturesService {
       );
       console.log("Binance Algo Order response:", response.data);
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures placeAlgoOrder error:",
         error.response?.data || error.message,
@@ -335,7 +345,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.delete(`/fapi/v1/order?${this.client.signRequest({ symbol, orderId })}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures cancelOrder error:",
         error.response?.data || error.message,
@@ -356,7 +367,8 @@ export class BinanceFuturesService {
       );
       console.log("Binance Algo Order cancel response:", response.data);
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures cancelAlgoOrder error:",
         error.response?.data || error.message,
@@ -377,7 +389,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.post("/fapi/v1/listenKey"),
       );
       return response.data.listenKey;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures createListenKey error:",
         error.response?.data || error.message,
@@ -398,7 +411,8 @@ export class BinanceFuturesService {
           params: { listenKey },
         }),
       );
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures keepAliveListenKey error:",
         error.response?.data || error.message,
@@ -419,7 +433,8 @@ export class BinanceFuturesService {
           params: { listenKey },
         }),
       );
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures closeListenKey error:",
         error.response?.data || error.message,
@@ -439,7 +454,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.delete(`/fapi/v1/allOpenOrders?${this.client.signRequest({ symbol })}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures cancelAllOrders error:",
         error.response?.data || error.message,
@@ -490,12 +506,14 @@ export class BinanceFuturesService {
             isAlgo: true,
             algoId: order.algoId,
           }));
-      } catch (algoErr: any) {
-        console.warn("Error fetching futures open algo orders:", algoErr.message);
+      } catch (algoErr: unknown) {
+        const algoErrTyped = algoErr as Error;
+        console.warn("Error fetching futures open algo orders:", algoErrTyped.message);
       }
 
       return [...regularSlTps, ...algoSlTps];
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error("Error fetching SL/TP orders:", error.message);
       return [];
     }
@@ -534,7 +552,8 @@ export class BinanceFuturesService {
         }
       }
       return results;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error("Error cancelling SL/TP orders:", error.message);
       throw error;
     }
@@ -551,7 +570,8 @@ export class BinanceFuturesService {
         }),
       );
       return parseFloat(response.data.markPrice);
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getMarkPrice error:",
         error.response?.data || error.message,
@@ -572,7 +592,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.post(`/fapi/v1/leverage?${this.client.signRequest({ symbol, leverage })}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures changeLeverage error:",
         error.response?.data || error.message,
@@ -596,7 +617,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.post(`/fapi/v1/marginType?${this.client.signRequest({ symbol, marginType })}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string; code?: number } }; message?: string };
       console.error(
         "Binance Futures changeMarginType error:",
         error.response?.data || error.message,
@@ -623,7 +645,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.get(`/fapi/v1/leverageBracket?${this.client.signRequest(params)}`),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getLeverageBrackets error:",
         error.response?.data || error.message,
@@ -657,7 +680,8 @@ export class BinanceFuturesService {
       BinanceClientBase.futuresExchangeInfoCacheTime = now;
 
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getExchangeInfo error:",
         error.response?.data || error.message,
@@ -676,7 +700,8 @@ export class BinanceFuturesService {
         this.client.futuresClient.get(`/fapi/v1/premiumIndex`, { params }),
       );
       return response.data;
-    } catch (error: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
         "Binance Futures getPremiumIndex error:",
         error.response?.data || error.message,
@@ -699,8 +724,8 @@ export class BinanceFuturesService {
       );
       const latency = Date.now() - start;
       return { status: "ok", latency: `${latency}ms` };
-    } catch (error: any) {
-      throw new Error(`Futures connectivity failed: ${error.message}`);
+    } catch (error: unknown) {
+      throw new Error(`Futures connectivity failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
 }
