@@ -6,6 +6,7 @@ import HistoricalDataCache from "../models/historical-data-cache";
 import { optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 import { asyncHandler } from "../lib/async-handler";
 import { BrokerFactory } from "../lib/broker-factory";
+import { UpstoxCandle } from "../lib/upstox-types";
 
 const router: Router = Router();
 
@@ -514,19 +515,19 @@ router.get(
       // Upstox format: [timestamp, open, high, low, close, volume, oi]
       historicalData = (rawCandles || [])
         .filter(
-          (candle: any[]) =>
+          (candle: UpstoxCandle) =>
             Array.isArray(candle) && candle.length >= 5 && candle[0],
         )
-        .map((candle: any[]) => ({
+        .map((candle: UpstoxCandle) => ({
           date:
             typeof candle[0] === "string"
               ? candle[0]
               : new Date(candle[0]).toISOString(),
-          open: parseFloat(candle[1]) || 0,
-          high: parseFloat(candle[2]) || 0,
-          low: parseFloat(candle[3]) || 0,
-          close: parseFloat(candle[4]) || 0,
-          volume: parseFloat(candle[5]) || 0,
+          open: typeof candle[1] === "number" ? candle[1] : parseFloat(candle[1]) || 0,
+          high: typeof candle[2] === "number" ? candle[2] : parseFloat(candle[2]) || 0,
+          low: typeof candle[3] === "number" ? candle[3] : parseFloat(candle[3]) || 0,
+          close: typeof candle[4] === "number" ? candle[4] : parseFloat(candle[4]) || 0,
+          volume: typeof candle[5] === "number" ? candle[5] : parseFloat(candle[5]) || 0,
         }))
         .filter((d: any) => !isNaN(new Date(d.date).getTime()))
         .sort(

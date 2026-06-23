@@ -12,6 +12,7 @@ import {
   requireAuth,
   getRefreshTokenExpiry,
   AuthenticatedRequest,
+  issueSession,
 } from "../../lib/auth-middleware";
 
 const router: Router = Router();
@@ -81,16 +82,8 @@ router.post("/register", async (req: Request, res: Response) => {
       tradingDefaults: {},
     });
 
-    // Generate tokens
-    const accessToken = generateToken(user._id.toString(), user.email);
-    const refreshToken = generateRefreshToken();
-
-    // Save refresh token
-    await RefreshToken.create({
-      userId: user._id,
-      token: refreshToken,
-      expiresAt: getRefreshTokenExpiry(),
-    });
+    // Generate tokens and session
+    const { accessToken, refreshToken } = await issueSession(user);
 
     return res.status(201).json({
       success: true,
@@ -132,16 +125,8 @@ router.post("/login", async (req: Request, res: Response) => {
       });
     }
 
-    // Generate tokens
-    const accessToken = generateToken(user._id.toString(), user.email);
-    const refreshToken = generateRefreshToken();
-
-    // Save refresh token
-    await RefreshToken.create({
-      userId: user._id,
-      token: refreshToken,
-      expiresAt: getRefreshTokenExpiry(),
-    });
+    // Generate tokens and session
+    const { accessToken, refreshToken } = await issueSession(user);
 
     // Cleanup old tokens
     await (RefreshToken as any).cleanupOldTokens(user._id.toString());

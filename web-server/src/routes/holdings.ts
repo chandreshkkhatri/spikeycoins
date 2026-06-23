@@ -3,6 +3,7 @@ import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/
 import { asyncHandler } from "../lib/async-handler";
 import { BrokerFactory } from "../lib/broker-factory";
 import { formatHolding } from "../lib/format-utils";
+import { UpstoxHolding } from "../lib/upstox-types";
 
 const router: Router = Router();
 
@@ -99,7 +100,7 @@ router.get(
     }
 
     const unifiedHoldings = Array.isArray(holdings)
-      ? holdings.map((holding: any) => formatHolding(holding, account))
+      ? holdings.map((holding: UpstoxHolding) => formatHolding(holding, account))
       : [];
 
     return res.json({

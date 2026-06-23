@@ -4,6 +4,7 @@ import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/
 import { asyncHandler } from "../lib/async-handler";
 import { BrokerFactory } from "../lib/broker-factory";
 import { placeFuturesOrderWithRisk } from "../lib/binance-futures-order.service";
+import { UpstoxOrder, UpstoxPlaceOrderParams, UpstoxModifyOrderParams } from "../lib/upstox-types";
 
 const router: Router = Router();
 
@@ -88,7 +89,7 @@ router.get(
 
     // Map orders to unified format
     const unifiedOrders = Array.isArray(orders)
-      ? orders.map((order: any) => ({
+      ? orders.map((order: UpstoxOrder) => ({
           ...order,
           accountId: account._id,
           vendor: account.accountType,
@@ -133,7 +134,7 @@ router.post(
         return res.status(401).json({ error: "Account not authenticated" });
       }
       const upstoxClient = BrokerFactory.getUpstoxClient(account);
-      result = await upstoxClient.placeOrder(orderParams);
+      result = await upstoxClient.placeOrder(orderParams as UpstoxPlaceOrderParams);
     } else if (account.accountType === "binance") {
       // Detect trading segment from metadata, or infer from order params
       // If leverage, stopLoss, or takeProfit is set, it's a futures order
@@ -284,7 +285,7 @@ router.put(
 
     if (account.accountType === "upstox") {
       const upstoxClient = BrokerFactory.getUpstoxClient(account);
-      result = await upstoxClient.modifyOrder(orderId, orderParams);
+      result = await upstoxClient.modifyOrder(orderId, orderParams as UpstoxModifyOrderParams);
     } else {
       return res
         .status(400)

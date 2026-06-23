@@ -3,6 +3,7 @@ import upstoxService from "../lib/upstox-service";
 import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
 import { asyncHandler } from "../lib/async-handler";
 import { BrokerFactory } from "../lib/broker-factory";
+import { UpstoxLTP, UpstoxOHLC, UpstoxQuote } from "../lib/upstox-types";
 
 const router: Router = Router();
 
@@ -32,7 +33,7 @@ router.get(
     const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
     const instrumentList = (instruments as string).split(",");
-    const ltp = await upstoxClient.getLTP(instrumentList);
+    const ltp: Record<string, UpstoxLTP> = await upstoxClient.getLTP(instrumentList);
 
     return res.json({
       success: true,
@@ -65,7 +66,7 @@ router.get(
     const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
     const instrumentList = (instruments as string).split(",");
-    const ohlc = await upstoxClient.getOHLC(instrumentList);
+    const ohlc: Record<string, UpstoxOHLC> = await upstoxClient.getOHLC(instrumentList);
 
     return res.json({
       success: true,
@@ -98,7 +99,7 @@ router.get(
     const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
     const instrumentList = (instruments as string).split(",");
-    const quotes = await upstoxClient.getQuote(instrumentList);
+    const quotes: Record<string, UpstoxQuote> = await upstoxClient.getQuote(instrumentList);
 
     return res.json({
       success: true,

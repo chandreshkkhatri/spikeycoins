@@ -2,12 +2,9 @@ import { Router, Request, Response } from "express";
 import connectDB from "../../lib/mongodb";
 import User from "../../models/user";
 import UserSettings from "../../models/user-settings";
-import RefreshToken from "../../models/refresh-token";
 import Invite from "../../models/invite";
 import {
-  generateToken,
-  generateRefreshToken,
-  getRefreshTokenExpiry,
+  issueSession,
 } from "../../lib/auth-middleware";
 import { FRONTEND_URL } from "./constants";
 
@@ -212,16 +209,8 @@ router.get("/google/callback", async (req: Request, res: Response) => {
     // Ensure user settings exist
     await (UserSettings as any).getOrCreate(user._id.toString());
 
-    // Generate tokens
-    const accessToken = generateToken(user._id.toString(), user.email);
-    const refreshToken = generateRefreshToken();
-
-    // Save refresh token
-    await RefreshToken.create({
-      userId: user._id,
-      token: refreshToken,
-      expiresAt: getRefreshTokenExpiry(),
-    });
+    // Generate tokens and session
+    const { accessToken, refreshToken } = await issueSession(user);
 
     // Redirect to the originating client with tokens
     const params = new URLSearchParams({

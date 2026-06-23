@@ -3,6 +3,7 @@ import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/
 import { asyncHandler } from "../lib/async-handler";
 import { BrokerFactory } from "../lib/broker-factory";
 import { formatPosition, toNumber } from "../lib/format-utils";
+import { UpstoxPosition, UpstoxOrder, UpstoxFunds } from "../lib/upstox-types";
 
 const router: Router = Router();
 
@@ -200,24 +201,26 @@ router.get(
         const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
         try {
-          const [positions, orders, funds] = await Promise.all([
-            upstoxClient.getPositions().catch(() => []),
-            upstoxClient.getOrders().catch(() => []),
-            upstoxClient.getFunds().catch(() => null),
+          const [positions, orders, funds]: [UpstoxPosition[], UpstoxOrder[], UpstoxFunds | null] = await Promise.all([
+            upstoxClient.getPositions().catch(() => [] as UpstoxPosition[]),
+            upstoxClient.getOrders().catch(() => [] as UpstoxOrder[]),
+            upstoxClient.getFunds().catch(() => null as UpstoxFunds | null),
           ]);
 
-          response.positions = (positions || []).map((p: any) => formatPosition(account, p));
+          response.positions = (positions || []).map((p: UpstoxPosition) => formatPosition(account, p));
 
-          response.orders = (orders || []).map((o: any) => ({
+          response.orders = (orders || []).map((o: UpstoxOrder) => ({
             ...o,
             accountId: account._id,
             vendor: account.accountType,
           }));
 
           if (funds) {
+            const available = funds.equity?.available_margin ?? 0;
+            const availableVal = typeof available === "number" ? available : parseFloat(available || "0");
             response.accountDetails = {
-              equity: parseFloat(funds.equity || "0"),
-              availableBalance: parseFloat(funds.available_margin || "0"),
+              equity: availableVal,
+              availableBalance: availableVal,
             };
           }
         } catch (upstoxError: unknown) {

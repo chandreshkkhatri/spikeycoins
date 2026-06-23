@@ -1,4 +1,19 @@
 import limiter from "./limiter";
+import {
+  UpstoxSessionResponse,
+  UpstoxProfile,
+  UpstoxFunds,
+  UpstoxPosition,
+  UpstoxHolding,
+  UpstoxOrder,
+  UpstoxPlaceOrderParams,
+  UpstoxModifyOrderParams,
+  UpstoxConvertPositionParams,
+  UpstoxQuote,
+  UpstoxLTP,
+  UpstoxOHLC,
+  UpstoxCandle,
+} from "./upstox-types";
 
 // Import Upstox SDK components
 const UpstoxClient = require("upstox-js-sdk");
@@ -100,7 +115,7 @@ export class UpstoxService {
     return fullUrl;
   }
 
-  async generateSession(authorizationCode: string): Promise<any> {
+  async generateSession(authorizationCode: string): Promise<UpstoxSessionResponse> {
     if (!this.apiKey || !this.apiSecret) {
       throw new Error(
         "API credentials not set. Call initializeWithCredentials() first.",
@@ -173,7 +188,7 @@ export class UpstoxService {
     }
   }
 
-  async getProfile(): Promise<any> {
+  async getProfile(): Promise<UpstoxProfile> {
     // Use direct fetch instead of SDK to avoid superagent .end()/.then() bug
     const baseUrl = this.isSandbox
       ? "https://api-sandbox.upstox.com"
@@ -199,7 +214,7 @@ export class UpstoxService {
     return data?.data;
   }
 
-  async getFunds(): Promise<any> {
+  async getFunds(): Promise<UpstoxFunds> {
     if (!this.client) {
       throw new Error(
         "Upstox client not initialized. Call initializeWithCredentials() first.",
@@ -268,7 +283,7 @@ export class UpstoxService {
     }
   }
 
-  async getPositions(): Promise<any[]> {
+  async getPositions(): Promise<UpstoxPosition[]> {
     if (!this.client) {
       throw new Error(
         "Upstox client not initialized. Call initializeWithCredentials() first.",
@@ -317,7 +332,7 @@ export class UpstoxService {
     }
   }
 
-  async getHoldings(): Promise<any[]> {
+  async getHoldings(): Promise<UpstoxHolding[]> {
     if (!this.client) {
       throw new Error(
         "Upstox client not initialized. Call initializeWithCredentials() first.",
@@ -366,7 +381,7 @@ export class UpstoxService {
     }
   }
 
-  async getOrders(): Promise<any[]> {
+  async getOrders(): Promise<UpstoxOrder[]> {
     if (!this.client) {
       throw new Error(
         "Upstox client not initialized. Call initializeWithCredentials() first.",
@@ -415,7 +430,7 @@ export class UpstoxService {
     }
   }
 
-  async placeOrder(params: any): Promise<{ order_id: string }> {
+  async placeOrder(params: UpstoxPlaceOrderParams): Promise<{ order_id: string }> {
     const orderApi = new UpstoxClient.OrderApi(this.client);
     const apiVersion = "2.0";
 
@@ -427,7 +442,7 @@ export class UpstoxService {
 
   async modifyOrder(
     orderId: string,
-    params: any,
+    params: UpstoxModifyOrderParams,
   ): Promise<{ order_id: string }> {
     const orderApi = new UpstoxClient.OrderApi(this.client);
     const apiVersion = "2.0";
@@ -448,7 +463,7 @@ export class UpstoxService {
     return (response as any).data;
   }
 
-  async getQuote(instruments: string[]): Promise<any> {
+  async getQuote(instruments: string[]): Promise<Record<string, UpstoxQuote>> {
     const marketQuoteApi = new UpstoxClient.MarketQuoteApi(this.client);
     const instrumentKey = instruments.join(",");
 
@@ -458,7 +473,7 @@ export class UpstoxService {
     return (response as any).data;
   }
 
-  async getLTP(instruments: string[]): Promise<any> {
+  async getLTP(instruments: string[]): Promise<Record<string, UpstoxLTP>> {
     const marketQuoteApi = new UpstoxClient.MarketQuoteApi(this.client);
     const instrumentKey = instruments.join(",");
 
@@ -468,7 +483,7 @@ export class UpstoxService {
     return (response as any).data;
   }
 
-  async getOHLC(instruments: string[]): Promise<any> {
+  async getOHLC(instruments: string[]): Promise<Record<string, UpstoxOHLC>> {
     const marketQuoteApi = new UpstoxClient.MarketQuoteApi(this.client);
     const instrumentKey = instruments.join(",");
 
@@ -483,7 +498,7 @@ export class UpstoxService {
     interval: string,
     toDate: string,
     fromDate?: string,
-  ): Promise<any> {
+  ): Promise<UpstoxCandle[]> {
     if (!this.accessToken) {
       throw new Error("Access token not set. Call setAccessToken() first.");
     }
@@ -586,7 +601,7 @@ export class UpstoxService {
     return "wss://api.upstox.com/v2/feed/market-data-feed";
   }
 
-  async convertPosition(params: any): Promise<boolean> {
+  async convertPosition(params: UpstoxConvertPositionParams): Promise<boolean> {
     const portfolioApi = new UpstoxClient.PortfolioApi(this.client);
     const apiVersion = "2.0";
 

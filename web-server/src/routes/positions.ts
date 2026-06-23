@@ -3,6 +3,7 @@ import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/
 import { asyncHandler } from "../lib/async-handler";
 import { BrokerFactory } from "../lib/broker-factory";
 import { formatPosition } from "../lib/format-utils";
+import { UpstoxPosition } from "../lib/upstox-types";
 
 const router: Router = Router();
 
@@ -81,7 +82,7 @@ router.get(
 
       // Map positions to unified format
       const unifiedPositions = Array.isArray(positions)
-        ? positions.map((position: any) =>
+        ? positions.map((position: UpstoxPosition) =>
             formatPosition(account, position, { tradingSegment }),
           )
         : [];
