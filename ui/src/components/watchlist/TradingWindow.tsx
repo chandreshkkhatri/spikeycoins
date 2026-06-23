@@ -72,14 +72,12 @@ const USER_MAX_LEVERAGE_STORAGE_KEY = "spikeyCoins_userMaxLeverage";
 const USE_SL_TP_SLIDER_STORAGE_KEY = "spikeyCoins_useSlTpSlider";
 const SYMBOL_LEVERAGES_STORAGE_KEY = "spikeyCoins_symbolLeverages";
 
-const TradingWindow = memo(function TradingWindow({
+export function useTradingWindow({
   symbol,
   currentPrice,
   accounts,
   selectedAccount,
-  marketType = "futures",
   onOrderPlaced,
-  onSymbolSelect,
 }: TradingWindowProps) {
   // Use shared trading data context
   const {
@@ -1434,14 +1432,6 @@ const TradingWindow = memo(function TradingWindow({
   };
 
 
-  if (accounts.length === 0) {
-    return (
-      <div className="trading-window-empty">
-        <p>No trading accounts available</p>
-      </div>
-    );
-  }
-
   // Build price lines for the chart
   const chartPriceLines = useMemo(() => {
     const lines = [];
@@ -1533,6 +1523,142 @@ const TradingWindow = memo(function TradingWindow({
       { label: "Open Sell Order", color: "#fca5a5" },
     ] : []),
   ], [existingPosition, openOrders]);
+
+  return {
+    accountDetails,
+    applyConfig,
+    availableBalance,
+    calculateLiquidationPrice,
+    calculateOrderValue,
+    calculateProfitAmount,
+    calculateRiskedAmount,
+    chartLegend,
+    chartPriceLines,
+    contextRefreshAll,
+    defaultRiskAmount,
+    draftDefaultRiskPercent,
+    draftDefaultTakeProfitPercent,
+    draftUserMaxLeverage,
+    error,
+    existingPosition,
+    handleDefaultRiskChange,
+    handleDefaultTakeProfitChange,
+    handleInputChange,
+    handleOrderBookPriceApplied,
+    handleOrderBookPriceSelect,
+    handleRetrySlTp,
+    handleSlSliderChange,
+    handleSliderChange,
+    handleSliderCommit,
+    handleTpSliderChange,
+    handleUserMaxLeverageChange,
+    isConfigDirty,
+    isDemoTradingBlocked,
+    isLogarithmicSlider,
+    isRefreshingDetails,
+    isSubmitting,
+    lastDetailsRefresh,
+    maxLeverage,
+    maxSlPercentage,
+    minNotional,
+    minQty,
+    orderBookPrice,
+    orderForm,
+    orderRefreshTrigger,
+    positionSizePercentage,
+    retryState,
+    setIsLogarithmicSlider,
+    setPositionSizePercentage,
+    setQuickQuantity,
+    setTpPercentage,
+    setUseSlTpSlider,
+    slAutoCalcWarning,
+    slPercentage,
+    stepSize,
+    submitOrder,
+    success,
+    syncPriceToCurrent,
+    tickSize,
+    tpPercentage,
+    useSlTpSlider,
+  };
+}
+
+const TradingWindow = memo(function TradingWindow(props: TradingWindowProps) {
+  const {
+    symbol,
+    currentPrice,
+    accounts,
+    selectedAccount,
+    marketType = "futures",
+    onSymbolSelect,
+  } = props;
+  const {
+    accountDetails,
+    applyConfig,
+    availableBalance,
+    calculateLiquidationPrice,
+    calculateOrderValue,
+    calculateProfitAmount,
+    calculateRiskedAmount,
+    chartLegend,
+    chartPriceLines,
+    contextRefreshAll,
+    defaultRiskAmount,
+    draftDefaultRiskPercent,
+    draftDefaultTakeProfitPercent,
+    draftUserMaxLeverage,
+    error,
+    existingPosition,
+    handleDefaultRiskChange,
+    handleDefaultTakeProfitChange,
+    handleInputChange,
+    handleOrderBookPriceApplied,
+    handleOrderBookPriceSelect,
+    handleRetrySlTp,
+    handleSlSliderChange,
+    handleSliderChange,
+    handleSliderCommit,
+    handleTpSliderChange,
+    handleUserMaxLeverageChange,
+    isConfigDirty,
+    isDemoTradingBlocked,
+    isLogarithmicSlider,
+    isRefreshingDetails,
+    isSubmitting,
+    lastDetailsRefresh,
+    maxLeverage,
+    maxSlPercentage,
+    minNotional,
+    minQty,
+    orderBookPrice,
+    orderForm,
+    orderRefreshTrigger,
+    positionSizePercentage,
+    retryState,
+    setIsLogarithmicSlider,
+    setPositionSizePercentage,
+    setQuickQuantity,
+    setTpPercentage,
+    setUseSlTpSlider,
+    slAutoCalcWarning,
+    slPercentage,
+    stepSize,
+    submitOrder,
+    success,
+    syncPriceToCurrent,
+    tickSize,
+    tpPercentage,
+    useSlTpSlider,
+  } = useTradingWindow(props);
+
+  if (accounts.length === 0) {
+    return (
+      <div className="trading-window-empty">
+        <p>No trading accounts available</p>
+      </div>
+    );
+  }
 
   return (
     <div className="trading-window">
