@@ -25,7 +25,8 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-008** | Analytics | Build initial Win Rate / Sharpe Ratio calculation modules. | `web-server` / Analytics | 🟥 To Do |
 | **BG-009** | Gym | Support loading multi-day historical data for replay simulation backtesting. | `web-server` / Gym | 🟥 To Do |
 | **BG-010** | UI/UX | Improve toast notification layout for real-time order fill alerts. | `ui` / Layout | 🟥 To Do |
-| **BG-015** | Testing | Add MSW (Mock Service Worker) + a custom RTL `render` wrapper that injects `AuthContext`/`AccountContext`, then write tests for `useWatchlist.ts` and `binance-futures-order.service.ts` — the highest-risk, most recently AI-refactored code paths. | `ui` / `web-server` / Tests | 🟥 To Do |
+| **BG-015** | Testing | Add MSW (Mock Service Worker) + a custom RTL `render` wrapper that injects `AuthContext`/`AccountContext`, then write integration tests for `useWatchlist.ts` and the trading cards — the highest-risk, most recently AI-refactored UI paths. Planned: [sprint-0-frontend-testing-iteration-3.md](sprints/sprint-0-frontend-testing-iteration-3.md). | `ui` / Tests | 📋 Planned |
+| **BG-016** | Testing | Stand up Vitest for `web-server` and write the first backend test for `binance-futures-order.service.ts` (DI-mocked `BinanceService`). Unblocks BG-014. Planned: [sprint-0-backend-testing-setup.md](sprints/sprint-0-backend-testing-setup.md). | `web-server` / Tests | 📋 Planned |
 
 ---
 

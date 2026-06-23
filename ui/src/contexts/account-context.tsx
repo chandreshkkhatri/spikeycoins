@@ -43,7 +43,7 @@ interface AccountContextType {
   error: string | null;
 }
 
-const AccountContext = createContext<AccountContextType | undefined>(undefined);
+export const AccountContext = createContext<AccountContextType | undefined>(undefined);
 
 export const useAccount = () => {
   const context = useContext(AccountContext);
