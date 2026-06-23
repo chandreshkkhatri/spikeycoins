@@ -13,6 +13,8 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-003** | Execution | Build external webhook trade execution endpoint (for TradingView alerts integration). | `web-server` / `routes` | 🟥 To Do |
 | **BG-004** | UI/UX | Persist user sorting preferences in the Screener across browser refreshes. | `ui` / Screener | 🟥 To Do |
 | **BG-005** | Performance| Implement connection heartbeat monitoring for Upstox WebSocket streams. | `web-server` / WebSocket | 🟥 To Do |
+| **BG-017** | Security | Tighten CORS: replace the `*.vercel.app` wildcard origin with an explicit allow-list. Deferred from the Sprint-0 audit. | `web-server` / config | 🟥 To Do |
+| **BG-018** | Security | Add auth-route ownership checks — verify the authenticated user owns the `accountId` they act on. Deferred from the Sprint-0 audit. | `web-server` / `routes` | 🟥 To Do |
 
 ---
 
@@ -25,8 +27,10 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-008** | Analytics | Build initial Win Rate / Sharpe Ratio calculation modules. | `web-server` / Analytics | 🟥 To Do |
 | **BG-009** | Gym | Support loading multi-day historical data for replay simulation backtesting. | `web-server` / Gym | 🟥 To Do |
 | **BG-010** | UI/UX | Improve toast notification layout for real-time order fill alerts. | `ui` / Layout | 🟥 To Do |
-| **BG-015** | Testing | Add MSW (Mock Service Worker) + a custom RTL `render` wrapper that injects `AuthContext`/`AccountContext`, then write integration tests for `useWatchlist.ts` and the trading cards — the highest-risk, most recently AI-refactored UI paths. Planned: [sprint-0-frontend-testing-iteration-3.md](sprints/sprint-0-frontend-testing-iteration-3.md). | `ui` / Tests | ✅ Done |
-| **BG-016** | Testing | Stand up Vitest for `web-server` and write the first backend test for `binance-futures-order.service.ts` (DI-mocked `BinanceService`). Unblocks BG-014. Planned: [sprint-0-backend-testing-setup.md](sprints/sprint-0-backend-testing-setup.md). | `web-server` / Tests | ✅ Done |
+| **BG-015** | Testing | Add MSW (Mock Service Worker) + a custom RTL `render` wrapper that injects `AuthContext`/`AccountContext`, then write integration tests for `useWatchlist.ts` and the trading cards — the highest-risk, most recently AI-refactored UI paths. See [sprint-0-summary.md](sprints/sprint-0-summary.md). | `ui` / Tests | ✅ Done |
+| **BG-016** | Testing | Stand up Vitest for `web-server` and write the first backend test for `binance-futures-order.service.ts` (DI-mocked `BinanceService`). Unblocks BG-014. See [sprint-0-summary.md](sprints/sprint-0-summary.md). | `web-server` / Tests | ✅ Done |
+| **BG-019** | Tech Debt | De-duplicate `format-utils` across `ui/` and `web-server/` — decide on a shared location or accept the split deliberately. Last dedup target deferred from Sprint-0 refactor iteration 2. | `ui` / `web-server` | 🟥 To Do |
+| **BG-020** | Testing | Extend integration tests to the remaining trading cards (`Funds`/`Holdings`/`Positions`) and `AccountSelector` on the MSW + `renderWithProviders` harness built in BG-015. | `ui` / Tests | 🟥 To Do |
 
 ---
 
@@ -38,6 +42,7 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-012** | Alerts | Add Discord and Telegram notification alerts integration. | `web-server` / Alerts | 🟥 To Do |
 | **BG-013** | Integration| Add Angel One (SmartAPI) broker integration to BrokerFactory. | `web-server` / `lib` | 🟥 To Do |
 | **BG-014** | Tech Debt | Set up comprehensive unit tests using Vitest for `format-utils` and `BrokerFactory` — unblocked by BG-016. | `web-server` / Tests | 🟥 To Do |
+| **BG-021** | Tech Debt | Decide whether `scripts/deactivate-kite-accounts.ts` must run against the production DB, then run + retire it. Operational carry-over from Kite removal. | `scripts` / Database | 🟥 To Do |
 
 ---
 
