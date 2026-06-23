@@ -1,826 +1,64 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { getApiUrl } from "@/lib/api";
-import { useAuth } from "@/contexts/auth-context";
-import binanceWebSocketService from "@/lib/binance-websocket";
 import { formatPrice } from "@/lib/format-utils";
-import { upstoxWebSocket } from "@/lib/upstox-websocket";
 import { ArrowDown, ArrowUp, ChevronDown, Plus, Trash2, X, Search } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo } from "react";
 import SymbolSearchModal from "./SymbolSearchModal";
 import TradingWindow from "./TradingWindow";
 import WatchlistItemRow from "./WatchlistItemRow";
 import WatchlistContextMenu from "./WatchlistContextMenu";
-import {
-  type WatchlistItem,
-  type WatchlistProps,
-  type WatchlistInfo,
-  type ContextMenuState,
-  type SortConfig,
-  getStoredWatchlistSettings,
-  saveWatchlistSettings,
-  getStoredWatchlistPrices,
-  saveWatchlistPrices,
-} from "./watchlist-types";
-
-// Re-export for backwards compatibility
-export type { WatchlistItem } from "./watchlist-types";
-
-const Watchlist = memo(function Watchlist({
-  accounts = [],
-  selectedAccount,
-  marketType = "binance-futures",
-}: WatchlistProps) {
-  const { user, getAccessToken } = useAuth();
-
-  // Helper to get auth headers for API calls
-  const getAuthHeaders = useCallback((): HeadersInit => {
-    const headers: HeadersInit = { "Content-Type": "application/json" };
-    const token = getAccessToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    return headers;
-  }, [getAccessToken]);
-  const storedWatchlistSettings = useRef(getStoredWatchlistSettings());
-  const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [watchlistItemsData, setWatchlistItemsData] = useState<any[]>([]);
-  const [selectedSymbol, setSelectedSymbol] = useState<string>(
-    storedWatchlistSettings.current?.lastSelectedSymbol || ""
-  );
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([]);
-  const [watchlists, setWatchlists] = useState<WatchlistInfo[]>([]);
-  const [currentWatchlistId, setCurrentWatchlistId] = useState<string | null>(
-    null
-  );
-  const [currentWatchlistName, setCurrentWatchlistName] =
-    useState<string>("Default Watchlist");
-  const [showWatchlistDropdown, setShowWatchlistDropdown] = useState(false);
-  const [showSymbolSearchModal, setShowSymbolSearchModal] = useState(false);
-  const [isMobileWatchlistOpen, setIsMobileWatchlistOpen] = useState(false);
-  const [addAnchorRect, setAddAnchorRect] = useState<{
-    top: number;
-    left: number;
-    bottom: number;
-    right: number;
-    width: number;
-    height: number;
-  } | null>(null);
-  const [showCreateWatchlistModal, setShowCreateWatchlistModal] =
-    useState(false);
-  const [newWatchlistName, setNewWatchlistName] = useState("");
-  const [success, setSuccess] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const searchContainerRef = useRef<HTMLDivElement>(null);
-
-  // Context menu state for right-click "Add to" functionality
-  const [contextMenu, setContextMenu] = useState<ContextMenuState>(
-    { symbol: "", x: 0, y: 0, open: false }
-  );
-
-  const closeContextMenu = useCallback(() => {
-    setContextMenu((prev) => ({ ...prev, open: false }));
-  }, []);
-
-  // Close context menu on Escape key or click outside
-  useEffect(() => {
-    if (!contextMenu.open) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeContextMenu();
-    };
-    const handleClickOutside = () => closeContextMenu();
-
-    document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("click", handleClickOutside);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("click", handleClickOutside);
-    };
-  }, [contextMenu.open, closeContextMenu]);
-
-  // Handle click outside search to close it
-  // Uses "click" (not "mousedown") so React's onClick on search results
-  // fires first, ensuring setSelectedSymbol runs before the search closes.
-  useEffect(() => {
-    if (!isSearchOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        searchContainerRef.current &&
-        !searchContainerRef.current.contains(event.target as Node)
-      ) {
-        setIsSearchOpen(false);
-        setSearchQuery("");
-      }
-    };
-
-    document.addEventListener("click", handleClickOutside);
-    return () => document.removeEventListener("click", handleClickOutside);
-  }, [isSearchOpen]);
-
-  const [sortConfig, setSortConfig] = useState<SortConfig>({
-    key: storedWatchlistSettings.current?.sortKey || "symbol",
-    direction: storedWatchlistSettings.current?.sortDirection || "asc",
-  });
-
-  // Persist sort + symbol settings to localStorage
-  useEffect(() => {
-    saveWatchlistSettings({
-      sortKey: sortConfig.key,
-      sortDirection: sortConfig.direction,
-      lastSelectedSymbol: selectedSymbol || undefined,
-    });
-  }, [sortConfig, selectedSymbol]);
-
-  // Persist watchlist prices/data to localStorage
-  useEffect(() => {
-    if (!selectedAccount || watchlistItems.length === 0) return;
-    
-    const timeoutId = setTimeout(() => {
-      saveWatchlistPrices(selectedAccount._id, watchlistItems);
-    }, 2000); // Debounce save every 2 seconds
-    
-    return () => clearTimeout(timeoutId);
-  }, [watchlistItems, selectedAccount]);
-
-  // Ensure selected symbol stays valid based on available symbols
-  useEffect(() => {
-    if (watchlistSymbols.length === 0) {
-      // Don't clear selectedSymbol when watchlist is empty during loading
-      // It will be validated once symbols are loaded
-      return;
-    }
-
-    // First priority: check if currently selected symbol is valid
-    if (selectedSymbol && watchlistSymbols.includes(selectedSymbol)) {
-      return;
-    }
-
-    // Second priority: try to restore from localStorage
-    const storedSymbol = storedWatchlistSettings.current?.lastSelectedSymbol;
-    if (storedSymbol && watchlistSymbols.includes(storedSymbol)) {
-      setSelectedSymbol(storedSymbol);
-      return;
-    }
-
-    // Fallback: select first symbol from watchlist
-    setSelectedSymbol(watchlistSymbols[0]);
-  }, [watchlistSymbols, selectedSymbol]);
-
-  // Pending updates buffer for throttling
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pendingUpdatesRef = useRef<Map<string, any>>(new Map());
-
-  const currentPrice =
-    watchlistItems.find((item) => item.symbol === selectedSymbol)?.lastPrice ||
-    0;
-
-  // Track previous account to avoid unnecessary disconnects on watchlist changes
-  const prevAccountIdRef = useRef<string | null>(null);
-  const prevAccountTypeRef = useRef<"binance" | "upstox" | null>(null);
-  const shouldDisconnectRef = useRef<boolean>(false);
-
-  // Fetch watchlist symbols from database when account changes
-  useEffect(() => {
-    // Determine if the trading account actually changed
-    const prevId = prevAccountIdRef.current;
-    const prevType = prevAccountTypeRef.current;
-    const currId = selectedAccount?._id || null;
-    const currType = selectedAccount?.accountType || null;
-    const accountChanged = prevId !== currId || prevType !== currType;
-    shouldDisconnectRef.current = accountChanged;
-
-    // Clear pending updates on account change
-    pendingUpdatesRef.current.clear();
-
-    const fetchWatchlistSymbols = async () => {
-      if (!selectedAccount) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-
-        // Default to system watchlist for Binance if no specific watchlist is selected
-        const isSystemRequest =
-          currentWatchlistId?.startsWith("system-") ||
-          (selectedAccount.accountType === "binance" && !currentWatchlistId);
-
-        // 1. Fetch User Watchlists & Default/Selected User Watchlist Data
-        // If requesting system watchlist, we still fetch user watchlists to populate dropdown
-        // but we don't pass the system ID to the user endpoint
-        // For system requests, use noCreate=true to avoid 401 when no user watchlist exists
-        const userWlUrl =
-          !isSystemRequest && currentWatchlistId
-            ? getApiUrl(
-              `/api/watchlist/symbols?accountId=${selectedAccount._id}&marketType=${marketType}&watchlistId=${currentWatchlistId}`
-            )
-            : getApiUrl(
-              `/api/watchlist/symbols?accountId=${selectedAccount._id
-              }&marketType=${marketType}${isSystemRequest ? "&noCreate=true" : ""
-              }`
-            );
-
-        const userRes = await fetch(userWlUrl, { headers: getAuthHeaders() });
-        if (!userRes.ok) {
-          const errorBody = await userRes.text();
-          throw new Error(
-            `Watchlist API ${userRes.status}: ${errorBody || userRes.statusText || "Unknown error"
-            }`
-          );
-        }
-        const userData = await userRes.json();
-
-        let finalWatchlists = userData.watchlists || [];
-        let finalSymbols = userData.symbols || [];
-        let finalItems = userData.items || [];
-        let finalCurrentId = userData.watchlist?.id;
-        let finalCurrentName = userData.watchlist?.name;
-
-        // 2. Handle System Watchlist (Binance Futures)
-        if (selectedAccount.accountType === "binance") {
-          // Add system watchlist to the list
-          const systemWl = {
-            id: "system-binance-futures",
-            name: "Binance Futures",
-            isDefault: false,
-            isSystem: true,
-          };
-          // Prepend system watchlist
-          finalWatchlists = [systemWl, ...finalWatchlists];
-
-          // If we are currently selecting the system watchlist, fetch its symbols
-          if (isSystemRequest) {
-            try {
-              const sysRes = await fetch(
-                getApiUrl("/api/watchlist/system/binance-futures"),
-                { headers: getAuthHeaders() }
-              );
-              const sysData = await sysRes.json();
-              if (sysData.success) {
-                finalSymbols = sysData.symbols;
-                finalItems = sysData.items;
-                finalCurrentId =
-                  sysData.watchlistId || "system-binance-futures";
-                finalCurrentName = sysData.watchlistName || "Binance Futures";
-              }
-            } catch (sysErr) {
-              console.error("Failed to fetch system watchlist", sysErr);
-            }
-          }
-        }
-
-        if (userData.success) {
-          // Update watchlists
-          setWatchlists(finalWatchlists);
-
-          // Update current watchlist info
-          if (isSystemRequest) {
-            setCurrentWatchlistId(finalCurrentId || "system-binance-futures");
-            setCurrentWatchlistName(finalCurrentName || "Binance Futures");
-          } else if (userData.watchlist) {
-            setCurrentWatchlistId(userData.watchlist.id);
-            setCurrentWatchlistName(userData.watchlist.name);
-          }
-
-          if (finalSymbols.length > 0) {
-            setWatchlistSymbols(finalSymbols);
-            setWatchlistItemsData(finalItems); // Store full item data
-
-            // Initialize watchlist items with cached data if available, otherwise zeros
-            const cachedPrices = selectedAccount ? getStoredWatchlistPrices(selectedAccount._id) : null;
-            
-            const initialData: WatchlistItem[] = finalSymbols.map(
-              (symbol: string) => {
-                const cached = cachedPrices ? cachedPrices[symbol] : null;
-                // Use cached data if it exists and looks valid (non-zero price)
-                if (cached && cached.lastPrice > 0) {
-                  return cached;
-                }
-                
-                return {
-                  symbol,
-                  lastPrice: 0,
-                  priceChange: 0,
-                  priceChangePercent: 0,
-                  volume: 0,
-                  high24h: 0,
-                  low24h: 0,
-                };
-              }
-            );
-
-            setWatchlistItems(initialData);
-            // Symbol selection is handled by the useEffect that watches watchlistSymbols
-
-            // Fetch cached prices from server for immediate display
-            if (selectedAccount?.accountType === "binance") {
-              try {
-                const pricesRes = await fetch(getApiUrl("/api/prices"));
-                const pricesData = await pricesRes.json();
-                if (pricesData.success && pricesData.prices) {
-                  // Update items with cached prices
-                  setWatchlistItems((prev) =>
-                    prev.map((item) => {
-                      const cached = pricesData.prices[item.symbol];
-                      if (cached) {
-                        return {
-                          ...item,
-                          lastPrice: cached.lastPrice || 0,
-                          priceChange: cached.priceChange || 0,
-                          priceChangePercent: cached.priceChangePercent || 0,
-                          volume: cached.volume || 0,
-                          high24h: cached.high || 0,
-                          low24h: cached.low || 0,
-                        };
-                      }
-                      return item;
-                    })
-                  );
-                }
-              } catch (priceErr) {
-                // Ignore pricing cache failures
-              }
-            }
-
-            // Start WebSocket connection for real-time updates
-            if (selectedAccount?.accountType === "binance") {
-              // Determine segment type based on market type
-              const segment =
-                marketType === "binance-futures" ? "usdm" : "spot";
-
-              // Connect to WebSocket first (don't use testnet for now - it's unstable)
-              binanceWebSocketService
-                .connect(segment, false)
-                .then(() => {
-                  // Subscribe to each symbol (ensure lowercase)
-                  finalSymbols.forEach((symbol: string) => {
-                    binanceWebSocketService.subscribe(
-                      symbol.toLowerCase(),
-                      (priceUpdate: {
-                        symbol?: string;
-                        lastPrice?: string;
-                        priceChange?: string;
-                        priceChangePercent?: string;
-                        volume?: string;
-                        high?: string;
-                        low?: string;
-                      }) => {
-                        // Buffer the update instead of setting state immediately
-                        if (priceUpdate.symbol) {
-                          pendingUpdatesRef.current.set(
-                            priceUpdate.symbol.toLowerCase(),
-                            priceUpdate
-                          );
-                        }
-                      }
-                    );
-                  });
-                })
-                .catch((err) => {
-                  console.error("Failed to connect to Binance WebSocket:", err);
-                });
-            } else if (selectedAccount?.accountType === "upstox") {
-              // Upstox: connect via v3 websocket using accountId and 'ltpc' for light feed in watchlist
-              upstoxWebSocket.connect(
-                finalSymbols,
-                (priceUpdate) => {
-                  // Buffer the update
-                  if (priceUpdate.symbol) {
-                    pendingUpdatesRef.current.set(
-                      priceUpdate.symbol,
-                      priceUpdate
-                    );
-                  }
-                },
-                { accountId: selectedAccount._id, mode: "ltpc" }
-              );
-            }
-          } else {
-            // No symbols in watchlist
-            setWatchlistItems([]);
-            setWatchlistSymbols([]);
-          }
-        }
-
-        setLoading(false);
-      } catch (err) {
-        console.error("Failed to fetch watchlist symbols:", err);
-        setError(
-          err instanceof Error ? err.message : "Failed to load watchlist data"
-        );
-        setWatchlistItems([]);
-        setLoading(false);
-      }
-    };
-
-    fetchWatchlistSymbols();
-
-    // Cleanup WebSocket on component unmount or account change
-    return () => {
-      if (!shouldDisconnectRef.current) return;
-      if (prevAccountTypeRef.current === "binance") {
-        binanceWebSocketService.disconnect();
-      } else if (prevAccountTypeRef.current === "upstox") {
-        upstoxWebSocket.disconnect();
-      }
-    };
-    // We intentionally exclude selectedSymbol to avoid reconnecting the feed on selection changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAccount, marketType, currentWatchlistId]);
-
-  // Throttled update effect - optimized with requestAnimationFrame batching
-  useEffect(() => {
-    let rafId: number | null = null;
-    let lastUpdate = 0;
-    const minInterval = 500; // Reduced from 1000ms to 500ms for more responsive UI
-
-    const processUpdates = () => {
-      const now = performance.now();
-      if (
-        now - lastUpdate < minInterval ||
-        pendingUpdatesRef.current.size === 0
-      ) {
-        rafId = requestAnimationFrame(processUpdates);
-        return;
-      }
-
-      lastUpdate = now;
-      setWatchlistItems((prev) => {
-        // Create normalized lookup map (O(1) instead of O(N))
-        const itemMap = new Map(
-          prev.map((item) => [item.symbol.toLowerCase(), item])
-        );
-        let hasChanges = false;
-
-        pendingUpdatesRef.current.forEach((update, symbolKey) => {
-          // Normalize key for consistent lookup
-          const normalizedKey = symbolKey.toLowerCase();
-          const item = itemMap.get(normalizedKey);
-
-          if (item) {
-            hasChanges = true;
-            const newItem = { ...item };
-
-            // Check if it's a Binance update (strings) or Upstox (numbers)
-            if (typeof update.lastPrice === "string") {
-              // Binance format
-              newItem.lastPrice = parseFloat(update.lastPrice || "0");
-              newItem.priceChange = parseFloat(update.priceChange || "0");
-              newItem.priceChangePercent = parseFloat(
-                update.priceChangePercent || "0"
-              );
-              newItem.volume = parseFloat(update.volume || "0");
-              newItem.high24h = parseFloat(update.high || "0");
-              newItem.low24h = parseFloat(update.low || "0");
-            } else {
-              // Upstox format (already numbers)
-              newItem.lastPrice = update.lastPrice;
-              newItem.priceChange = update.priceChange;
-              newItem.priceChangePercent = update.priceChangePercent;
-              newItem.volume = update.volume;
-              newItem.high24h = update.high24h;
-              newItem.low24h = update.low24h;
-            }
-
-            itemMap.set(normalizedKey, newItem);
-          }
-        });
-
-        pendingUpdatesRef.current.clear();
-        return hasChanges ? Array.from(itemMap.values()) : prev;
-      });
-
-      rafId = requestAnimationFrame(processUpdates);
-    };
-
-    rafId = requestAnimationFrame(processUpdates);
-
-    return () => {
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-    };
-  }, []);
-
-  // After each effect run, update previous account refs
-  useEffect(() => {
-    prevAccountIdRef.current = selectedAccount?._id || null;
-    prevAccountTypeRef.current = selectedAccount?.accountType || null;
-  }, [selectedAccount]);
-
-  const handleSort = (key: keyof WatchlistItem) => {
-    setSortConfig((current) => ({
-      key,
-      direction:
-        current.key === key && current.direction === "asc" ? "desc" : "asc",
-    }));
-  };
-
-  const sortedWatchlistItems = useMemo(() => {
-    const items = [...watchlistItems];
-    items.sort((a, b) => {
-      let aValue: number | string;
-      let bValue: number | string;
-
-      // For volume, sort by dollar value (price × units)
-      if (sortConfig.key === "volume") {
-        aValue = a.volume * a.lastPrice;
-        bValue = b.volume * b.lastPrice;
-      } else {
-        aValue = a[sortConfig.key];
-        bValue = b[sortConfig.key];
-      }
-
-      if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
-      if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
-      return 0;
-    });
-    return items;
-  }, [watchlistItems, sortConfig]);
-
-  const filteredWatchlistItems = useMemo(() => {
-    if (!searchQuery.trim()) return sortedWatchlistItems;
-    const query = searchQuery.toLowerCase().trim();
-    return sortedWatchlistItems.filter((item) =>
-      item.symbol.toLowerCase().includes(query)
-    );
-  }, [sortedWatchlistItems, searchQuery]);
-
-  const addSymbol = async (item: {
-    symbol: string;
-    name?: string;
-    exchange?: string;
-    token?: string;
-    segment?: string;
-    instrument_type?: string;
-    isin?: string;
-  }) => {
-    // Check if symbol already exists
-    if (watchlistSymbols.includes(item.symbol)) {
-      setError(`${item.symbol} is already in your watchlist`);
-      setTimeout(() => setError(null), 3000);
-      return;
-    }
-
-    // Add to local state
-    const newSymbols = [...watchlistSymbols, item.symbol];
-    setWatchlistSymbols(newSymbols);
-
-    // Add to watchlist items with initial values
-    setWatchlistItems((prev) => [
-      ...prev,
-      {
-        symbol: item.symbol,
-        lastPrice: 0,
-        priceChange: 0,
-        priceChangePercent: 0,
-        volume: 0,
-        high24h: 0,
-        low24h: 0,
-      },
-    ]);
-
-    // If no symbol selected, select the new one
-    if (!selectedSymbol) {
-      setSelectedSymbol(item.symbol);
-    }
-
-    // Save to database with full item data
-    if (selectedAccount) {
-      try {
-        // Use existing items data if available, or create minimal items
-        const currentItems =
-          watchlistItemsData.length > 0
-            ? watchlistItemsData
-            : watchlistItems.map((wi) => ({
-              symbol: wi.symbol,
-            }));
-
-        // Add new item with full details
-        const newItems = [
-          ...currentItems,
-          {
-            symbol: item.symbol,
-            name: item.name,
-            exchange: item.exchange,
-            token: item.token,
-            segment: item.segment,
-            instrument_type: item.instrument_type,
-            isin: item.isin,
-          },
-        ];
-
-        // Update local state with new items data
-        setWatchlistItemsData(newItems);
-
-        // Save to backend - backend expects 'symbol' not 'items'
-        const body: {
-          accountId: string;
-          marketType: string;
-          symbol?: string;
-          watchlistId?: string;
-          items?: unknown[];
-        } = {
-          accountId: selectedAccount._id,
-          marketType,
-          symbol: item.symbol, // Backend expects single symbol
-        };
-
-        if (currentWatchlistId) {
-          body.watchlistId = currentWatchlistId;
-        }
-
-        const response = await fetch(getApiUrl("/api/watchlist/symbols"), {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify(body),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to save symbol to watchlist");
-        }
-
-        // Add to WebSocket subscription
-        if (selectedAccount.accountType === "binance") {
-          binanceWebSocketService.addSymbol(item.symbol);
-        } else if (selectedAccount.accountType === "upstox") {
-          upstoxWebSocket.addSymbol(item.symbol);
-        }
-      } catch (err) {
-        console.error("Failed to add symbol to watchlist:", err);
-        setError("Failed to add symbol to watchlist");
-        // Revert on error
-        setWatchlistSymbols((prev) => prev.filter((s) => s !== item.symbol));
-        setWatchlistItems((prev) =>
-          prev.filter((wi) => wi.symbol !== item.symbol)
-        );
-      }
-    }
-  };
-
-  const removeSymbol = async (symbol: string) => {
-    setWatchlistItems((prev) => prev.filter((item) => item.symbol !== symbol));
-    setWatchlistSymbols((prev) => prev.filter((s) => s !== symbol));
-    // Remove from WebSocket subscription
-    if (selectedAccount?.accountType === "binance") {
-      binanceWebSocketService.removeSymbol(symbol);
-    } else if (selectedAccount?.accountType === "upstox") {
-      upstoxWebSocket.removeSymbol(symbol);
-    }
-    if (selectedSymbol === symbol && watchlistItems.length > 1) {
-      setSelectedSymbol(
-        watchlistItems.find((item) => item.symbol !== symbol)?.symbol || ""
-      );
-    }
-
-    // Save to database with items
-    if (selectedAccount) {
-      try {
-        // Filter out the removed symbol from items data
-        const remainingItems = watchlistItemsData.filter(
-          (item) => item.symbol !== symbol
-        );
-
-        // Update local state
-        setWatchlistItemsData(remainingItems);
-
-        const body: {
-          accountId: string;
-          marketType: string;
-          items: unknown[];
-          watchlistId?: string;
-        } = {
-          accountId: selectedAccount._id,
-          marketType,
-          items: remainingItems, // Changed from symbols to items
-        };
-
-        if (currentWatchlistId) {
-          body.watchlistId = currentWatchlistId;
-        }
-
-        await fetch(getApiUrl("/api/watchlist/symbols"), {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify(body),
-        });
-      } catch (err) {
-        console.error("Failed to remove symbol from watchlist:", err);
-      }
-    }
-  };
-
-  const switchWatchlist = useCallback(
-    (watchlistId: string, watchlistName: string) => {
-      setCurrentWatchlistId(watchlistId);
-      setCurrentWatchlistName(watchlistName);
-      setShowWatchlistDropdown(false);
-    },
-    []
-  );
-
-  const handleOrderPlaced = useCallback(() => {
-    // Handle order placed event - could refresh data, show notification, etc.
-  }, []);
-
-  const handleContextMenu = useCallback(
-    (symbol: string, x: number, y: number) => {
-      setContextMenu({ symbol, x, y, open: true });
-    },
-    []
-  );
-
-  const handleSelectSymbol = useCallback(
-    (symbol: string) => {
-      setSelectedSymbol(symbol);
-      setIsMobileWatchlistOpen(false);
-      if (isSearchOpen) {
-        setIsSearchOpen(false);
-        setSearchQuery("");
-      }
-    },
-    [isSearchOpen]
-  );
-
-  const createWatchlist = async () => {
-    if (!selectedAccount || !newWatchlistName.trim() || !user?._id) return;
-
-    try {
-      const response = await fetch(getApiUrl("/api/watchlist"), {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          userId: user._id,
-          accountId: selectedAccount._id,
-          name: newWatchlistName.trim(),
-          marketType,
-          symbols: [],
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Create watchlist failed:", response.status, errorText);
-        throw new Error("Failed to create watchlist");
-      }
-
-      const data = await response.json();
-      if (data.success) {
-        setWatchlists((prev) => [
-          ...prev,
-          {
-            id: data.watchlist._id,
-            name: data.watchlist.name,
-            isDefault: false,
-          },
-        ]);
-        switchWatchlist(data.watchlist._id, data.watchlist.name);
-        setShowCreateWatchlistModal(false);
-        setNewWatchlistName("");
-      }
-    } catch (err) {
-      console.error("Failed to create watchlist:", err);
-      setError("Failed to create watchlist");
-    }
-  };
-
-  const deleteWatchlist = async (watchlistId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("Are you sure you want to delete this watchlist?")) return;
-
-    try {
-      const response = await fetch(getApiUrl(`/api/watchlist/${watchlistId}`), {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-      });
-
-      if (!response.ok) throw new Error("Failed to delete watchlist");
-
-      setWatchlists((prev) => prev.filter((w) => w.id !== watchlistId));
-
-      // If deleted current watchlist, switch to default
-      if (currentWatchlistId === watchlistId) {
-        const defaultWl = watchlists.find(
-          (w) => w.isDefault && w.id !== watchlistId
-        );
-        if (defaultWl) {
-          switchWatchlist(defaultWl.id, defaultWl.name);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to delete watchlist:", err);
-      setError("Failed to delete watchlist");
-    }
-  };
+import { type WatchlistItem, type WatchlistProps } from "./watchlist-types";
+import { useWatchlist } from "./useWatchlist";
+
+const Watchlist = memo(function Watchlist(props: WatchlistProps) {
+  const { accounts = [], selectedAccount, marketType = "binance-futures" } = props;
+
+  const {
+    watchlistItems,
+    selectedSymbol,
+    setSelectedSymbol,
+    loading,
+    error,
+    setError,
+    watchlists,
+    currentWatchlistId,
+    currentWatchlistName,
+    showWatchlistDropdown,
+    setShowWatchlistDropdown,
+    showSymbolSearchModal,
+    setShowSymbolSearchModal,
+    isMobileWatchlistOpen,
+    setIsMobileWatchlistOpen,
+    addAnchorRect,
+    setAddAnchorRect,
+    showCreateWatchlistModal,
+    setShowCreateWatchlistModal,
+    newWatchlistName,
+    setNewWatchlistName,
+    success,
+    setSuccess,
+    searchQuery,
+    setSearchQuery,
+    isSearchOpen,
+    setIsSearchOpen,
+    searchContainerRef,
+    contextMenu,
+    closeContextMenu,
+    sortConfig,
+    currentPrice,
+    handleSort,
+    filteredWatchlistItems,
+    addSymbol,
+    removeSymbol,
+    switchWatchlist,
+    handleOrderPlaced,
+    handleContextMenu,
+    handleSelectSymbol,
+    createWatchlist,
+    deleteWatchlist,
+    getAuthHeaders,
+  } = useWatchlist(props);
 
   const isDefaultBinance =
     selectedAccount?.accountType === "binance" &&
@@ -854,7 +92,7 @@ const Watchlist = memo(function Watchlist({
                   className="grid grid-cols-[1fr_70px_50px_45px_28px] gap-1 border-b border-border px-2 pr-1 py-3 items-center"
                 >
                   <div className="flex items-center gap-2">
-                    <div className="h-4 w-16 animate-pulse rounded bg-muted"></div>
+                     <div className="h-4 w-16 animate-pulse rounded bg-muted"></div>
                   </div>
                   <div className="flex justify-end">
                     <div className="h-4 w-16 animate-pulse rounded bg-muted"></div>
@@ -991,10 +229,11 @@ const Watchlist = memo(function Watchlist({
                     {watchlists.map((wl) => (
                       <div
                         key={wl.id}
-                        className={`group flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${wl.id === currentWatchlistId
-                          ? "bg-accent text-accent-foreground font-medium"
-                          : "text-popover-foreground"
-                          }`}
+                        className={`group flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${
+                          wl.id === currentWatchlistId
+                            ? "bg-accent text-accent-foreground font-medium"
+                            : "text-popover-foreground"
+                        }`}
                         onClick={() => switchWatchlist(wl.id, wl.name)}
                       >
                         <div className="flex items-center gap-2 overflow-hidden">
@@ -1089,8 +328,6 @@ const Watchlist = memo(function Watchlist({
           </div>
         </div>
       )}
-
-
 
       {error && (
         <div className="border-b border-yellow-200 bg-yellow-50 px-4 py-2 text-xs text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-200">
@@ -1202,8 +439,9 @@ const Watchlist = memo(function Watchlist({
             </span>
             <ChevronDown
               size={20}
-              className={`transition-transform duration-200 text-muted-foreground ${isMobileWatchlistOpen ? "rotate-180" : ""
-                }`}
+              className={`transition-transform duration-200 text-muted-foreground ${
+                isMobileWatchlistOpen ? "rotate-180" : ""
+              }`}
             />
           </div>
           {selectedSymbol && (
@@ -1212,8 +450,8 @@ const Watchlist = memo(function Watchlist({
                 {selectedAccount?.accountType === "binance"
                   ? formatPrice(currentPrice, "$")
                   : selectedAccount?.accountType === "upstox"
-                    ? formatPrice(currentPrice, "₹")
-                    : formatPrice(currentPrice)}
+                  ? formatPrice(currentPrice, "₹")
+                  : formatPrice(currentPrice)}
               </span>
             </div>
           )}
