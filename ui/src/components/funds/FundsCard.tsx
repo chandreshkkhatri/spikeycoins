@@ -5,8 +5,6 @@ import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import { API_ROUTES } from "@/lib/constants";
-import axios from "axios";
 import api from "@/lib/api";
 import {
   AlertTriangle,
@@ -17,6 +15,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
+import { getVendorColor, formatBrokerAmount } from "@/lib/format-utils";
 
 // Use a flexible account type that works with both IAccount and TradingAccount from context
 interface TradingAccount {
@@ -158,24 +157,7 @@ export default function FundsCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(accountsToShow.map((a) => a._id))]);
 
-  const formatCurrency = (amount: string, vendor: string) => {
-    const num = parseFloat(amount || "0");
-    if (vendor === "binance") {
-      return `$${num.toFixed(2)}`;
-    }
-    return `₹${num.toFixed(2)}`;
-  };
 
-  const getVendorColor = (vendor: string) => {
-    switch (vendor.toLowerCase()) {
-      case "upstox":
-        return "#387ed1";
-      case "binance":
-        return "#f3ba2f";
-      default:
-        return "#666";
-    }
-  };
 
   const totalBalance = fundsData.reduce(
     (sum, fund) => sum + parseFloat(fund?.totalBalance || "0"),
@@ -380,7 +362,7 @@ export default function FundsCard({
                   <div className="funds-row">
                     <span className="label">Total Balance:</span>
                     <span className="value">
-                      {formatCurrency(
+                      {formatBrokerAmount(
                         accountFunds.totalBalance,
                         account.accountType
                       )}
@@ -389,7 +371,7 @@ export default function FundsCard({
                   <div className="funds-row">
                     <span className="label">Available:</span>
                     <span className="value available">
-                      {formatCurrency(
+                      {formatBrokerAmount(
                         accountFunds.availableBalance,
                         account.accountType
                       )}
@@ -399,7 +381,7 @@ export default function FundsCard({
                     <div className="funds-row">
                       <span className="label">Used Margin:</span>
                       <span className="value used">
-                        {formatCurrency(
+                        {formatBrokerAmount(
                           accountFunds.usedMargin,
                           account.accountType
                         )}
@@ -422,7 +404,7 @@ export default function FundsCard({
                           ) : (
                             <TrendingDown size={14} />
                           )}
-                          {formatCurrency(
+                          {formatBrokerAmount(
                             accountFunds.unrealizedPnl,
                             account.accountType
                           )}

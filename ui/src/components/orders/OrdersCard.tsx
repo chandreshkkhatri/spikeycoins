@@ -4,11 +4,11 @@ import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import axios from "axios";
 import api from "@/lib/api";
 import { AlertTriangle, Receipt, RefreshCw, ShoppingCart } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { getVendorColor, formatBrokerAmount } from "@/lib/format-utils";
 
 interface TradingAccount {
   _id: string;
@@ -178,23 +178,7 @@ export default function OrdersCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(accounts?.map((a) => a._id) || []), selectedAccountId]);
 
-  const formatCurrency = (amount: number | undefined | null) => {
-    if (amount === undefined || amount === null || isNaN(amount)) {
-      return "₹0.00";
-    }
-    return `₹${amount.toFixed(2)}`;
-  };
 
-  const getVendorColor = (vendor: string) => {
-    switch (vendor.toLowerCase()) {
-      case "upstox":
-        return "#387ed1";
-      case "binance":
-        return "#f3ba2f";
-      default:
-        return "#666";
-    }
-  };
 
   const getStatusVariant = (status: string): "default" | "success" | "danger" | "warning" | "info" | "neutral" => {
     switch (status.toLowerCase()) {
@@ -416,14 +400,14 @@ export default function OrdersCard({
                   <div className="detail-row">
                     <span className="detail-label">Price:</span>
                     <span className="detail-value">
-                      {order.price > 0 ? formatCurrency(order.price) : "Market"}
+                      {order.price > 0 ? formatBrokerAmount(order.price, order.vendor) : "Market"}
                     </span>
                   </div>
                   {order.stopPrice && order.stopPrice > 0 && (
                     <div className="detail-row">
                       <span className="detail-label">Trigger:</span>
                       <span className="detail-value">
-                        {formatCurrency(order.stopPrice)}
+                        {formatBrokerAmount(order.stopPrice, order.vendor)}
                       </span>
                     </div>
                   )}
@@ -431,7 +415,7 @@ export default function OrdersCard({
                     <div className="detail-row">
                       <span className="detail-label">Avg:</span>
                       <span className="detail-value">
-                        {formatCurrency(order.averagePrice)}
+                        {formatBrokerAmount(order.averagePrice, order.vendor)}
                       </span>
                     </div>
                   )}

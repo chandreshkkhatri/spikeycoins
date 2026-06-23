@@ -4,7 +4,6 @@ import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import axios from "axios";
 import api from "@/lib/api";
 import {
   AlertTriangle,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { getVendorColor, formatBrokerAmount } from "@/lib/format-utils";
 
 // Global promise cache to deduplicate simultaneous fetches
 const POSITIONS_PROMISE_CACHE = new Map<string, Promise<unknown>>();
@@ -212,23 +212,7 @@ export default function PositionsCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(accounts.map((a) => a._id)), selectedAccountId]);
 
-  const formatCurrency = (amount: number | undefined | null) => {
-    if (amount === undefined || amount === null || isNaN(amount)) {
-      return "₹0.00";
-    }
-    return `₹${amount.toFixed(2)}`;
-  };
 
-  const getVendorColor = (vendor: string) => {
-    switch (vendor.toLowerCase()) {
-      case "upstox":
-        return "#387ed1";
-      case "binance":
-        return "#f3ba2f";
-      default:
-        return "#666";
-    }
-  };
 
   const totalPnl = positionsData.reduce(
     (sum, position) => sum + (position.pnl || 0),
@@ -276,7 +260,9 @@ export default function PositionsCard({
             </div>
             <div className="summary-item">
               <div className="summary-label">Total Value</div>
-              <div className="summary-value">{formatCurrency(totalValue)}</div>
+              <div className="summary-value">
+                {formatBrokerAmount(totalValue, accountsToShow.length === 1 ? accountsToShow[0].accountType : "upstox")}
+              </div>
             </div>
             <div className="summary-item">
               <div className="summary-label">Total P&L</div>
@@ -290,7 +276,7 @@ export default function PositionsCard({
                 ) : (
                   <TrendingDown size={16} />
                 )}
-                {formatCurrency(totalPnl)}
+                {formatBrokerAmount(totalPnl, accountsToShow.length === 1 ? accountsToShow[0].accountType : "upstox")}
               </div>
             </div>
           </div>
@@ -406,13 +392,13 @@ export default function PositionsCard({
                   <div className="detail-row">
                     <span className="detail-label">Avg:</span>
                     <span className="detail-value">
-                      {formatCurrency(position.averagePrice)}
+                      {formatBrokerAmount(position.averagePrice, position.vendor)}
                     </span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">LTP:</span>
                     <span className="detail-value">
-                      {formatCurrency(position.lastPrice)}
+                      {formatBrokerAmount(position.lastPrice, position.vendor)}
                     </span>
                   </div>
                   <div className="detail-row">
@@ -422,7 +408,7 @@ export default function PositionsCard({
                         position.pnl >= 0 ? "positive" : "negative"
                       }`}
                     >
-                      {formatCurrency(position.pnl)}
+                      {formatBrokerAmount(position.pnl, position.vendor)}
                       <span className="pnl-percentage">
                         ({position.pnlPercentage?.toFixed(2) ?? "0.00"}%)
                       </span>

@@ -5,7 +5,6 @@ import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import axios from "axios";
 import api from "@/lib/api";
 import {
   AlertTriangle,
@@ -16,6 +15,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { getVendorColor, formatBrokerAmount } from "@/lib/format-utils";
 
 interface TradingAccount {
   _id: string;
@@ -205,23 +205,7 @@ export default function HoldingsCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(accounts.map((a) => a._id)), selectedAccountId]); // Use stable stringified IDs
 
-  const formatCurrency = (amount: number | undefined | null) => {
-    if (amount === undefined || amount === null || isNaN(amount)) {
-      return "₹0.00";
-    }
-    return `₹${amount.toFixed(2)}`;
-  };
 
-  const getVendorColor = (vendor: string) => {
-    switch (vendor.toLowerCase()) {
-      case "upstox":
-        return "#387ed1";
-      case "binance":
-        return "#f3ba2f";
-      default:
-        return "#666";
-    }
-  };
 
   const totalValue = holdingsData.reduce(
     (sum, holding) => sum + (holding.currentValue || 0),
@@ -273,12 +257,14 @@ export default function HoldingsCard({
           <div className="summary-grid">
             <div className="summary-item">
               <div className="summary-label">Current Value</div>
-              <div className="summary-value">{formatCurrency(totalValue)}</div>
+              <div className="summary-value">
+                {formatBrokerAmount(totalValue, accountsToShow.length === 1 ? accountsToShow[0].accountType : "upstox")}
+              </div>
             </div>
             <div className="summary-item">
               <div className="summary-label">Total Investment</div>
               <div className="summary-value">
-                {formatCurrency(totalInvestment)}
+                {formatBrokerAmount(totalInvestment, accountsToShow.length === 1 ? accountsToShow[0].accountType : "upstox")}
               </div>
             </div>
             <div className="summary-item">
@@ -293,7 +279,7 @@ export default function HoldingsCard({
                 ) : (
                   <TrendingDown size={16} />
                 )}
-                {formatCurrency(totalPnl)}
+                {formatBrokerAmount(totalPnl, accountsToShow.length === 1 ? accountsToShow[0].accountType : "upstox")}
               </div>
             </div>
             <div className="summary-item">
@@ -448,20 +434,20 @@ export default function HoldingsCard({
                       <td className="account-cell">{holding.accountName}</td>
                       <td className="text-right">{holding.quantity}</td>
                       <td className="text-right">
-                        {formatCurrency(holding.averagePrice)}
+                        {formatBrokerAmount(holding.averagePrice, holding.vendor)}
                       </td>
                       <td className="text-right">
-                        {formatCurrency(holding.lastPrice)}
+                        {formatBrokerAmount(holding.lastPrice, holding.vendor)}
                       </td>
                       <td className="text-right">
-                        {formatCurrency(holding.currentValue)}
+                        {formatBrokerAmount(holding.currentValue, holding.vendor)}
                       </td>
                       <td
                         className={`text-right ${
                           holding.pnl >= 0 ? "positive" : "negative"
                         }`}
                       >
-                        {formatCurrency(holding.pnl)}
+                        {formatBrokerAmount(holding.pnl, holding.vendor)}
                       </td>
                       <td
                         className={`text-right ${
