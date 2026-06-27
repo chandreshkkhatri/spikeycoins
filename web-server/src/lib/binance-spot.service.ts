@@ -11,9 +11,7 @@ export class BinanceSpotService {
    */
   async getSpotAccount() {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.spotClient.get(`/api/v3/account?${this.client.signRequest()}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.spotClient.get(`/api/v3/account?${this.client.signRequest()}`), "/api/v3/account");
       return response.data;
     } catch (error: any) {
       console.error(
@@ -49,9 +47,7 @@ export class BinanceSpotService {
   async getSpotOpenOrders(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.spotClient.get(`/api/v3/openOrders?${this.client.signRequest(params)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.spotClient.get(`/api/v3/openOrders?${this.client.signRequest(params)}`), "/api/v3/openOrders");
       return response.data;
     } catch (error: any) {
       console.error(
@@ -69,9 +65,7 @@ export class BinanceSpotService {
    */
   async getSpotAllOrders(symbol: string, limit: number = 500) {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.spotClient.get(`/api/v3/allOrders?${this.client.signRequest({ symbol, limit })}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.spotClient.get(`/api/v3/allOrders?${this.client.signRequest({ symbol, limit })}`), "/api/v3/allOrders");
       return response.data;
     } catch (error: any) {
       console.error(
@@ -97,9 +91,7 @@ export class BinanceSpotService {
     timeInForce?: "GTC" | "IOC" | "FOK";
   }) {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.spotClient.post(`/api/v3/order?${this.client.signRequest(params)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.spotClient.post(`/api/v3/order?${this.client.signRequest(params)}`), "/api/v3/order");
       return response.data;
     } catch (error: any) {
       console.error(
@@ -117,9 +109,7 @@ export class BinanceSpotService {
    */
   async cancelSpotOrder(symbol: string, orderId: number) {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.spotClient.delete(`/api/v3/order?${this.client.signRequest({ symbol, orderId })}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.spotClient.delete(`/api/v3/order?${this.client.signRequest({ symbol, orderId })}`), "/api/v3/order");
       return response.data;
     } catch (error: any) {
       console.error(
@@ -137,9 +127,7 @@ export class BinanceSpotService {
    */
   async testSpotConnectivity() {
     try {
-      await BinanceClientBase.scheduleRequest(() =>
-        this.client.spotClient.get("/api/v3/ping"),
-      );
+      await BinanceClientBase.scheduleRequest(() => this.client.spotClient.get("/api/v3/ping"), "/api/v3/ping");
       return { status: "ok", latency: "unknown" };
     } catch (error: any) {
       throw new Error(`Spot connectivity failed: ${error.message}`);

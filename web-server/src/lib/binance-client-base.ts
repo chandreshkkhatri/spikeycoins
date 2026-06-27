@@ -157,7 +157,7 @@ export class BinanceClientBase {
   /**
    * Schedule a request through the shared rate limiter.
    */
-  static scheduleRequest<T>(fn: () => Promise<T>): Promise<T> {
+  static scheduleRequest<T>(fn: () => Promise<T>, endpoint?: string): Promise<T> {
     const remaining = BinanceClientBase.cooldownEndTime - Date.now();
     if (remaining > 0) {
       const waitSec = Math.ceil(remaining / 1000);
@@ -184,9 +184,10 @@ export class BinanceClientBase {
     }
 
     const INNER_TIMEOUT_MS = BinanceClientBase.SCHEDULE_TIMEOUT_MS;
+    const weight = endpoint ? BinanceClientBase.getWeightForEndpoint(endpoint) : 1;
 
     return BinanceClientBase.limiter.schedule(
-      { expiration: BinanceClientBase.SCHEDULE_TIMEOUT_MS },
+      { expiration: BinanceClientBase.SCHEDULE_TIMEOUT_MS, weight },
       () => {
         return new Promise<T>((resolve, reject) => {
           const timeout = setTimeout(() => {
@@ -212,30 +213,9 @@ export class BinanceClientBase {
   }
 
   /**
-   * Attach rate-limit response and request interceptors to an axios instance.
+   * Attach rate-limit response interceptors to an axios instance.
    */
   private attachInterceptors(client: AxiosInstance): void {
-    // Request Interceptor: Proactive weight estimation
-    client.interceptors.request.use(
-      async (config) => {
-        const endpoint = config.url?.split("?")[0] || "unknown";
-        const estimatedWeight = BinanceClientBase.getWeightForEndpoint(endpoint);
-        if (estimatedWeight > 1) {
-          try {
-            const currentReservoir = await BinanceClientBase.limiter.currentReservoir();
-            if (currentReservoir !== null) {
-              const newReservoir = Math.max(0, currentReservoir - (estimatedWeight - 1));
-              BinanceClientBase.limiter.updateSettings({ reservoir: newReservoir });
-            }
-          } catch (err) {
-            // Ignore settings update errors
-          }
-        }
-        return config;
-      },
-      (error) => Promise.reject(error),
-    );
-
     // Response Interceptor: Reactive weight correction & cooldown handling
     client.interceptors.response.use(
       (response) => {

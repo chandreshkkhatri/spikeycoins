@@ -11,9 +11,7 @@ export class BinanceFuturesService {
    */
   async getFuturesAccount() {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v2/account?${this.client.signRequest()}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v2/account?${this.client.signRequest()}`), "/fapi/v2/account");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -32,9 +30,7 @@ export class BinanceFuturesService {
    */
   async getFuturesBalance() {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v2/balance?${this.client.signRequest()}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v2/balance?${this.client.signRequest()}`), "/fapi/v2/balance");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -53,9 +49,7 @@ export class BinanceFuturesService {
    */
   async getFuturesPositions() {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v2/positionRisk?${this.client.signRequest()}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v2/positionRisk?${this.client.signRequest()}`), "/fapi/v2/positionRisk");
       // Filter out positions with no quantity
       return response.data.filter(
         (position: any) => parseFloat(position.positionAmt) !== 0,
@@ -79,9 +73,7 @@ export class BinanceFuturesService {
   async getFuturesOpenOrders(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v1/openOrders?${this.client.signRequest(params)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v1/openOrders?${this.client.signRequest(params)}`), "/fapi/v1/openOrders");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -106,9 +98,7 @@ export class BinanceFuturesService {
       if (symbol) {
         params.symbol = symbol;
       }
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v1/openAlgoOrders?${this.client.signRequest(params)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v1/openAlgoOrders?${this.client.signRequest(params)}`), "/fapi/v1/openAlgoOrders");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -137,9 +127,7 @@ export class BinanceFuturesService {
       if (symbol) params.symbol = symbol;
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v1/allOrders?${this.client.signRequest(params)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v1/allOrders?${this.client.signRequest(params)}`), "/fapi/v1/allOrders");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -168,9 +156,7 @@ export class BinanceFuturesService {
       if (symbol) params.symbol = symbol;
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v1/userTrades?${this.client.signRequest(params)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v1/userTrades?${this.client.signRequest(params)}`), "/fapi/v1/userTrades");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -199,9 +185,7 @@ export class BinanceFuturesService {
       if (incomeType) params.incomeType = incomeType;
       if (startTime) params.startTime = startTime;
       if (endTime) params.endTime = endTime;
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v1/income?${this.client.signRequest(params)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v1/income?${this.client.signRequest(params)}`), "/fapi/v1/income");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -244,9 +228,7 @@ export class BinanceFuturesService {
           ? true
           : false;
       }
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.post(`/fapi/v1/order?${this.client.signRequest(apiParams as Record<string, any>)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.post(`/fapi/v1/order?${this.client.signRequest(apiParams as Record<string, any>)}`), "/fapi/v1/order");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -318,9 +300,7 @@ export class BinanceFuturesService {
 
       console.log("Placing Binance Algo Order:", apiParams);
 
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.post(`/fapi/v1/algoOrder?${this.client.signRequest(apiParams as Record<string, any>)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.post(`/fapi/v1/algoOrder?${this.client.signRequest(apiParams as Record<string, any>)}`), "/fapi/v1/algoOrder");
       console.log("Binance Algo Order response:", response.data);
       return response.data;
     } catch (err: unknown) {
@@ -341,9 +321,7 @@ export class BinanceFuturesService {
    */
   async cancelFuturesOrder(symbol: string, orderId: number) {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.delete(`/fapi/v1/order?${this.client.signRequest({ symbol, orderId })}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.delete(`/fapi/v1/order?${this.client.signRequest({ symbol, orderId })}`), "/fapi/v1/order");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -362,9 +340,7 @@ export class BinanceFuturesService {
    */
   async cancelFuturesAlgoOrder(symbol: string, algoId: number) {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.delete(`/fapi/v1/algoOrder?${this.client.signRequest({ symbol, algoId })}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.delete(`/fapi/v1/algoOrder?${this.client.signRequest({ symbol, algoId })}`), "/fapi/v1/algoOrder");
       console.log("Binance Algo Order cancel response:", response.data);
       return response.data;
     } catch (err: unknown) {
@@ -385,9 +361,7 @@ export class BinanceFuturesService {
    */
   async createFuturesListenKey(): Promise<string> {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.post("/fapi/v1/listenKey"),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.post("/fapi/v1/listenKey"), "/fapi/v1/listenKey");
       return response.data.listenKey;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -406,11 +380,9 @@ export class BinanceFuturesService {
    */
   async keepAliveFuturesListenKey(listenKey: string): Promise<void> {
     try {
-      await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.put("/fapi/v1/listenKey", null, {
+      await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.put("/fapi/v1/listenKey", null, {
           params: { listenKey },
-        }),
-      );
+        }), "/fapi/v1/listenKey");
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
@@ -428,11 +400,9 @@ export class BinanceFuturesService {
    */
   async closeFuturesListenKey(listenKey: string): Promise<void> {
     try {
-      await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.delete("/fapi/v1/listenKey", {
+      await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.delete("/fapi/v1/listenKey", {
           params: { listenKey },
-        }),
-      );
+        }), "/fapi/v1/listenKey");
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
       console.error(
@@ -450,9 +420,7 @@ export class BinanceFuturesService {
    */
   async cancelAllFuturesOrders(symbol: string) {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.delete(`/fapi/v1/allOpenOrders?${this.client.signRequest({ symbol })}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.delete(`/fapi/v1/allOpenOrders?${this.client.signRequest({ symbol })}`), "/fapi/v1/allOpenOrders");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -564,11 +532,9 @@ export class BinanceFuturesService {
    */
   async getFuturesMarkPrice(symbol: string): Promise<number> {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v1/premiumIndex`, {
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v1/premiumIndex`, {
           params: { symbol },
-        }),
-      );
+        }), "/fapi/v1/premiumIndex");
       return parseFloat(response.data.markPrice);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -588,9 +554,7 @@ export class BinanceFuturesService {
    */
   async changeFuturesLeverage(symbol: string, leverage: number) {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.post(`/fapi/v1/leverage?${this.client.signRequest({ symbol, leverage })}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.post(`/fapi/v1/leverage?${this.client.signRequest({ symbol, leverage })}`), "/fapi/v1/leverage");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -613,9 +577,7 @@ export class BinanceFuturesService {
     marginType: "ISOLATED" | "CROSSED",
   ) {
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.post(`/fapi/v1/marginType?${this.client.signRequest({ symbol, marginType })}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.post(`/fapi/v1/marginType?${this.client.signRequest({ symbol, marginType })}`), "/fapi/v1/marginType");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string; code?: number } }; message?: string };
@@ -641,9 +603,7 @@ export class BinanceFuturesService {
   async getFuturesLeverageBrackets(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v1/leverageBracket?${this.client.signRequest(params)}`),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v1/leverageBracket?${this.client.signRequest(params)}`), "/fapi/v1/leverageBracket");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -672,9 +632,7 @@ export class BinanceFuturesService {
     }
 
     try {
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get('/fapi/v1/exchangeInfo'),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get('/fapi/v1/exchangeInfo'), "/fapi/v1/exchangeInfo");
 
       BinanceClientBase.futuresExchangeInfoCache = response.data;
       BinanceClientBase.futuresExchangeInfoCacheTime = now;
@@ -696,9 +654,7 @@ export class BinanceFuturesService {
   async getFuturesPremiumIndex(symbol?: string) {
     try {
       const params = symbol ? { symbol } : {};
-      const response = await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get(`/fapi/v1/premiumIndex`, { params }),
-      );
+      const response = await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get(`/fapi/v1/premiumIndex`, { params }), "/fapi/v1/premiumIndex");
       return response.data;
     } catch (err: unknown) {
       const error = err as { response?: { data?: { msg?: string } }; message?: string };
@@ -719,9 +675,7 @@ export class BinanceFuturesService {
   async testFuturesConnectivity() {
     try {
       const start = Date.now();
-      await BinanceClientBase.scheduleRequest(() =>
-        this.client.futuresClient.get("/fapi/v1/ping"),
-      );
+      await BinanceClientBase.scheduleRequest(() => this.client.futuresClient.get("/fapi/v1/ping"), "/fapi/v1/ping");
       const latency = Date.now() - start;
       return { status: "ok", latency: `${latency}ms` };
     } catch (error: unknown) {
