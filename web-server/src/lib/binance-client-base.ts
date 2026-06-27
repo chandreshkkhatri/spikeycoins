@@ -13,9 +13,9 @@ export class BinanceClientBase {
   protected testnet: boolean = false;
 
   // Cache for exchange info to avoid excessive API calls - STATIC (Shared)
-  public static futuresExchangeInfoCache: any = null;
+  public static futuresExchangeInfoCache: unknown = null;
   public static futuresExchangeInfoCacheTime: number = 0;
-  public static spotExchangeInfoCache: any = null;
+  public static spotExchangeInfoCache: unknown = null;
   public static spotExchangeInfoCacheTime: number = 0;
   public static readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
@@ -42,6 +42,62 @@ export class BinanceClientBase {
 
   // ── Schedule Timeout ─────────────────────────────────────────
   protected static readonly SCHEDULE_TIMEOUT_MS = 15_000;
+
+  // ── Clock Synchronization ───────────────────────────────────
+  protected static timeOffset: number = 0;
+  protected static isTimeSynced: boolean = false;
+
+  // ── Endpoint Weights Estimation ─────────────────────────────
+  private static readonly ENDPOINT_WEIGHTS: Record<string, number> = {
+    "/fapi/v1/exchangeInfo": 40,
+    "/api/v3/exchangeInfo": 20,
+    "/fapi/v2/account": 5,
+    "/api/v3/account": 20,
+    "/fapi/v2/balance": 5,
+    "/fapi/v2/positionRisk": 5,
+    "/fapi/v1/openOrders": 5,
+    "/api/v3/openOrders": 6,
+    "/fapi/v1/allOrders": 5,
+    "/api/v3/allOrders": 20,
+    "/fapi/v1/userTrades": 5,
+    "/api/v3/myTrades": 20,
+    "/fapi/v1/income": 30,
+    "/fapi/v1/order": 1,
+    "/api/v3/order": 1,
+    "/fapi/v1/algoOrder": 1,
+    "/fapi/v1/allOpenOrders": 1,
+  };
+
+  private static getWeightForEndpoint(endpoint: string): number {
+    for (const [path, weight] of Object.entries(BinanceClientBase.ENDPOINT_WEIGHTS)) {
+      if (endpoint.includes(path)) {
+        return weight;
+      }
+    }
+    return 1;
+  }
+
+  /**
+   * Sync clock offset with Binance server time
+   */
+  public static async syncTime(testnet = false): Promise<void> {
+    try {
+      const url = testnet 
+        ? "https://testnet.binance.vision/api/v3/time" 
+        : "https://api.binance.com/api/v3/time";
+      const startTime = Date.now();
+      const response = await axios.get(url, { timeout: 5000 });
+      const endTime = Date.now();
+      const serverTime = response.data.serverTime;
+      const estimatedLocalTime = Math.round((startTime + endTime) / 2);
+      BinanceClientBase.timeOffset = serverTime - estimatedLocalTime;
+      BinanceClientBase.isTimeSynced = true;
+      console.log(`[BinanceTimeSync] Synced with Binance (${testnet ? "testnet" : "mainnet"}). Offset: ${BinanceClientBase.timeOffset}ms`);
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.warn(`[BinanceTimeSync] Failed to sync time with Binance, using local system time:`, error.message);
+    }
+  }
 
   // Base URLs
   private readonly SPOT_BASE_URL = "https://api.binance.com";
@@ -93,6 +149,9 @@ export class BinanceClientBase {
       headers: { "X-MBX-APIKEY": apiKey },
     });
     this.attachInterceptors(this.futuresClient);
+
+    // Sync clock offset in the background
+    BinanceClientBase.syncTime(testnet).catch(() => {});
   }
 
   /**
@@ -102,9 +161,9 @@ export class BinanceClientBase {
     const remaining = BinanceClientBase.cooldownEndTime - Date.now();
     if (remaining > 0) {
       const waitSec = Math.ceil(remaining / 1000);
-      const error: any = new Error(
+      const error = new Error(
         `Rate limited by Binance. Please wait ${waitSec}s before retrying.`,
-      );
+      ) as Error & { status?: number };
       error.status = 429;
       return Promise.reject(error);
     }
@@ -131,9 +190,9 @@ export class BinanceClientBase {
       () => {
         return new Promise<T>((resolve, reject) => {
           const timeout = setTimeout(() => {
-            const err: any = new Error(
+            const err = new Error(
               'Binance API request timed out (rate limiter queue stall)',
-            );
+            ) as Error & { status?: number };
             err.status = 504;
             reject(err);
           }, INNER_TIMEOUT_MS);
@@ -153,9 +212,31 @@ export class BinanceClientBase {
   }
 
   /**
-   * Attach rate-limit response interceptors to an axios instance.
+   * Attach rate-limit response and request interceptors to an axios instance.
    */
   private attachInterceptors(client: AxiosInstance): void {
+    // Request Interceptor: Proactive weight estimation
+    client.interceptors.request.use(
+      async (config) => {
+        const endpoint = config.url?.split("?")[0] || "unknown";
+        const estimatedWeight = BinanceClientBase.getWeightForEndpoint(endpoint);
+        if (estimatedWeight > 1) {
+          try {
+            const currentReservoir = await BinanceClientBase.limiter.currentReservoir();
+            if (currentReservoir !== null) {
+              const newReservoir = Math.max(0, currentReservoir - (estimatedWeight - 1));
+              BinanceClientBase.limiter.updateSettings({ reservoir: newReservoir });
+            }
+          } catch (err) {
+            // Ignore settings update errors
+          }
+        }
+        return config;
+      },
+      (error) => Promise.reject(error),
+    );
+
+    // Response Interceptor: Reactive weight correction & cooldown handling
     client.interceptors.response.use(
       (response) => {
         const endpoint = response.config.url?.split("?")[0] || "unknown";
@@ -311,9 +392,13 @@ export class BinanceClientBase {
    * Add timestamp and signature to params
    */
   public signRequest(params: Record<string, unknown> = {}): string {
-    const timestamp = Date.now();
+    const timestamp = Date.now() + BinanceClientBase.timeOffset;
 
     const entries: Record<string, string> = {};
+    if (params.recvWindow === undefined) {
+      entries.recvWindow = "10000";
+    }
+
     for (const [k, v] of Object.entries(params)) {
       if (v === undefined || v === null) continue;
       entries[k] = typeof v === "string" ? v : String(v);
