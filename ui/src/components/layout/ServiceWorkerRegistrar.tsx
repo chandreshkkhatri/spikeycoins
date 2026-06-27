@@ -6,6 +6,21 @@ export function ServiceWorkerRegistrar() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
+    // In development mode, unregister any active service worker to prevent HMR and chunk caching bugs
+    if (process.env.NODE_ENV !== "production") {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const registration of registrations) {
+          registration.unregister().then((success) => {
+            if (success) {
+              console.log("[SW] Unregistered development service worker successfully");
+              window.location.reload();
+            }
+          });
+        }
+      });
+      return;
+    }
+
     let interval: ReturnType<typeof setInterval> | undefined;
 
     navigator.serviceWorker.register("/sw.js").then((reg) => {

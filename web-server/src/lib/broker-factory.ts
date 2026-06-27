@@ -1,6 +1,5 @@
 import { IAccount } from "../models/account";
-import kiteConnectService from "./kiteconnect-service";
-import upstoxService from "./upstox-service";
+import { UpstoxService } from "./upstox-service";
 import { BinanceService } from "./binance-service";
 
 /**
@@ -8,34 +7,21 @@ import { BinanceService } from "./binance-service";
  * for broker-specific SDK services.
  */
 export class BrokerFactory {
-  static getKiteClient(account: IAccount): any {
-    if (account.accountType !== "kite") {
-      throw new Error("Invalid account type for Kite client");
-    }
-    kiteConnectService.initializeWithCredentials(
-      account.apiKey,
-      account.apiSecret
-    );
-    if (account.accessToken) {
-      kiteConnectService.setAccessToken(account.accessToken);
-    }
-    return kiteConnectService;
-  }
-
-  static getUpstoxClient(account: IAccount): any {
+  static getUpstoxClient(account: IAccount): UpstoxService {
     if (account.accountType !== "upstox") {
       throw new Error("Invalid account type for Upstox client");
     }
     const isSandbox = account.metadata?.sandbox || false;
-    upstoxService.initializeWithCredentials(
+    const service = new UpstoxService();
+    service.initializeWithCredentials(
       account.apiKey,
       account.apiSecret,
       isSandbox
     );
     if (account.accessToken) {
-      upstoxService.setAccessToken(account.accessToken);
+      service.setAccessToken(account.accessToken);
     }
-    return upstoxService;
+    return service;
   }
 
   static getBinanceClient(account: IAccount) {

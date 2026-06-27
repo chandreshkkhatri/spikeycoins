@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import { IAccount, getAccountById } from "../models/account";
 import { demoAccountService } from "./demo-account-service";
+import { IUser } from "../models/user";
+import RefreshToken from "../models/refresh-token";
 
 // JWT implementation without external dependencies
 const JWT_SECRET = process.env.JWT_SECRET || "spikey-coins-jwt-secret-change-in-production";
@@ -197,3 +199,16 @@ export async function requireAccountAccess(
 }
 
 export { JWT_EXPIRY_SECONDS };
+
+export async function issueSession(user: IUser): Promise<{ accessToken: string; refreshToken: string }> {
+  const accessToken = generateToken(user._id ? user._id.toString() : "", user.email);
+  const refreshToken = generateRefreshToken();
+
+  await RefreshToken.create({
+    userId: user._id,
+    token: refreshToken,
+    expiresAt: getRefreshTokenExpiry(),
+  });
+
+  return { accessToken, refreshToken };
+}

@@ -3,6 +3,7 @@ import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/
 import { asyncHandler } from "../lib/async-handler";
 import { BrokerFactory } from "../lib/broker-factory";
 import { formatPosition, toNumber } from "../lib/format-utils";
+import { UpstoxPosition, UpstoxOrder, UpstoxFunds } from "../lib/upstox-types";
 
 const router: Router = Router();
 
@@ -10,13 +11,13 @@ const router: Router = Router();
 // In-Memory Response Cache (deduplicates rapid requests from multiple tabs)
 // ============================================================================
 interface CachedResponse {
-  promise: Promise<any>;
+  promise: Promise<unknown>;
   timestamp: number;
 }
 const SUMMARY_RESPONSE_CACHE = new Map<string, CachedResponse>();
 const SUMMARY_CACHE_TTL = 10_000; // 10 seconds
 
-function getCachedSummary(key: string): Promise<any> | null {
+function getCachedSummary(key: string): Promise<unknown> | null {
   const cached = SUMMARY_RESPONSE_CACHE.get(key);
   if (cached && Date.now() - cached.timestamp < SUMMARY_CACHE_TTL) {
     return cached.promise;
@@ -25,7 +26,7 @@ function getCachedSummary(key: string): Promise<any> | null {
   return null;
 }
 
-function setCachedSummary(key: string, promise: Promise<any>): void {
+function setCachedSummary(key: string, promise: Promise<unknown>): void {
   SUMMARY_RESPONSE_CACHE.set(key, { promise, timestamp: Date.now() });
   if (SUMMARY_RESPONSE_CACHE.size > 100) {
     const now = Date.now();
@@ -193,31 +194,6 @@ router.get(
 
           response.positions = [];
         }
-      } else if (account.accountType === "kite") {
-        if (!account.accessToken) {
-          throw new Error("Account not authenticated");
-        }
-        const kiteClient = BrokerFactory.getKiteClient(account);
-
-        const [positions, orders, margins] = await Promise.all([
-          kiteClient.getPositions(),
-          kiteClient.getOrders(),
-          kiteClient.getMargins(),
-        ]);
-
-        response.positions = (positions || []).map((p: any) => formatPosition(account, p));
-
-        response.orders = (orders || []).map((o: any) => ({
-          ...o,
-          accountId: account._id,
-          vendor: account.accountType,
-        }));
-
-        const equity = margins?.equity || {};
-        response.accountDetails = {
-          equity: equity.net || 0,
-          availableBalance: equity.available?.cash || equity.available?.live_balance || 0,
-        };
       } else if (account.accountType === "upstox") {
         if (!account.accessToken) {
           throw new Error("Account not authenticated");
@@ -225,28 +201,30 @@ router.get(
         const upstoxClient = BrokerFactory.getUpstoxClient(account);
 
         try {
-          const [positions, orders, funds] = await Promise.all([
-            upstoxClient.getPositions().catch(() => []),
-            upstoxClient.getOrders().catch(() => []),
-            upstoxClient.getFunds().catch(() => null),
+          const [positions, orders, funds]: [UpstoxPosition[], UpstoxOrder[], UpstoxFunds | null] = await Promise.all([
+            upstoxClient.getPositions().catch(() => [] as UpstoxPosition[]),
+            upstoxClient.getOrders().catch(() => [] as UpstoxOrder[]),
+            upstoxClient.getFunds().catch(() => null as UpstoxFunds | null),
           ]);
 
-          response.positions = (positions || []).map((p: any) => formatPosition(account, p));
+          response.positions = (positions || []).map((p: UpstoxPosition) => formatPosition(account, p));
 
-          response.orders = (orders || []).map((o: any) => ({
+          response.orders = (orders || []).map((o: UpstoxOrder) => ({
             ...o,
             accountId: account._id,
             vendor: account.accountType,
           }));
 
           if (funds) {
+            const available = funds.equity?.available_margin ?? 0;
+            const availableVal = typeof available === "number" ? available : parseFloat(available || "0");
             response.accountDetails = {
-              equity: parseFloat(funds.equity || "0"),
-              availableBalance: parseFloat(funds.available_margin || "0"),
+              equity: availableVal,
+              availableBalance: availableVal,
             };
           }
-        } catch (upstoxError: any) {
-          console.warn("Upstox SDK error:", upstoxError.message);
+        } catch (upstoxError: unknown) {
+          console.warn("Upstox SDK error:", upstoxError instanceof Error ? upstoxError.message : "Unknown error");
         }
       } else {
         throw new Error("Unsupported account type");
@@ -263,7 +241,7 @@ router.get(
         "Cache-Control": "private, max-age=5, stale-while-revalidate=10",
       });
       return res.json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       SUMMARY_RESPONSE_CACHE.delete(cacheKey);
       throw error;
     }

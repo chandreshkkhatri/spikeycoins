@@ -190,7 +190,7 @@ const SymbolSearchModal = memo(function SymbolSearchModal({
             />
           </div>
 
-          {(accountType === "upstox" || accountType === "kite") && (
+          {(accountType === "upstox") && (
             <div className="filter-container">
               <div className="filter-dropdown">
                 <button

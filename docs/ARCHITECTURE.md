@@ -1,6 +1,6 @@
 # Spikey Coins — System Architecture
 
-This document describes the high-level design of Spikey Coins: the multi-broker trading platform unifying Zerodha Kite, Upstox, and Binance into a single dashboard.
+This document describes the high-level design of Spikey Coins: the multi-broker trading platform unifying Upstox and Binance into a single dashboard.
 
 ---
 
@@ -24,7 +24,6 @@ This document describes the high-level design of Spikey Coins: the multi-broker 
 │  └─────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────────┤
 │  │ Unified Broker Client Layer (BrokerFactory pattern)     │
-│  │  • KiteConnect Service (Zerodha Kite API)              │
 │  │  • Upstox Service (Upstox JS SDK)                       │
 │  │  • Binance Service (Spot + Futures via @binance/cli)   │
 │  └─────────────────────────────────────────────────────────┤
@@ -32,7 +31,7 @@ This document describes the high-level design of Spikey Coins: the multi-broker 
 │  │ WebSocket Services (Real-time data & monitoring)        │
 │  │  • BinancePriceService: Futures ticker (24hr stream)   │
 │  │  • BinanceOrderMonitor: Order fill tracking + SL/TP    │
-│  │  • Kite/Upstox: OAuth-gated market data streams        │
+│  │  • Upstox: OAuth-gated market data streams             │
 │  └─────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────────┤
 │  │ Supporting Services                                      │
@@ -59,24 +58,22 @@ This document describes the high-level design of Spikey Coins: the multi-broker 
 
 All broker SDK interactions go through the `BrokerFactory`, which:
 - Takes an account record (with encrypted credentials)
-- Returns a unified client instance (Kite, Upstox, or Binance)
+- Returns a unified client instance (Upstox or Binance)
 - Handles credentials decryption on-the-fly
 
 **Usage**:
 ```typescript
 // In routes, never instantiate brokers directly
-const kiteClient = BrokerFactory.getKiteClient(account);
+const upstoxClient = BrokerFactory.getUpstoxClient(account);
 const binanceClient = BrokerFactory.getBinanceClient(account);
 ```
 
 **Broker-Specific SDKs**:
-- **KiteConnect** (`kiteconnect` npm package): Zerodha's official SDK
 - **Upstox** (`upstox-js-sdk` npm package): Upstox's official SDK
 - **Binance** (`@binance/connector` npm package): Official Binance connector
 
 Each service wraps its SDK:
 - [BinanceService](../web-server/src/lib/binance-service.ts): Spot + Futures order placement, position queries
-- [KiteConnectService](../web-server/src/lib/kiteconnect-service.ts): Kite order & position management
 - [UpstoxService](../web-server/src/lib/upstox-service.ts): Upstox order & position management
 
 **Rate Limiting** (Binance): Uses `bottleneck` npm package to track IP weight and queue requests within Binance's 1200 weight/min limit.
@@ -112,12 +109,12 @@ Per-account WebSocket listener to Binance User Data Stream. Monitors:
 
 **Used by**: Real-time order tracking, position updates, trade journal synchronization.
 
-#### 2.3 Kite & Upstox WebSockets
+#### 2.3 Upstox WebSocket
 
-Both services offer market data WebSocket streams (gated by OAuth). These are:
-- User-initiated (require account credentials)
+The Upstox service offers a market data WebSocket stream (gated by OAuth). It is:
+- User-initiated (requires account credentials)
 - Quote depth & LTP (last-traded-price) updates
-- Optional; used only if the user connects a Kite or Upstox account
+- Optional; used only if the user connects an Upstox account
 
 ---
 
@@ -186,8 +183,7 @@ Never log or return plaintext credentials.
 | Model | Purpose |
 |-------|---------|
 | `User` | User profiles, OAuth identity |
-| `Account` | Broker account (Kite/Upstox/Binance) with encrypted credentials |
-| `Session` | OAuth session state & user session tracking |
+| `Account` | Broker account (Upstox/Binance) with encrypted credentials |
 | `RefreshToken` | Token rotation for JWT refresh flow |
 | `Watchlist` | Per-account symbol watchlists |
 | `JournalTrade` | Trade history (entry/exit, P&L, filled fills) |
@@ -297,7 +293,7 @@ npm start       # Serves optimized bundle
 - ✅ Session & account access control via middleware
 - ✅ No plaintext credentials in logs
 - ✅ Rate limiting on Binance (IP weight tracking)
-- ✅ OAuth 2.0 for Kite & Upstox (user-initiated)
+- ✅ OAuth 2.0 for Upstox (user-initiated)
 
 ---
 

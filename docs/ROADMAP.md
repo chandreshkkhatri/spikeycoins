@@ -5,7 +5,7 @@ This document outlines the product vision, major phases, and upcoming milestones
 ---
 
 ## 🗺️ Product Vision
-Spikey Coins aims to be the ultimate, high-performance unified trading terminal for retail and algorithmic traders. By consolidating multiple traditional and crypto brokerages (Zerodha Kite, Upstox, Binance Futures) into a single, real-time, resilient interface, Spikey Coins reduces context-switching and provides advanced execution capabilities (such as automated SL/TP matching, algo order support, and simulation environments) normally reserved for institutional trading desks.
+Spikey Coins aims to be the ultimate, high-performance unified trading terminal for retail and algorithmic traders. By consolidating multiple traditional and crypto brokerages (Upstox, Binance Futures) into a single, real-time, resilient interface, Spikey Coins reduces context-switching and provides advanced execution capabilities (such as automated SL/TP matching, algo order support, and simulation environments) normally reserved for institutional trading desks.
 
 ---
 
@@ -54,6 +54,6 @@ Provide traders with actionable analytics and diagnostic tools to evaluate perfo
 ### Phase 4: Mobile & Ecosystem Expansion 📱
 Extend the platform to mobile platforms and add notification integrations.
 *   **Native App Wrappers:** Wrap the Next.js frontend into desktop and mobile native apps using Tauri or Capacitor.
-*   **Multi-Broker Options chains:** Implement interactive options chains for Indian brokers (Kite, Upstox).
+*   **Multi-Broker Options chains:** Implement interactive options chains for Indian brokers (Upstox).
 *   **Real-time Alerts Ecosystem:** Support Discord, Telegram, and Slack webhook alerts for order execution, position liquidations, and trade fills.
 *   **MFA & API Key Encryption Vault:** Move user credential encryption to a hardware-security-module (HSM) friendly architecture (using AWS KMS or Vault).

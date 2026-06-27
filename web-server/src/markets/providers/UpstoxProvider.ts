@@ -7,6 +7,7 @@ import { IMarketProvider, MarketType } from '../interfaces/IMarketProvider';
 import { ITicker } from '../interfaces/ITicker';
 import { ICandle } from '../interfaces/ICandle';
 import upstoxService from '../../lib/upstox-service';
+import { UpstoxCandle } from '../../lib/upstox-types';
 
 class UpstoxProvider implements IMarketProvider {
   readonly providerName = 'upstox';
@@ -66,11 +67,11 @@ class UpstoxProvider implements IMarketProvider {
 
     try {
       const quote = await upstoxService.getQuote([symbol]);
-      if (!quote || !quote.data || !quote.data[symbol]) {
+      if (!quote || !quote[symbol]) {
         return null;
       }
 
-      const data = quote.data[symbol];
+      const data = quote[symbol];
       const ticker = this.mapToUnifiedTicker(symbol, data);
       
       // Cache for getTickers()
@@ -102,19 +103,19 @@ class UpstoxProvider implements IMarketProvider {
       
       const data = await upstoxService.getHistoricalData(symbol, interval, toDate, fromDate);
       
-      if (!data || !data.data || !data.data.candles) {
+      if (!data || !Array.isArray(data)) {
         return [];
       }
 
-      return data.data.candles.map((candle: any[]) => ({
+      return data.map((candle: UpstoxCandle) => ({
         symbol,
         openTime: new Date(candle[0]).getTime(),
         closeTime: new Date(candle[0]).getTime() + this.intervalToMs(interval),
-        open: candle[1],
-        high: candle[2],
-        low: candle[3],
-        close: candle[4],
-        volume: candle[5],
+        open: Number(candle[1]),
+        high: Number(candle[2]),
+        low: Number(candle[3]),
+        close: Number(candle[4]),
+        volume: Number(candle[5]),
       }));
     } catch (error) {
       console.error(`UpstoxProvider: Error fetching historical data for ${symbol}:`, error);

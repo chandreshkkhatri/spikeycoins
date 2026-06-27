@@ -40,11 +40,6 @@ const API_ROUTES = {
     login: '/api/auth/upstox/login',
     callback: '/api/auth/upstox/callback',
   },
-  kite: {
-    login: '/api/auth/kite/login',
-    callback: '/api/auth/kite/callback',
-    session: '/api/auth/kite/session',
-  },
   journal: {
     sync: '/api/journal/sync',
     syncStatus: '/api/journal/sync/status',

@@ -14,7 +14,7 @@ interface AddAccountModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (accountData: {
-    accountType: "kite" | "upstox" | "binance";
+    accountType: "upstox" | "binance";
     accountName: string;
     apiKey: string;
     apiSecret: string;
@@ -30,10 +30,10 @@ export default function AddAccountModal({
 }: AddAccountModalProps) {
   const [step, setStep] = useState(1);
   const [selectedBroker, setSelectedBroker] = useState<
-    "kite" | "upstox" | "binance" | null
+    "upstox" | "binance" | null
   >(null);
   const [formData, setFormData] = useState({
-    accountType: "upstox" as "kite" | "upstox" | "binance",
+    accountType: "upstox" as "upstox" | "binance",
     accountName: "",
     apiKey: "",
     apiSecret: "",
@@ -44,7 +44,7 @@ export default function AddAccountModal({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleBrokerSelect = (brokerType: "kite" | "upstox" | "binance") => {
+  const handleBrokerSelect = (brokerType: "upstox" | "binance") => {
     setSelectedBroker(brokerType);
     setFormData((prev) => ({ ...prev, accountType: brokerType }));
     setStep(2);
@@ -141,9 +141,7 @@ export default function AddAccountModal({
   const getModalTitle = () => {
     if (step === 1) return "Choose Trading Platform";
     return `Add ${
-      selectedBroker === "kite"
-        ? "Zerodha Kite"
-        : selectedBroker === "upstox"
+      selectedBroker === "upstox"
         ? "Upstox"
         : selectedBroker === "binance"
         ? "Binance"
@@ -182,7 +180,7 @@ export default function AddAccountModal({
                   onClick={() =>
                     broker.available &&
                     handleBrokerSelect(
-                      broker.id as "kite" | "upstox" | "binance"
+                      broker.id as "upstox" | "binance"
                     )
                   }
                 >
@@ -248,11 +246,7 @@ export default function AddAccountModal({
                   value={formData.accountName}
                   onChange={(e) => handleChange("accountName", e.target.value)}
                   placeholder={`e.g., My ${
-                    selectedBroker === "kite"
-                      ? "Kite"
-                      : selectedBroker === "upstox"
-                      ? "Upstox"
-                      : "Binance"
+                    selectedBroker === "upstox" ? "Upstox" : "Binance"
                   } Account`}
                   className={`
                     w-full px-3 py-2 border rounded-md bg-background
@@ -372,11 +366,7 @@ export default function AddAccountModal({
               <div className="bg-muted p-4 rounded-lg border-l-4 border-primary">
                 <h4 className="font-medium mb-2">
                   Getting{" "}
-                  {selectedBroker === "kite"
-                    ? "Kite Connect"
-                    : selectedBroker === "upstox"
-                    ? "Upstox"
-                    : "Binance"}{" "}
+                  {selectedBroker === "upstox" ? "Upstox" : "Binance"}{" "}
                   API Credentials:
                 </h4>
                 {selectedBroker === "upstox" && (
@@ -438,11 +428,7 @@ export default function AddAccountModal({
                 {isSubmitting
                   ? "Adding Account..."
                   : `Add ${
-                      selectedBroker === "kite"
-                        ? "Kite"
-                        : selectedBroker === "upstox"
-                        ? "Upstox"
-                        : "Binance"
+                      selectedBroker === "upstox" ? "Upstox" : "Binance"
                     } Account`}
               </Button>
             </DialogFooter>

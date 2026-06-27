@@ -10,7 +10,8 @@ export interface IGymTrade {
   stopLoss: number;
   takeProfit: number;
   pnl: number | null;        // Calculated on close
-  status: "OPEN" | "CLOSED" | "STOPPED_OUT" | "TARGET_HIT";
+  status: "PENDING" | "OPEN" | "CLOSED" | "STOPPED_OUT" | "TARGET_HIT" | "CANCELED";
+  type: "MARKET" | "LIMIT";
 }
 
 const GymTradeSchema = new Schema<IGymTrade>(
@@ -25,9 +26,10 @@ const GymTradeSchema = new Schema<IGymTrade>(
     pnl: { type: Number, default: null },
     status: {
       type: String,
-      enum: ["OPEN", "CLOSED", "STOPPED_OUT", "TARGET_HIT"],
+      enum: ["PENDING", "OPEN", "CLOSED", "STOPPED_OUT", "TARGET_HIT", "CANCELED"],
       default: "OPEN",
     },
+    type: { type: String, enum: ["MARKET", "LIMIT"], default: "MARKET" },
   },
   { _id: false }
 );
@@ -52,6 +54,26 @@ export interface IGymSession extends Document {
     volume: number;
     timestamp: number;
   }>;
+
+  lowerCandles?: Array<{
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+    timestamp: number;
+  }>;
+  lowerInterval?: string;
+
+  higherCandles?: Array<{
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+    timestamp: number;
+  }>;
+  higherInterval?: string;
   
   // Visible state
   currentCandleIndex: number;    // How many candles are revealed
@@ -78,6 +100,28 @@ const GymSessionSchema = new Schema<IGymSession>(
         timestamp: Number,
       },
     ],
+    lowerCandles: [
+      {
+        open: Number,
+        high: Number,
+        low: Number,
+        close: Number,
+        volume: Number,
+        timestamp: Number,
+      },
+    ],
+    lowerInterval: { type: String },
+    higherCandles: [
+      {
+        open: Number,
+        high: Number,
+        low: Number,
+        close: Number,
+        volume: Number,
+        timestamp: Number,
+      },
+    ],
+    higherInterval: { type: String },
     currentCandleIndex: { type: Number, default: 50 }, // Start with 50 candles visible
     initialCandleCount: { type: Number, default: 50 },
     trades: [GymTradeSchema],

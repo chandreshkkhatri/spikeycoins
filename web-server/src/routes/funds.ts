@@ -36,13 +36,7 @@ router.get(
     const fetchPromise = (async () => {
       let funds;
 
-      if (account.accountType === "kite") {
-        if (!account.accessToken) {
-          throw new Error("Account not authenticated:kite");
-        }
-        const kiteClient = BrokerFactory.getKiteClient(account);
-        funds = await kiteClient.getMargins();
-      } else if (account.accountType === "upstox") {
+      if (account.accountType === "upstox") {
         if (!account.accessToken) {
           throw new Error("Account not authenticated:upstox");
         }

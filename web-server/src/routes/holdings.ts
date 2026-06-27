@@ -3,6 +3,7 @@ import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/
 import { asyncHandler } from "../lib/async-handler";
 import { BrokerFactory } from "../lib/broker-factory";
 import { formatHolding } from "../lib/format-utils";
+import { UpstoxHolding } from "../lib/upstox-types";
 
 const router: Router = Router();
 
@@ -59,13 +60,7 @@ router.get(
     const account = req.account!;
     let holdings;
 
-    if (account.accountType === "kite") {
-      if (!account.accessToken) {
-        return res.status(401).json({ error: "Account not authenticated" });
-      }
-      const kiteClient = BrokerFactory.getKiteClient(account);
-      holdings = await kiteClient.getHoldings();
-    } else if (account.accountType === "upstox") {
+    if (account.accountType === "upstox") {
       if (!account.accessToken) {
         return res.status(401).json({ error: "Account not authenticated" });
       }
@@ -105,7 +100,7 @@ router.get(
     }
 
     const unifiedHoldings = Array.isArray(holdings)
-      ? holdings.map((holding: any) => formatHolding(holding, account))
+      ? holdings.map((holding: UpstoxHolding) => formatHolding(holding, account))
       : [];
 
     return res.json({

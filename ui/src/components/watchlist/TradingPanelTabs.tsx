@@ -24,7 +24,7 @@ const TABS_DATA_CACHE = new Map<string, Promise<any>>();
 interface TradingAccount {
   _id: string;
   accountName: string;
-  accountType: "binance" | "kite" | "upstox";
+  accountType: "binance" | "upstox";
   isActive: boolean;
 }
 

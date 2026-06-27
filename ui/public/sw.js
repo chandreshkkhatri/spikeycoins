@@ -44,6 +44,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Skip caching completely in development environments to avoid breaking Next.js HMR/Turbopack
+  if (
+    self.location.hostname === "localhost" ||
+    self.location.hostname === "127.0.0.1" ||
+    self.location.hostname.startsWith("10.") ||
+    self.location.hostname.startsWith("192.168.")
+  ) {
+    return;
+  }
+
   // ------------------------------------------------------------------
   // 1. Cache-first for immutable Next.js build assets (JS, CSS, fonts)
   //    These have content-hashed filenames so they never change.

@@ -69,7 +69,7 @@ export const formatBinanceFuturesPosition = (position: any, account: IAccount) =
 };
 
 /**
- * Formats standard positions (Kite/Upstox) into the unified schema.
+ * Formats standard positions (Upstox) into the unified schema.
  */
 export const formatDefaultPosition = (position: any, account: IAccount) => {
   const symbol =

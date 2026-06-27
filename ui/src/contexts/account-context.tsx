@@ -16,7 +16,7 @@ import { API_ROUTES, getApiUrl } from '@/lib/constants';
 interface TradingAccount {
   _id: string;
   accountName: string;
-  accountType: 'binance' | 'kite' | 'upstox';
+  accountType: 'binance' | 'upstox';
   isActive: boolean;
   isDemo?: boolean;
   accessToken?: string;
@@ -43,7 +43,7 @@ interface AccountContextType {
   error: string | null;
 }
 
-const AccountContext = createContext<AccountContextType | undefined>(undefined);
+export const AccountContext = createContext<AccountContextType | undefined>(undefined);
 
 export const useAccount = () => {
   const context = useContext(AccountContext);

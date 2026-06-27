@@ -174,7 +174,8 @@ export async function unsubscribeFromPushNotifications(): Promise<boolean> {
   }
 
   try {
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return true;
     const subscription = await registration.pushManager.getSubscription();
 
     if (subscription) {
@@ -203,7 +204,8 @@ export async function isSubscribedToPush(): Promise<boolean> {
   }
 
   try {
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return false;
     const subscription = await registration.pushManager.getSubscription();
     return subscription !== null;
   } catch (error) {

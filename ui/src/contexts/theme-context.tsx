@@ -11,7 +11,7 @@ interface ThemeContextValue {
   setTheme: (t: Theme) => void;
 }
 
-const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+export const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 const THEME_STORAGE_KEY = 'spikey-coins-theme';
 

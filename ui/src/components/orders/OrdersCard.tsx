@@ -4,19 +4,11 @@ import EnhancedCard from "@/components/enhanced-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
-import axios from "axios";
-import api from "@/lib/api";
 import { AlertTriangle, Receipt, RefreshCw, ShoppingCart } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-
-interface TradingAccount {
-  _id: string;
-  accountName: string;
-  accountType: "binance" | "kite" | "upstox";
-  isActive?: boolean;
-  accessToken?: string;
-}
+import { getVendorColor, formatBrokerAmount } from "@/lib/format-utils";
+import { useAccountCardData } from "@/hooks/useAccountCardData";
+import { TradingAccount } from "@/hooks/account-card-types";
 
 interface UnifiedOrderResponse {
   id: string;
@@ -47,156 +39,36 @@ interface OrdersCardProps {
   className?: string;
 }
 
-interface AccountError {
-  accountId: string;
-  accountName: string;
-  requiresReauth: boolean;
-  message: string;
-}
-
 export default function OrdersCard({
   accounts = [],
   selectedAccountId,
   className,
 }: OrdersCardProps) {
   const router = useRouter();
-  const [ordersData, setOrdersData] = useState<UnifiedOrderResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [accountErrors, setAccountErrors] = useState<AccountError[]>([]);
-  const [refreshing, setRefreshing] = useState<string | null>(null);
 
   // Filter accounts to show - if selectedAccountId is provided, show only that account
   const accountsToShow = selectedAccountId
     ? accounts.filter((acc) => acc._id === selectedAccountId)
     : accounts;
 
-  const fetchOrdersForAccount = async (
-    account: TradingAccount,
-    isRefresh = false
-  ) => {
-    if (isRefresh) {
-      setRefreshing(account._id);
-    }
+  const {
+    data: ordersData,
+    loading,
+    error,
+    accountErrors,
+    refreshing,
+    refresh,
+  } = useAccountCardData<UnifiedOrderResponse>({
+    endpoint: "/orders",
+    accounts,
+    selectedAccountId,
+    extractItems: (responseData) =>
+      Array.isArray(responseData?.data) ? responseData.data : [],
+  });
 
-    try {
-      const response = await api.get(
-        `/orders?vendor=${account.accountType}&accountId=${account._id}`
-      );
+  const handleRefresh = refresh;
 
-      if (response.data?.success) {
-        // Ensure data is an array before spreading
-        const ordersArray = Array.isArray(response.data.data)
-          ? response.data.data
-          : [];
 
-        setOrdersData((prev) => {
-          const filtered = prev.filter((o) => o.accountId !== account._id);
-          return [...filtered, ...ordersArray];
-        });
-
-        // Clear any previous errors for this account
-        setAccountErrors((prev) =>
-          prev.filter((e) => e.accountId !== account._id)
-        );
-        setError(null);
-      } else {
-        throw new Error(response.data?.error || "Failed to fetch orders");
-      }
-    } catch (err: unknown) {
-      const axiosError = err as {
-        response?: {
-          status?: number;
-          data?: {
-            requiresReauth?: boolean;
-            error?: string;
-            details?: string;
-          };
-        };
-        message?: string;
-      };
-      // Check if it's a 401 error (authentication failure)
-      if (axiosError.response?.status === 401) {
-        const errorData = axiosError.response?.data;
-        setAccountErrors((prev) => {
-          const filtered = prev.filter((e) => e.accountId !== account._id);
-          return [
-            ...filtered,
-            {
-              accountId: account._id,
-              accountName: account.accountName,
-              requiresReauth: errorData?.requiresReauth || true,
-              message:
-                errorData?.error ||
-                "Authentication failed. Please re-authenticate your account.",
-            },
-          ];
-        });
-      } else {
-        // Check both 'error' and 'details' fields for the actual error message
-        const errorMessage =
-          axiosError.response?.data?.error ||
-          axiosError.response?.data?.details ||
-          axiosError.message ||
-          "Failed to fetch orders";
-        setError(`${account.accountName}: ${errorMessage}`);
-      }
-    } finally {
-      if (isRefresh) {
-        setRefreshing(null);
-      }
-    }
-  };
-
-  const fetchAllOrders = async () => {
-    if (accountsToShow.length === 0) return;
-
-    setLoading(true);
-    setError(null);
-    setAccountErrors([]);
-    setOrdersData([]);
-
-    try {
-      // Fetch orders for all accounts in parallel
-      await Promise.allSettled(
-        accountsToShow.map((account) => fetchOrdersForAccount(account))
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRefresh = async (account: TradingAccount) => {
-    await fetchOrdersForAccount(account, true);
-  };
-
-  useEffect(() => {
-    // Only fetch if we have accounts to show
-    if (accountsToShow.length > 0) {
-      fetchAllOrders();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(accounts?.map((a) => a._id) || []), selectedAccountId]);
-
-  const formatCurrency = (amount: number | undefined | null) => {
-    if (amount === undefined || amount === null || isNaN(amount)) {
-      return "₹0.00";
-    }
-    return `₹${amount.toFixed(2)}`;
-  };
-
-  const getVendorColor = (vendor: string) => {
-    switch (vendor.toLowerCase()) {
-      case "kite":
-        return "#ff6600";
-      case "upstox":
-        return "#387ed1";
-      case "binance":
-        return "#f3ba2f";
-      default:
-        return "#666";
-    }
-  };
 
   const getStatusVariant = (status: string): "default" | "success" | "danger" | "warning" | "info" | "neutral" => {
     switch (status.toLowerCase()) {
@@ -317,8 +189,6 @@ export default function OrdersCard({
                     // Handle re-authentication based on account type
                     if (account.accountType === "upstox") {
                       window.location.href = `/api/auth/upstox/login?accountId=${account._id}`;
-                    } else if (account.accountType === "kite") {
-                      window.location.href = `/api/auth/kite/login?accountId=${account._id}`;
                     }
                   }}
                 >
@@ -420,14 +290,14 @@ export default function OrdersCard({
                   <div className="detail-row">
                     <span className="detail-label">Price:</span>
                     <span className="detail-value">
-                      {order.price > 0 ? formatCurrency(order.price) : "Market"}
+                      {order.price > 0 ? formatBrokerAmount(order.price, order.vendor) : "Market"}
                     </span>
                   </div>
                   {order.stopPrice && order.stopPrice > 0 && (
                     <div className="detail-row">
                       <span className="detail-label">Trigger:</span>
                       <span className="detail-value">
-                        {formatCurrency(order.stopPrice)}
+                        {formatBrokerAmount(order.stopPrice, order.vendor)}
                       </span>
                     </div>
                   )}
@@ -435,7 +305,7 @@ export default function OrdersCard({
                     <div className="detail-row">
                       <span className="detail-label">Avg:</span>
                       <span className="detail-value">
-                        {formatCurrency(order.averagePrice)}
+                        {formatBrokerAmount(order.averagePrice, order.vendor)}
                       </span>
                     </div>
                   )}

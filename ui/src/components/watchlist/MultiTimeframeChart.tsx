@@ -52,7 +52,7 @@ interface PriceLine {
 interface MultiTimeframeChartProps {
   symbol: string;
   accountId?: string;
-  accountType?: "binance" | "kite" | "upstox";
+  accountType?: "binance" | "upstox";
   marketType?: "spot" | "futures";
   priceLines?: PriceLine[];
   legend?: { label: string; color: string }[];

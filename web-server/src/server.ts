@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import session from "express-session";
 import dotenv from "dotenv";
 import path from "path";
+import { isOriginAllowed } from "./lib/cors-utils";
 
 // Load environment variables
 dotenv.config();
@@ -70,23 +71,8 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, or Vite proxy requests)
-      if (!origin) return callback(null, true);
-
-      // In development, allow localhost on any port
-      if (
-        process.env.NODE_ENV !== "production" &&
-        origin?.includes("localhost")
-      ) {
-        return callback(null, true);
-      }
-
-      // Allow Vercel deployments (branch previews, etc.)
-      if (origin.endsWith('.vercel.app')) {
-        return callback(null, true);
-      }
-
-      if (allowedOrigins.indexOf(origin) !== -1) {
+      const isProduction = process.env.NODE_ENV === "production";
+      if (isOriginAllowed(origin, { allowedOrigins, isProduction })) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));

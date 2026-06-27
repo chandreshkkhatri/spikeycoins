@@ -102,3 +102,38 @@ export function formatQuantity(quantity: number | null | undefined): string {
   }
   return quantity.toFixed(8);
 }
+
+/**
+ * Map broker vendor name to their brand color
+ */
+export function getVendorColor(vendor: string): string {
+  switch (vendor.toLowerCase()) {
+    case "upstox":
+      return "#387ed1";
+    case "binance":
+      return "#f3ba2f";
+    default:
+      return "#666";
+  }
+}
+
+/**
+ * Format currency amount based on vendor/broker currency ($ for binance, ₹ otherwise)
+ */
+export function formatBrokerAmount(
+  amount: number | string | null | undefined,
+  vendor: string
+): string {
+  if (amount === null || amount === undefined) {
+    return vendor.toLowerCase() === "binance" ? "$0.00" : "₹0.00";
+  }
+  const num = typeof amount === "number" ? amount : parseFloat(amount || "0");
+  if (isNaN(num)) {
+    return vendor.toLowerCase() === "binance" ? "$0.00" : "₹0.00";
+  }
+  if (vendor.toLowerCase() === "binance") {
+    return `$${num.toFixed(2)}`;
+  }
+  return `₹${num.toFixed(2)}`;
+}
+

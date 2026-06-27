@@ -3,6 +3,7 @@ import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/
 import { asyncHandler } from "../lib/async-handler";
 import { BrokerFactory } from "../lib/broker-factory";
 import { formatPosition } from "../lib/format-utils";
+import { UpstoxPosition } from "../lib/upstox-types";
 
 const router: Router = Router();
 
@@ -49,13 +50,7 @@ router.get(
       let positions;
       let tradingSegment: string | undefined;
 
-      if (account.accountType === "kite") {
-        if (!account.accessToken) {
-          throw new Error("Account not authenticated:kite");
-        }
-        const kiteClient = BrokerFactory.getKiteClient(account);
-        positions = await kiteClient.getPositions();
-      } else if (account.accountType === "upstox") {
+      if (account.accountType === "upstox") {
         if (!account.accessToken) {
           throw new Error("Account not authenticated:upstox");
         }
@@ -87,7 +82,7 @@ router.get(
 
       // Map positions to unified format
       const unifiedPositions = Array.isArray(positions)
-        ? positions.map((position: any) =>
+        ? positions.map((position: UpstoxPosition) =>
             formatPosition(account, position, { tradingSegment }),
           )
         : [];
