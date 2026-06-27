@@ -10,6 +10,7 @@ import { useAccount } from "@/contexts/account-context";
 import { useAuth } from "@/contexts/auth-context";
 import { IAccount } from "@/models/account";
 import { useState } from "react";
+import api from "@/lib/api";
 
 export default function AccountsPage() {
   const { accounts: contextAccounts, loadingAccounts, error, fetchAccounts } = useAccount();
@@ -31,19 +32,13 @@ export default function AccountsPage() {
     if (!confirm("Are you sure you want to delete this account?")) return;
 
     try {
-      const response = await fetch(`/api/accounts/${accountId}`, {
-        method: "DELETE",
-      });
-
-      if (response.ok) {
-        fetchAccounts();
-      } else {
-        const data = await response.json();
-        alert(`Failed to delete account: ${data.error || "Unknown error"}`);
-      }
-    } catch (err) {
+      await api.delete(`/accounts/${accountId}`);
+      fetchAccounts();
+    } catch (err: unknown) {
       console.error("Delete error:", err);
-      alert("Failed to delete account");
+      const axiosError = err as { response?: { data?: { error?: string } }; message?: string };
+      const errorMessage = axiosError.response?.data?.error || axiosError.message || "Failed to delete account";
+      alert(`Failed to delete account: ${errorMessage}`);
     }
   };
 
@@ -54,22 +49,18 @@ export default function AccountsPage() {
     if (account.accountType === "binance") {
       // For Binance, validate API keys
       try {
-        const response = await fetch(`/api/auth/binance/validate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accountId }),
-        });
-
-        const data = await response.json();
-        if (data.success) {
+        const response = await api.post(`/auth/binance/validate`, { accountId });
+        if (response.data?.success) {
           alert("API credentials validated successfully!");
           fetchAccounts();
         } else {
-          alert(`Validation failed: ${data.error}`);
+          alert(`Validation failed: ${response.data?.error || "Unknown error"}`);
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error("Validation error:", err);
-        alert("Failed to validate API credentials");
+        const axiosError = err as { response?: { data?: { error?: string } }; message?: string };
+        const errorMessage = axiosError.response?.data?.error || axiosError.message || "Failed to validate API credentials";
+        alert(`Failed to validate API credentials: ${errorMessage}`);
       }
     } else if (account.accountType === "upstox") {
       // For Upstox, redirect to OAuth
@@ -78,22 +69,18 @@ export default function AccountsPage() {
         const token = prompt("Enter your Upstox sandbox access token:");
         if (token) {
           try {
-            const response = await fetch(`/api/auth/upstox/sandbox-token`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ accountId, accessToken: token }),
-            });
-
-            const data = await response.json();
-            if (data.success) {
+            const response = await api.post(`/auth/upstox/sandbox-token`, { accountId, accessToken: token });
+            if (response.data?.success) {
               alert("Token saved successfully!");
               fetchAccounts();
             } else {
-              alert(`Failed to save token: ${data.error}`);
+              alert(`Failed to save token: ${response.data?.error || "Unknown error"}`);
             }
-          } catch (err) {
+          } catch (err: unknown) {
             console.error("Token save error:", err);
-            alert("Failed to save token");
+            const axiosError = err as { response?: { data?: { error?: string } }; message?: string };
+            const errorMessage = axiosError.response?.data?.error || axiosError.message || "Failed to save token";
+            alert(`Failed to save token: ${errorMessage}`);
           }
         }
       } else {
@@ -116,50 +103,35 @@ export default function AccountsPage() {
     tradingSegment?: "spot" | "usdm";
   }) => {
     try {
-      const response = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...accountData,
-          userId: user?._id,
-          metadata: {
-            sandbox: accountData.redirectUri === "sandbox",
-            testnet: accountData.redirectUri === "testnet",
-            tradingSegment: accountData.tradingSegment,
-          },
-        }),
+      await api.post("/accounts", {
+        ...accountData,
+        userId: user?._id,
+        metadata: {
+          sandbox: accountData.redirectUri === "sandbox",
+          testnet: accountData.redirectUri === "testnet",
+          tradingSegment: accountData.tradingSegment,
+        },
       });
 
-      if (response.ok) {
-        fetchAccounts();
-        setIsAddModalOpen(false);
-      } else {
-        const data = await response.json();
-        alert(`Failed to add account: ${data.error || "Unknown error"}`);
-      }
-    } catch (err) {
+      fetchAccounts();
+      setIsAddModalOpen(false);
+    } catch (err: unknown) {
       console.error("Add account error:", err);
-      alert("Failed to add account");
+      const axiosError = err as { response?: { data?: { error?: string } }; message?: string };
+      const errorMessage = axiosError.response?.data?.error || axiosError.message || "Failed to add account";
+      alert(`Failed to add account: ${errorMessage}`);
     }
   };
 
   const handleEditAccountSave = async (accountId: string, updates: Partial<IAccount>) => {
     try {
-      const response = await fetch(`/api/accounts/${accountId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-
-      if (response.ok) {
-        fetchAccounts();
-      } else {
-        const data = await response.json();
-        alert(`Failed to update account: ${data.error || "Unknown error"}`);
-      }
-    } catch (err) {
+      await api.put(`/accounts/${accountId}`, updates);
+      fetchAccounts();
+    } catch (err: unknown) {
       console.error("Update account error:", err);
-      alert("Failed to update account");
+      const axiosError = err as { response?: { data?: { error?: string } }; message?: string };
+      const errorMessage = axiosError.response?.data?.error || axiosError.message || "Failed to update account";
+      alert(`Failed to update account: ${errorMessage}`);
     }
   };
 

@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express";
 import { BinanceService } from "../../lib/binance-service";
 import connectDB from "../../lib/mongodb";
 import Account from "../../models/account";
+import { demoAccountService } from "../../lib/demo-account-service";
+import mongoose from "mongoose";
 
 const router: Router = Router();
 
@@ -14,8 +16,16 @@ router.post("/binance/validate", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "accountId parameter is required" });
     }
 
-    await connectDB();
-    const account = await Account.findById(accountId);
+    let account;
+    if (demoAccountService.isDemoAccountId(accountId)) {
+      account = demoAccountService.getDemoAccount(true);
+    } else {
+      if (!mongoose.Types.ObjectId.isValid(accountId)) {
+        return res.status(404).json({ error: "Account not found" });
+      }
+      await connectDB();
+      account = await Account.findById(accountId);
+    }
 
     if (!account) {
       return res.status(404).json({ error: "Account not found" });
@@ -58,7 +68,9 @@ router.post("/binance/validate", async (req: Request, res: Response) => {
 
     // Update account with validation success (no access token needed for Binance)
     account.lastSyncAt = new Date();
-    await account.save();
+    if (typeof account.save === "function") {
+      await account.save();
+    }
 
     return res.json({
       success: true,
@@ -69,12 +81,13 @@ router.post("/binance/validate", async (req: Request, res: Response) => {
           : true,
       accountId: account._id,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error validating Binance credentials:", error);
+    const err = error as Error;
     return res.status(401).json({
       success: false,
       error: "Invalid Binance API credentials",
-      details: error.message,
+      details: err.message,
     });
   }
 });
