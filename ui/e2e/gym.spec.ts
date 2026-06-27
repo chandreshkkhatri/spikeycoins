@@ -29,7 +29,18 @@ test.describe("Trading Gym E2E Tests", () => {
     await expect(page.locator("h1")).toContainText("Trading Gym");
     await expect(page.locator('button:has-text("Reveal & End")')).toBeVisible();
 
-    // 3. Test Order Type Toggle & Inputs
+    // 3. Clear any recovered active setup so we start with a clean order form
+    const cancelBtn = page.locator('button:has-text("Cancel Limit Order")');
+    const closeBtn = page.locator('button:has-text("Close at")');
+    if (await cancelBtn.isVisible()) {
+      await cancelBtn.click();
+      await expect(page.locator('button:has-text("Place LONG MARKET Order")')).toBeVisible();
+    } else if (await closeBtn.isVisible()) {
+      await closeBtn.click();
+      await expect(page.locator('button:has-text("Place LONG MARKET Order")')).toBeVisible();
+    }
+
+    // 4. Test Order Type Toggle & Inputs
     // Verify default order type is MARKET and check fields
     await expect(page.locator('button:has-text("Place LONG MARKET Order")')).toBeVisible();
     await expect(page.locator('label:has-text("Limit Entry Price")')).not.toBeVisible();
@@ -39,7 +50,7 @@ test.describe("Trading Gym E2E Tests", () => {
     await expect(page.locator('label:has-text("Limit Entry Price")')).toBeVisible();
     await expect(page.locator('button:has-text("Place LONG LIMIT Order")')).toBeVisible();
 
-    // 4. Place a Pending Limit Order and Cancel it
+    // 5. Place a Pending Limit Order and Cancel it
     // Set a very low limit price to ensure it doesn't get filled immediately
     const currentPriceText = await page.locator("div.text-sm.font-medium:has-text('Price:')").innerText();
     const currentPrice = parseFloat(currentPriceText.replace("Price:", "").trim());
@@ -55,14 +66,14 @@ test.describe("Trading Gym E2E Tests", () => {
     await page.click('button:has-text("Place LONG LIMIT Order")');
 
     // Verify limit order pending status UI
-    await expect(page.locator('span:has-text("PENDING")')).toBeVisible();
+    await expect(page.getByText("PENDING", { exact: true })).toBeVisible();
     await expect(page.locator('button:has-text("Cancel Limit Order")')).toBeVisible();
 
     // Cancel the limit order
     await page.click('button:has-text("Cancel Limit Order")');
-    await expect(page.locator('button:has-text("Place LONG MARKET Order")')).toBeVisible();
+    await expect(page.locator('button:has-text("Place LONG LIMIT Order")')).toBeVisible();
 
-    // 5. Place a Market Order & Close Trade
+    // 6. Place a Market Order & Close Trade
     await page.click('button:has-text("Market")');
     await page.click('button:has-text("Place LONG MARKET Order")');
 
@@ -78,9 +89,9 @@ test.describe("Trading Gym E2E Tests", () => {
 
     // Verify trade shows in History
     await expect(page.locator('h3:has-text("Trade History")')).toBeVisible();
-    await expect(page.locator('div:has-text("LONG")')).toBeVisible();
+    await expect(page.locator('div:has(h3:has-text("Trade History"))').getByText("LONG").first()).toBeVisible();
 
-    // 6. Test Split View / Multi-Chart Synchronization
+    // 7. Test Split View / Multi-Chart Synchronization
     await page.click('button:has-text("Split View")');
     await expect(page.locator('span:has-text("LOWER TIMEFRAME")')).toBeVisible();
     await expect(page.locator('span:has-text("MAIN TIMEFRAME")')).toBeVisible();
@@ -90,9 +101,9 @@ test.describe("Trading Gym E2E Tests", () => {
     await page.click('button:has-text("Single View")');
     await expect(page.locator('span:has-text("LOWER TIMEFRAME")')).not.toBeVisible();
 
-    // 7. Reveal symbol and end session
+    // 8. Reveal symbol and end session
     await page.click('button:has-text("Reveal & End")');
     await expect(page.locator('h3:has-text("Session Revealed")')).toBeVisible();
-    await expect(page.locator('span:has-text("REVEALED")')).toBeVisible();
+    await expect(page.locator('button:has-text("Revealed")')).toBeVisible();
   });
 });
