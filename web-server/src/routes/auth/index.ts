@@ -5,7 +5,7 @@ import googleRouter from "./google";
 import upstoxRouter from "./upstox";
 import binanceRouter from "./binance";
 
-const router = Router();
+const router: Router = Router();
 
 router.use("/", userRouter);
 router.use("/", sessionRouter);
