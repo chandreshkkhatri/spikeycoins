@@ -51,7 +51,8 @@ interface GymTrade {
   stopLoss: number;
   takeProfit: number;
   pnl: number | null;
-  status: "OPEN" | "CLOSED" | "STOPPED_OUT" | "TARGET_HIT";
+  status: "PENDING" | "OPEN" | "CLOSED" | "STOPPED_OUT" | "TARGET_HIT" | "CANCELED";
+  type: "MARKET" | "LIMIT";
 }
 
 interface GymSession {
@@ -60,6 +61,10 @@ interface GymSession {
   currentCandleIndex: number;
   totalCandles: number;
   candles: GymCandle[];
+  lowerInterval?: string;
+  lowerCandles?: GymCandle[];
+  higherInterval?: string;
+  higherCandles?: GymCandle[];
   trades: GymTrade[];
   totalPnl: number;
   status: "ACTIVE" | "COMPLETED" | "REVEALED";
@@ -82,9 +87,11 @@ interface SessionSummary {
 function GymChart({
   candles,
   trades,
+  height = 400,
 }: {
   candles: GymCandle[];
   trades: GymTrade[];
+  height?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -106,7 +113,7 @@ function GymChart({
         horzLines: { color: isDark ? "#1e293b" : "#f1f5f9" },
       },
       width: containerRef.current.clientWidth,
-      height: 400,
+      height: height,
       rightPriceScale: { borderVisible: false },
       timeScale: {
         borderVisible: false,
@@ -145,24 +152,24 @@ function GymChart({
 
     series.setData(chartData);
 
-    // Draw price lines for open trade SL/TP
-    const openTrade = trades.find((t) => t.status === "OPEN");
-    if (openTrade) {
+    // Draw price lines for active or pending trade SL/TP
+    const activeTrade = trades.find((t) => t.status === "OPEN" || t.status === "PENDING");
+    if (activeTrade) {
       const entryLineOpts: PriceLineOptions = {
-        price: openTrade.entryPrice,
-        color: "#3b82f6",
+        price: activeTrade.entryPrice,
+        color: activeTrade.status === "PENDING" ? "#c084fc" : "#3b82f6", // purple for pending limit, blue for open
         lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
+        lineStyle: activeTrade.status === "PENDING" ? LineStyle.Dashed : LineStyle.Solid,
         axisLabelVisible: true,
-        title: "Entry",
+        title: activeTrade.status === "PENDING" ? "Limit" : "Entry",
         lineVisible: true,
-        axisLabelColor: "#3b82f6",
+        axisLabelColor: activeTrade.status === "PENDING" ? "#c084fc" : "#3b82f6",
         axisLabelTextColor: "#ffffff",
       };
       series.createPriceLine(entryLineOpts);
 
       const slLineOpts: PriceLineOptions = {
-        price: openTrade.stopLoss,
+        price: activeTrade.stopLoss,
         color: "#ef4444",
         lineWidth: 1,
         lineStyle: LineStyle.Dotted,
@@ -175,7 +182,7 @@ function GymChart({
       series.createPriceLine(slLineOpts);
 
       const tpLineOpts: PriceLineOptions = {
-        price: openTrade.takeProfit,
+        price: activeTrade.takeProfit,
         color: "#22c55e",
         lineWidth: 1,
         lineStyle: LineStyle.Dotted,
@@ -205,7 +212,7 @@ function GymChart({
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [candles, trades]);
+  }, [candles, trades, height]);
 
   return <div ref={containerRef} />;
 }
@@ -220,8 +227,13 @@ export default function TradingGymPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Layout mode state
+  const [layoutMode, setLayoutMode] = useState<"single" | "split">("single");
+
   // Trade form state
   const [tradeSide, setTradeSide] = useState<"LONG" | "SHORT">("LONG");
+  const [tradeType, setTradeType] = useState<"MARKET" | "LIMIT">("MARKET");
+  const [limitPriceInput, setLimitPriceInput] = useState("");
   const [slInput, setSlInput] = useState("");
   const [tpInput, setTpInput] = useState("");
   const slTpDirty = useRef(false);
@@ -231,7 +243,9 @@ export default function TradingGymPage() {
       ? session.candles[session.candles.length - 1].close
       : 0;
 
+  const activeTrade = session?.trades.find((t) => t.status === "OPEN" || t.status === "PENDING") ?? null;
   const openTrade = session?.trades.find((t) => t.status === "OPEN") ?? null;
+  const pendingTrade = session?.trades.find((t) => t.status === "PENDING") ?? null;
   const isActive = session?.status === "ACTIVE";
   const isRevealed = session?.status === "REVEALED";
   const isCompleted = session?.status === "COMPLETED";
@@ -250,9 +264,25 @@ export default function TradingGymPage() {
     }
   }, [user]);
 
+  // Session recovery check on load
   useEffect(() => {
     fetchHistory();
-  }, [fetchHistory]);
+    const checkActiveSession = async () => {
+      if (!user) return;
+      setLoading(true);
+      try {
+        const res = await api.get("/gym/session/active");
+        if (res.data.session) {
+          setSession(res.data.session);
+        }
+      } catch (err) {
+        console.error("Failed to check active session:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    checkActiveSession();
+  }, [user, fetchHistory]);
 
   // Create new session
   const createSession = useCallback(async () => {
@@ -262,6 +292,7 @@ export default function TradingGymPage() {
     try {
       const res = await api.post("/gym/session/new");
       setSession(res.data.session);
+      setLimitPriceInput("");
       setSlInput("");
       setTpInput("");
       slTpDirty.current = false;
@@ -288,35 +319,36 @@ export default function TradingGymPage() {
     [session, isActive],
   );
 
-  // Open trade
+  // Open trade (MARKET or LIMIT)
   const openNewTrade = useCallback(async () => {
     if (!session || !isActive) return;
     const sl = parseFloat(slInput);
     const tp = parseFloat(tpInput);
+    const limitPrice = parseFloat(limitPriceInput);
+    
     if (isNaN(sl) || isNaN(tp)) {
       setError("Enter valid SL and TP prices");
       return;
     }
+    if (tradeType === "LIMIT" && isNaN(limitPrice)) {
+      setError("Enter a valid Limit Price");
+      return;
+    }
+    
     setError(null);
     try {
       const res = await api.post(`/gym/session/${session.id}/trade`, {
         side: tradeSide,
+        type: tradeType,
+        limitPrice: tradeType === "LIMIT" ? limitPrice : undefined,
         stopLoss: sl,
         takeProfit: tp,
       });
-      setSession((prev) =>
-        prev
-          ? {
-              ...prev,
-              trades: res.data.session.trades,
-              totalPnl: res.data.session.totalPnl,
-            }
-          : prev,
-      );
+      setSession(res.data.session);
     } catch (err: any) {
       setError(err.response?.data?.error || "Failed to open trade");
     }
-  }, [session, isActive, tradeSide, slInput, tpInput]);
+  }, [session, isActive, tradeSide, tradeType, limitPriceInput, slInput, tpInput]);
 
   // Close trade
   const closeTrade = useCallback(async () => {
@@ -324,17 +356,21 @@ export default function TradingGymPage() {
     setError(null);
     try {
       const res = await api.post(`/gym/session/${session.id}/close`);
-      setSession((prev) =>
-        prev
-          ? {
-              ...prev,
-              trades: res.data.session.trades,
-              totalPnl: res.data.session.totalPnl,
-            }
-          : prev,
-      );
+      setSession(res.data.session);
     } catch (err: any) {
       setError(err.response?.data?.error || "Failed to close trade");
+    }
+  }, [session]);
+
+  // Cancel pending limit order
+  const cancelPendingTrade = useCallback(async () => {
+    if (!session) return;
+    setError(null);
+    try {
+      const res = await api.post(`/gym/session/${session.id}/trade/cancel`);
+      setSession(res.data.session);
+    } catch (err: any) {
+      setError(err.response?.data?.error || "Failed to cancel order");
     }
   }, [session]);
 
@@ -351,18 +387,26 @@ export default function TradingGymPage() {
     }
   }, [session, fetchHistory]);
 
-  // Set default SL/TP when side changes or price updates (only if user hasn't edited)
+  // Set default SL/TP and Limit price when side/type changes or price updates (only if user hasn't edited)
   useEffect(() => {
-    if (!currentPrice || openTrade || slTpDirty.current) return;
-    const offset = currentPrice * 0.02; // 2% default
-    if (tradeSide === "LONG") {
-      setSlInput((currentPrice - offset).toFixed(2));
-      setTpInput((currentPrice + offset).toFixed(2));
-    } else {
-      setSlInput((currentPrice + offset).toFixed(2));
-      setTpInput((currentPrice - offset).toFixed(2));
+    if (!currentPrice || activeTrade || slTpDirty.current) return;
+    
+    if (tradeType === "LIMIT" && !limitPriceInput) {
+      setLimitPriceInput(currentPrice.toFixed(2));
     }
-  }, [tradeSide, currentPrice, openTrade]);
+
+    const referencePrice = tradeType === "LIMIT" && limitPriceInput ? parseFloat(limitPriceInput) : currentPrice;
+    if (isNaN(referencePrice)) return;
+
+    const offset = referencePrice * 0.02; // 2% default
+    if (tradeSide === "LONG") {
+      setSlInput((referencePrice - offset).toFixed(2));
+      setTpInput((referencePrice + offset).toFixed(2));
+    } else {
+      setSlInput((referencePrice + offset).toFixed(2));
+      setTpInput((referencePrice - offset).toFixed(2));
+    }
+  }, [tradeSide, tradeType, limitPriceInput, currentPrice, activeTrade]);
 
   // ── No session view ──────────────────────────────
 
@@ -476,7 +520,7 @@ export default function TradingGymPage() {
 
   // ── Active session view ──────────────────────────
 
-  const closedTrades = session.trades.filter((t) => t.status !== "OPEN");
+  const closedTrades = session.trades.filter((t) => t.status !== "OPEN" && t.status !== "PENDING");
 
   return (
     <div className="flex flex-col gap-4 py-4">
@@ -507,6 +551,13 @@ export default function TradingGymPage() {
           <Button
             size="sm"
             variant="outline"
+            onClick={() => setLayoutMode(layoutMode === "single" ? "split" : "single")}
+          >
+            {layoutMode === "single" ? "Split View" : "Single View"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => {
               setSession(null);
               fetchHistory();
@@ -530,23 +581,51 @@ export default function TradingGymPage() {
         </div>
       )}
 
-      {/* Chart */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <span>
-              Candle {session.currentCandleIndex}/{session.totalCandles}
-            </span>
-            {candlesRemaining > 0 && (
-              <span className="text-xs">({candlesRemaining} remaining)</span>
-            )}
+      {/* Charts Layout */}
+      {layoutMode === "single" ? (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2">
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <span>
+                Candle {session.currentCandleIndex}/{session.totalCandles}
+              </span>
+              {candlesRemaining > 0 && (
+                <span className="text-xs">({candlesRemaining} remaining)</span>
+              )}
+            </div>
+            <div className="text-sm font-medium">
+              Price: {currentPrice.toFixed(2)}
+            </div>
           </div>
-          <div className="text-sm font-medium">
-            Price: {currentPrice.toFixed(2)}
+          <GymChart candles={session.candles} trades={session.trades} />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="border-b border-border px-4 py-2 text-xs font-semibold text-muted-foreground flex justify-between bg-muted/10">
+              <span>LOWER TIMEFRAME ({session.lowerInterval})</span>
+              <span>Candles: {session.lowerCandles?.length || 0}</span>
+            </div>
+            <GymChart candles={session.lowerCandles || []} trades={session.trades} height={280} />
+          </div>
+          
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="border-b border-border px-4 py-2 text-xs font-semibold text-primary flex justify-between bg-muted/10">
+              <span>MAIN TIMEFRAME ({session.interval})</span>
+              <span>Candle {session.currentCandleIndex}/{session.totalCandles}</span>
+            </div>
+            <GymChart candles={session.candles} trades={session.trades} height={280} />
+          </div>
+
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="border-b border-border px-4 py-2 text-xs font-semibold text-muted-foreground flex justify-between bg-muted/10">
+              <span>HIGHER TIMEFRAME ({session.higherInterval})</span>
+              <span>Candles: {session.higherCandles?.length || 0}</span>
+            </div>
+            <GymChart candles={session.higherCandles || []} trades={session.trades} height={280} />
           </div>
         </div>
-        <GymChart candles={session.candles} trades={session.trades} />
-      </div>
+      )}
 
       {/* Controls */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -601,37 +680,56 @@ export default function TradingGymPage() {
         {/* Trade controls */}
         <div className="rounded-xl border border-border bg-card p-4">
           <h3 className="text-sm font-semibold mb-3">
-            {openTrade ? "Open Trade" : "Place Trade"}
+            {activeTrade ? (activeTrade.status === "PENDING" ? "Pending Limit" : "Open Trade") : "Place Trade"}
           </h3>
 
-          {openTrade ? (
+          {activeTrade ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm">
-                <Badge
-                  variant={openTrade.side === "LONG" ? "success" : "danger"}
-                >
-                  {openTrade.side}
-                </Badge>
-                <span className="text-muted-foreground">
-                  Entry: {openTrade.entryPrice.toFixed(2)}
+                <div className="flex items-center gap-1.5">
+                  <Badge variant={activeTrade.side === "LONG" ? "success" : "danger"}>
+                    {activeTrade.side}
+                  </Badge>
+                  {activeTrade.status === "PENDING" && (
+                    <Badge variant="neutral" className="animate-pulse">
+                      PENDING
+                    </Badge>
+                  )}
+                </div>
+                <span className="text-muted-foreground text-xs">
+                  {activeTrade.status === "PENDING" ? "Limit Price:" : "Entry Price:"} {activeTrade.entryPrice.toFixed(2)}
                 </span>
               </div>
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>SL: {openTrade.stopLoss.toFixed(2)}</span>
-                <span>TP: {openTrade.takeProfit.toFixed(2)}</span>
+                <span>SL: {activeTrade.stopLoss.toFixed(2)}</span>
+                <span>TP: {activeTrade.takeProfit.toFixed(2)}</span>
               </div>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={closeTrade}
-                className="w-full"
-                disabled={!isActive}
-              >
-                Close at {currentPrice.toFixed(2)}
-              </Button>
+              {activeTrade.status === "PENDING" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={cancelPendingTrade}
+                  className="w-full text-destructive border-destructive/20 hover:bg-destructive/10"
+                  disabled={!isActive}
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  Cancel Limit Order
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={closeTrade}
+                  className="w-full"
+                  disabled={!isActive}
+                >
+                  Close at {currentPrice.toFixed(2)}
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
+              {/* Long / Short Selection */}
               <div className="flex gap-2">
                 <Button
                   size="sm"
@@ -654,41 +752,81 @@ export default function TradingGymPage() {
                   Short
                 </Button>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">
-                    Stop Loss
-                  </label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={slInput}
-                    onChange={(e) => { setSlInput(e.target.value); slTpDirty.current = true; }}
-                    disabled={!isActive}
-                    className="h-8 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">
-                    Take Profit
-                  </label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={tpInput}
-                    onChange={(e) => { setTpInput(e.target.value); slTpDirty.current = true; }}
-                    disabled={!isActive}
-                    className="h-8 text-sm"
-                  />
+
+              {/* Order Type Toggle */}
+              <div className="flex gap-2 border-t border-b border-border/50 py-2">
+                <Button
+                  variant={tradeType === "MARKET" ? "default" : "ghost"}
+                  onClick={() => { setTradeType("MARKET"); slTpDirty.current = false; }}
+                  className="h-7 text-xs flex-1"
+                  disabled={!isActive}
+                >
+                  Market
+                </Button>
+                <Button
+                  variant={tradeType === "LIMIT" ? "default" : "ghost"}
+                  onClick={() => { setTradeType("LIMIT"); slTpDirty.current = false; }}
+                  className="h-7 text-xs flex-1"
+                  disabled={!isActive}
+                >
+                  Limit
+                </Button>
+              </div>
+
+              {/* Input Fields */}
+              <div className="space-y-2">
+                {tradeType === "LIMIT" && (
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Limit Entry Price
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={limitPriceInput}
+                      onChange={(e) => { setLimitPriceInput(e.target.value); slTpDirty.current = true; }}
+                      disabled={!isActive}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Stop Loss
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={slInput}
+                      onChange={(e) => { setSlInput(e.target.value); slTpDirty.current = true; }}
+                      disabled={!isActive}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Take Profit
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={tpInput}
+                      onChange={(e) => { setTpInput(e.target.value); slTpDirty.current = true; }}
+                      disabled={!isActive}
+                      className="h-8 text-sm"
+                    />
+                  </div>
                 </div>
               </div>
+
               <Button
                 size="sm"
                 onClick={openNewTrade}
                 disabled={!isActive}
                 className="w-full"
               >
-                Open {tradeSide} Trade
+                Place {tradeSide} {tradeType} Order
               </Button>
             </div>
           )}
@@ -717,13 +855,14 @@ export default function TradingGymPage() {
                     >
                       {t.side}
                     </Badge>
-                    <span className="text-muted-foreground">{t.status}</span>
+                    <span className="text-muted-foreground">
+                      {t.status === "CANCELED" ? "Canceled" : t.status}
+                    </span>
                   </div>
                   <span
                     className={`font-medium ${(t.pnl ?? 0) >= 0 ? "text-green-500" : "text-red-500"}`}
                   >
-                    {(t.pnl ?? 0) >= 0 ? "+" : ""}
-                    {(t.pnl ?? 0).toFixed(2)}%
+                    {t.pnl !== null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}%` : "0.00%"}
                   </span>
                 </div>
               ))}

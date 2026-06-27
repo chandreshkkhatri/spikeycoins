@@ -1,5 +1,5 @@
-import { Router, Request, Response } from "express";
-import GymSession, { IGymTrade } from "../models/gym-session";
+import { Router, Response } from "express";
+import GymSession, { IGymTrade, IGymSession } from "../models/gym-session";
 import HistoricalDataCache from "../models/historical-data-cache";
 import { requireAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 import axios from "axios";
@@ -12,7 +12,7 @@ router.use(requireAuth);
 // Helper: Calculate percentage PnL
 function calcPctPnl(entryPrice: number, exitPrice: number, side: "LONG" | "SHORT"): number {
   if (side === "LONG") {
-    return +((( exitPrice - entryPrice) / entryPrice) * 100).toFixed(4);
+    return +(((exitPrice - entryPrice) / entryPrice) * 100).toFixed(4);
   }
   return +(((entryPrice - exitPrice) / entryPrice) * 100).toFixed(4);
 }
@@ -23,7 +23,6 @@ const SUPPORTED_INTERVALS = ["15m", "1h", "4h", "1d"];
 
 // Interval to milliseconds mapping
 const INTERVAL_MS: Record<string, number> = {
-  "1m": 60 * 1000,
   "5m": 5 * 60 * 1000,
   "15m": 15 * 60 * 1000,
   "1h": 60 * 60 * 1000,
@@ -31,7 +30,15 @@ const INTERVAL_MS: Record<string, number> = {
   "1d": 24 * 60 * 60 * 1000,
 };
 
-// Helper: Fetch candles from cache or Binance
+// Config for secondary charts
+const TIMEFRAME_CONFIGS: Record<string, { lower: string; lowerMultiplier: number; higher: string; higherMultiplier: number }> = {
+  "15m": { lower: "5m", lowerMultiplier: 3, higher: "1h", higherMultiplier: 4 },
+  "1h": { lower: "15m", lowerMultiplier: 4, higher: "4h", higherMultiplier: 4 },
+  "4h": { lower: "1h", lowerMultiplier: 4, higher: "1d", higherMultiplier: 6 },
+  "1d": { lower: "4h", lowerMultiplier: 6, higher: "1d", higherMultiplier: 1 },
+};
+
+// Helper: Fetch candles from cache or Binance in chunks of up to 1000
 async function fetchCandles(
   symbol: string,
   interval: string,
@@ -62,58 +69,120 @@ async function fetchCandles(
     }));
   }
 
-  // Fetch from Binance API
-  const endTime = startTime + limit * INTERVAL_MS[interval];
-  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&startTime=${startTime}&endTime=${endTime}&limit=${limit}`;
-  
-  const response = await axios.get(url);
-  const candles = response.data.map((k: any[]) => ({
-    timestamp: k[0],
-    open: parseFloat(k[1]),
-    high: parseFloat(k[2]),
-    low: parseFloat(k[3]),
-    close: parseFloat(k[4]),
-    volume: parseFloat(k[5]),
-  }));
+  // Fetch from Binance API in chunks
+  const candles: Array<{ open: number; high: number; low: number; close: number; volume: number; timestamp: number }> = [];
+  let currentStartTime = startTime;
+  let remaining = limit;
 
-  // Cache the candles (fire and forget)
-  if (candles.length > 0) {
-    const candlesToInsert = candles.map((c: any) => ({
-      symbol,
-      interval,
-      marketType,
-      timestamp: c.timestamp,
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-      volume: c.volume,
-    }));
-    HistoricalDataCache.insertMany(candlesToInsert, { ordered: false }).catch(() => {});
+  try {
+    while (remaining > 0) {
+      const chunkLimit = Math.min(remaining, 1000);
+      const endTime = currentStartTime + chunkLimit * INTERVAL_MS[interval];
+      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&startTime=${currentStartTime}&endTime=${endTime}&limit=${chunkLimit}`;
+      
+      const response = await axios.get(url);
+      const chunkCandles = response.data.map((k: unknown[]) => {
+        const arr = k as [number, string, string, string, string, string];
+        return {
+          timestamp: arr[0],
+          open: parseFloat(arr[1]),
+          high: parseFloat(arr[2]),
+          low: parseFloat(arr[3]),
+          close: parseFloat(arr[4]),
+          volume: parseFloat(arr[5]),
+        };
+      });
+
+      if (chunkCandles.length === 0) break;
+
+      candles.push(...chunkCandles);
+      remaining -= chunkCandles.length;
+      currentStartTime = chunkCandles[chunkCandles.length - 1].timestamp + INTERVAL_MS[interval];
+    }
+
+    // Cache the candles (fire and forget)
+    if (candles.length > 0) {
+      const candlesToInsert = candles.map((c) => ({
+        symbol,
+        interval,
+        marketType,
+        timestamp: c.timestamp,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume,
+      }));
+      HistoricalDataCache.insertMany(candlesToInsert, { ordered: false }).catch(() => {});
+    }
+  } catch (err: unknown) {
+    console.error(`[fetchCandles] Error fetching ${interval} candles from Binance:`, err);
   }
 
   return candles;
 }
 
-// Helper: Obfuscate prices
-function obfuscatePrices(
-  candles: Array<{ open: number; high: number; low: number; close: number; volume: number; timestamp: number }>
-): { obfuscated: typeof candles; multiplier: number } {
-  const maxHigh = Math.max(...candles.map((c) => c.high));
-  const randomFactor = Math.random() * 99 + 1; // 1-100
-  const multiplier = (100 / maxHigh) * randomFactor;
-
-  const obfuscated = candles.map((c, index) => ({
+// Helper: Obfuscate price series
+function obfuscateSeries(
+  candles: Array<{ open: number; high: number; low: number; close: number; volume: number; timestamp: number }>,
+  multiplier: number
+): typeof candles {
+  return candles.map((c, index) => ({
     open: +(c.open * multiplier).toFixed(2),
     high: +(c.high * multiplier).toFixed(2),
     low: +(c.low * multiplier).toFixed(2),
     close: +(c.close * multiplier).toFixed(2),
-    volume: c.volume, // Keep volume as-is (less identifying)
-    timestamp: index, // Replace timestamp with index to hide time
+    volume: c.volume,
+    timestamp: index,
   }));
-
-  return { obfuscated, multiplier };
 }
+
+// Helper: Format consistent response payload for a session
+function formatSessionResponse(session: IGymSession) {
+  const config = TIMEFRAME_CONFIGS[session.interval] || { lowerMultiplier: 4, higherMultiplier: 4 };
+  const lowerCandleIndex = session.currentCandleIndex * config.lowerMultiplier;
+  const higherCandleIndex = Math.floor(session.currentCandleIndex / config.higherMultiplier);
+  const isRevealed = session.status === "REVEALED";
+
+  return {
+    id: session._id,
+    interval: session.interval,
+    currentCandleIndex: session.currentCandleIndex,
+    totalCandles: session.candles.length,
+    candles: session.candles.slice(0, session.currentCandleIndex),
+    lowerInterval: session.lowerInterval,
+    lowerCandles: session.lowerCandles ? session.lowerCandles.slice(0, lowerCandleIndex) : [],
+    higherInterval: session.higherInterval,
+    higherCandles: session.higherCandles ? session.higherCandles.slice(0, higherCandleIndex) : [],
+    trades: session.trades,
+    totalPnl: session.totalPnl,
+    status: session.status,
+    ...(isRevealed && {
+      actualSymbol: session.actualSymbol,
+      actualStartTimestamp: session.actualStartTimestamp,
+    }),
+  };
+}
+
+// GET /api/gym/session/active - Get the user's current active session
+router.get("/session/active", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const session = await GymSession.findOne({ userId, status: "ACTIVE" });
+    
+    if (!session) {
+      return res.json({ success: true, session: null });
+    }
+
+    return res.json({
+      success: true,
+      session: formatSessionResponse(session),
+    });
+  } catch (error: unknown) {
+    console.error("Error fetching active session:", error);
+    return res.status(500).json({ error: "Failed to fetch active session" });
+  }
+});
 
 // POST /api/gym/session/new - Create a new gym session
 router.post("/session/new", async (req: AuthenticatedRequest, res: Response) => {
@@ -123,21 +192,34 @@ router.post("/session/new", async (req: AuthenticatedRequest, res: Response) => 
     // Pick random symbol and interval
     const symbol = SUPPORTED_SYMBOLS[Math.floor(Math.random() * SUPPORTED_SYMBOLS.length)];
     const interval = SUPPORTED_INTERVALS[Math.floor(Math.random() * SUPPORTED_INTERVALS.length)];
+    const config = TIMEFRAME_CONFIGS[interval];
 
     // Pick random start date (between 2 years ago and 100 candles before now)
     const twoYearsAgo = Date.now() - 2 * 365 * 24 * 60 * 60 * 1000;
-    const minCandlesAhead = 300; // Need at least 300 candles for the session
+    const minCandlesAhead = 300;
     const latestStart = Date.now() - minCandlesAhead * INTERVAL_MS[interval];
     const randomStartTime = Math.floor(twoYearsAgo + Math.random() * (latestStart - twoYearsAgo));
 
-    // Fetch candles
-    const candles = await fetchCandles(symbol, interval, randomStartTime, 300);
-    if (candles.length < 100) {
+    // Fetch primary and secondary timeframe charts in parallel
+    const [mainCandles, lowerCandlesRaw, higherCandlesRaw] = await Promise.all([
+      fetchCandles(symbol, interval, randomStartTime, 300),
+      fetchCandles(symbol, config.lower, randomStartTime, 300 * config.lowerMultiplier),
+      fetchCandles(symbol, config.higher, randomStartTime, Math.ceil(300 / config.higherMultiplier)),
+    ]);
+
+    if (mainCandles.length < 100) {
       return res.status(500).json({ error: "Failed to fetch enough historical data" });
     }
 
-    // Obfuscate prices
-    const { obfuscated, multiplier } = obfuscatePrices(candles);
+    // Calculate multiplier based on main candles
+    const maxHigh = Math.max(...mainCandles.map((c) => c.high));
+    const randomFactor = Math.random() * 99 + 1;
+    const multiplier = (100 / maxHigh) * randomFactor;
+
+    // Obfuscate all series with the same multiplier
+    const obfuscatedMain = obfuscateSeries(mainCandles, multiplier);
+    const obfuscatedLower = obfuscateSeries(lowerCandlesRaw, multiplier);
+    const obfuscatedHigher = obfuscateSeries(higherCandlesRaw, multiplier);
 
     // Create session
     const session = new GymSession({
@@ -146,8 +228,12 @@ router.post("/session/new", async (req: AuthenticatedRequest, res: Response) => 
       actualStartTimestamp: randomStartTime,
       interval,
       priceMultiplier: multiplier,
-      candles: obfuscated,
-      currentCandleIndex: 50, // Start with 50 candles visible
+      candles: obfuscatedMain,
+      lowerCandles: obfuscatedLower,
+      lowerInterval: config.lower,
+      higherCandles: obfuscatedHigher,
+      higherInterval: config.higher,
+      currentCandleIndex: 50,
       initialCandleCount: 50,
       trades: [],
       totalPnl: 0,
@@ -156,21 +242,11 @@ router.post("/session/new", async (req: AuthenticatedRequest, res: Response) => 
 
     await session.save();
 
-    // Return session without revealing hidden data
     return res.json({
       success: true,
-      session: {
-        id: session._id,
-        interval,
-        currentCandleIndex: session.currentCandleIndex,
-        totalCandles: session.candles.length,
-        candles: session.candles.slice(0, session.currentCandleIndex),
-        trades: session.trades,
-        totalPnl: session.totalPnl,
-        status: session.status,
-      },
+      session: formatSessionResponse(session),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error creating gym session:", error);
     return res.status(500).json({ error: "Failed to create gym session" });
   }
@@ -187,33 +263,17 @@ router.get("/session/:id", async (req: AuthenticatedRequest, res: Response) => {
       return res.status(403).json({ error: "Not authorized" });
     }
 
-    const isRevealed = session.status === "REVEALED";
-
     return res.json({
       success: true,
-      session: {
-        id: session._id,
-        interval: session.interval,
-        currentCandleIndex: session.currentCandleIndex,
-        totalCandles: session.candles.length,
-        candles: session.candles.slice(0, session.currentCandleIndex),
-        trades: session.trades,
-        totalPnl: session.totalPnl,
-        status: session.status,
-        // Only reveal if session is completed
-        ...(isRevealed && {
-          actualSymbol: session.actualSymbol,
-          actualStartTimestamp: session.actualStartTimestamp,
-        }),
-      },
+      session: formatSessionResponse(session),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error fetching gym session:", error);
     return res.status(500).json({ error: "Failed to fetch gym session" });
   }
 });
 
-// POST /api/gym/session/:id/wait - Advance time (reveal more candles)
+// POST /api/gym/session/:id/wait - Advance time (reveal more candles) and check fills
 router.post("/session/:id/wait", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { candlesToAdvance = 1 } = req.body;
@@ -234,54 +294,73 @@ router.post("/session/:id/wait", async (req: AuthenticatedRequest, res: Response
       session.candles.length
     );
 
-    // Check if any open trades hit SL/TP during the new candles
     const newCandles = session.candles.slice(session.currentCandleIndex, newIndex);
 
     for (const trade of session.trades) {
-      if (trade.status !== "OPEN") continue;
+      if (
+        trade.status === "CLOSED" ||
+        trade.status === "STOPPED_OUT" ||
+        trade.status === "TARGET_HIT" ||
+        trade.status === "CANCELED"
+      ) {
+        continue;
+      }
 
       for (let i = 0; i < newCandles.length; i++) {
         const candle = newCandles[i];
         const candleIndex = session.currentCandleIndex + i;
 
-        if (trade.side === "LONG") {
-          // Check SL hit (low <= stopLoss)
-          if (candle.low <= trade.stopLoss) {
-            trade.status = "STOPPED_OUT";
-            trade.exitCandle = candleIndex;
-            trade.exitPrice = trade.stopLoss;
-            trade.pnl = calcPctPnl(trade.entryPrice, trade.stopLoss, "LONG");
-            session.totalPnl += trade.pnl;
-            break;
+        // Fill pending limit orders if matched
+        if (trade.status === "PENDING") {
+          if (trade.side === "LONG") {
+            if (candle.low <= trade.entryPrice) {
+              trade.status = "OPEN";
+              trade.entryCandle = candleIndex;
+            }
+          } else {
+            if (candle.high >= trade.entryPrice) {
+              trade.status = "OPEN";
+              trade.entryCandle = candleIndex;
+            }
           }
-          // Check TP hit (high >= takeProfit)
-          if (candle.high >= trade.takeProfit) {
-            trade.status = "TARGET_HIT";
-            trade.exitCandle = candleIndex;
-            trade.exitPrice = trade.takeProfit;
-            trade.pnl = calcPctPnl(trade.entryPrice, trade.takeProfit, "LONG");
-            session.totalPnl += trade.pnl;
-            break;
-          }
-        } else {
-          // SHORT
-          // Check SL hit (high >= stopLoss)
-          if (candle.high >= trade.stopLoss) {
-            trade.status = "STOPPED_OUT";
-            trade.exitCandle = candleIndex;
-            trade.exitPrice = trade.stopLoss;
-            trade.pnl = calcPctPnl(trade.entryPrice, trade.stopLoss, "SHORT");
-            session.totalPnl += trade.pnl;
-            break;
-          }
-          // Check TP hit (low <= takeProfit)
-          if (candle.low <= trade.takeProfit) {
-            trade.status = "TARGET_HIT";
-            trade.exitCandle = candleIndex;
-            trade.exitPrice = trade.takeProfit;
-            trade.pnl = calcPctPnl(trade.entryPrice, trade.takeProfit, "SHORT");
-            session.totalPnl += trade.pnl;
-            break;
+        }
+
+        // Process open trades for SL/TP hits
+        if (trade.status === "OPEN") {
+          if (trade.side === "LONG") {
+            if (candle.low <= trade.stopLoss) {
+              trade.status = "STOPPED_OUT";
+              trade.exitCandle = candleIndex;
+              trade.exitPrice = trade.stopLoss;
+              trade.pnl = calcPctPnl(trade.entryPrice, trade.stopLoss, "LONG");
+              session.totalPnl += trade.pnl;
+              break;
+            }
+            if (candle.high >= trade.takeProfit) {
+              trade.status = "TARGET_HIT";
+              trade.exitCandle = candleIndex;
+              trade.exitPrice = trade.takeProfit;
+              trade.pnl = calcPctPnl(trade.entryPrice, trade.takeProfit, "LONG");
+              session.totalPnl += trade.pnl;
+              break;
+            }
+          } else {
+            if (candle.high >= trade.stopLoss) {
+              trade.status = "STOPPED_OUT";
+              trade.exitCandle = candleIndex;
+              trade.exitPrice = trade.stopLoss;
+              trade.pnl = calcPctPnl(trade.entryPrice, trade.stopLoss, "SHORT");
+              session.totalPnl += trade.pnl;
+              break;
+            }
+            if (candle.low <= trade.takeProfit) {
+              trade.status = "TARGET_HIT";
+              trade.exitCandle = candleIndex;
+              trade.exitPrice = trade.takeProfit;
+              trade.pnl = calcPctPnl(trade.entryPrice, trade.takeProfit, "SHORT");
+              session.totalPnl += trade.pnl;
+              break;
+            }
           }
         }
       }
@@ -289,7 +368,6 @@ router.post("/session/:id/wait", async (req: AuthenticatedRequest, res: Response
 
     session.currentCandleIndex = newIndex;
 
-    // Check if we've run out of candles
     if (newIndex >= session.candles.length) {
       session.status = "COMPLETED";
     }
@@ -298,33 +376,27 @@ router.post("/session/:id/wait", async (req: AuthenticatedRequest, res: Response
 
     return res.json({
       success: true,
-      session: {
-        id: session._id,
-        interval: session.interval,
-        currentCandleIndex: session.currentCandleIndex,
-        totalCandles: session.candles.length,
-        candles: session.candles.slice(0, session.currentCandleIndex),
-        trades: session.trades,
-        totalPnl: session.totalPnl,
-        status: session.status,
-      },
+      session: formatSessionResponse(session),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error advancing gym session:", error);
     return res.status(500).json({ error: "Failed to advance session" });
   }
 });
 
-// POST /api/gym/session/:id/trade - Open a new trade
+// POST /api/gym/session/:id/trade - Open a new trade (MARKET or LIMIT)
 router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { side, stopLoss, takeProfit } = req.body;
+    const { side, stopLoss, takeProfit, type = "MARKET", limitPrice } = req.body;
 
     if (!side || !["LONG", "SHORT"].includes(side)) {
       return res.status(400).json({ error: "side must be 'LONG' or 'SHORT'" });
     }
     if (typeof stopLoss !== "number" || typeof takeProfit !== "number") {
       return res.status(400).json({ error: "stopLoss and takeProfit are required" });
+    }
+    if (type === "LIMIT" && typeof limitPrice !== "number") {
+      return res.status(400).json({ error: "limitPrice is required for LIMIT orders" });
     }
 
     const session = await GymSession.findById(req.params.id);
@@ -338,19 +410,18 @@ router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Respons
       return res.status(400).json({ error: "Session is not active" });
     }
 
-    // Check for existing open trade
-    const hasOpenTrade = session.trades.some((t) => t.status === "OPEN");
-    if (hasOpenTrade) {
-      return res.status(400).json({ error: "Close existing trade before opening a new one" });
+    // Restrict to one active trade/setup at a time
+    const hasActiveSetup = session.trades.some((t) => t.status === "OPEN" || t.status === "PENDING");
+    if (hasActiveSetup) {
+      return res.status(400).json({ error: "Close or cancel existing setup before opening a new one" });
     }
 
     if (session.currentCandleIndex <= 0) {
       return res.status(400).json({ error: "No candles revealed yet" });
     }
 
-    // Get current price (close of last visible candle)
     const currentCandle = session.candles[session.currentCandleIndex - 1];
-    const entryPrice = currentCandle.close;
+    const entryPrice = type === "LIMIT" ? limitPrice : currentCandle.close;
 
     // Validate SL/TP
     if (side === "LONG") {
@@ -378,7 +449,8 @@ router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Respons
       stopLoss,
       takeProfit,
       pnl: null,
-      status: "OPEN",
+      status: type === "LIMIT" ? "PENDING" : "OPEN",
+      type,
     };
 
     session.trades.push(newTrade);
@@ -387,15 +459,41 @@ router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Respons
     return res.json({
       success: true,
       trade: newTrade,
-      session: {
-        id: session._id,
-        trades: session.trades,
-        totalPnl: session.totalPnl,
-      },
+      session: formatSessionResponse(session),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error opening trade:", error);
     return res.status(500).json({ error: "Failed to open trade" });
+  }
+});
+
+// POST /api/gym/session/:id/trade/cancel - Cancel a pending limit trade
+router.post("/session/:id/trade/cancel", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const session = await GymSession.findById(req.params.id);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+    if (session.userId !== req.user!.id) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const pendingTrade = session.trades.find((t) => t.status === "PENDING");
+    if (!pendingTrade) {
+      return res.status(400).json({ error: "No pending trade to cancel" });
+    }
+
+    pendingTrade.status = "CANCELED";
+    await session.save();
+
+    return res.json({
+      success: true,
+      trade: pendingTrade,
+      session: formatSessionResponse(session),
+    });
+  } catch (error: unknown) {
+    console.error("Error cancelling pending trade:", error);
+    return res.status(500).json({ error: "Failed to cancel pending trade" });
   }
 });
 
@@ -419,7 +517,6 @@ router.post("/session/:id/close", async (req: AuthenticatedRequest, res: Respons
       return res.status(400).json({ error: "No candles revealed yet" });
     }
 
-    // Close at current price
     const currentCandle = session.candles[session.currentCandleIndex - 1];
     openTrade.exitCandle = session.currentCandleIndex - 1;
     openTrade.exitPrice = currentCandle.close;
@@ -432,13 +529,9 @@ router.post("/session/:id/close", async (req: AuthenticatedRequest, res: Respons
     return res.json({
       success: true,
       trade: openTrade,
-      session: {
-        id: session._id,
-        trades: session.trades,
-        totalPnl: session.totalPnl,
-      },
+      session: formatSessionResponse(session),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error closing trade:", error);
     return res.status(500).json({ error: "Failed to close trade" });
   }
@@ -472,21 +565,9 @@ router.post("/session/:id/reveal", async (req: AuthenticatedRequest, res: Respon
 
     return res.json({
       success: true,
-      session: {
-        id: session._id,
-        actualSymbol: session.actualSymbol,
-        actualStartTimestamp: session.actualStartTimestamp,
-        interval: session.interval,
-        priceMultiplier: session.priceMultiplier,
-        currentCandleIndex: session.currentCandleIndex,
-        totalCandles: session.candles.length,
-        candles: session.candles, // All candles after reveal
-        trades: session.trades,
-        totalPnl: session.totalPnl,
-        status: session.status,
-      },
+      session: formatSessionResponse(session),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error revealing session:", error);
     return res.status(500).json({ error: "Failed to reveal session" });
   }
@@ -512,11 +593,10 @@ router.get("/sessions", async (req: AuthenticatedRequest, res: Response) => {
         status: s.status,
         totalPnl: s.totalPnl,
         createdAt: s.createdAt,
-        // Only show symbol if revealed
         ...(s.status === "REVEALED" && { actualSymbol: s.actualSymbol }),
       })),
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error fetching sessions:", error);
     return res.status(500).json({ error: "Failed to fetch sessions" });
   }
