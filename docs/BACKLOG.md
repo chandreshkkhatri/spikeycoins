@@ -38,6 +38,7 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-026** | Tech Debt | Consolidate the repeated "generate access+refresh token → persist `RefreshToken`" sequence (`register`/`login`/google-callback — 3 identical sites in `routes/auth/`) into a shared `issueSession(user)` helper in `auth-middleware.ts`. `/refresh`'s token-rotation path is structurally different (grace-period reuse logic) and stays separate. Tokens return via JSON body or redirect params — no cookies are involved (corrects the original description). See [sprint-2-summary.md](sprints/sprint-2-summary.md). | `web-server` / `routes` | ✅ Done |
 | **BG-027** | Tech Debt | Model real Upstox API v2 response/request shapes (funds, positions, holdings, orders, quote/LTP/OHLC, place/modify/cancel-order params, profile, historical candles — ~15 of `upstox-service.ts`'s 27 `any`s) and propagate through `trading.ts`'s consuming `.map`/`.filter` callbacks. The remaining ~9 SDK-boundary `any`s (`upstox-js-sdk` is untyped CommonJS) are out of scope without vendoring SDK type defs. Spun out of BG-025 during iteration-3 planning — too large to bundle with the mechanical tier. See [sprint-2-summary.md](sprints/sprint-2-summary.md). | `web-server` / `lib` | ✅ Done |
 | **BG-028** | Testing | Write integration test coverage for `TradingWindow.tsx` (2800 lines, 33 hooks, real order-entry path) capturing its *current* behavior — order placement, validation, leverage, SL/TP, retry-on-fail. 14 tests added (including the "no account selected" branch); safety net for BG-024's extraction. See [sprint-2-summary.md](sprints/sprint-2-summary.md). | `ui` / Tests | ✅ Done |
+| **BG-029** | Performance | Implement multi-tenant rate-limit fair-share estimation and caching to prevent user starvation on the shared Binance IP rate-limit budget. | `web-server` / `lib` | 🟥 To Do |
 
 ---
 
@@ -50,6 +51,7 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-013** | Integration| Add Angel One (SmartAPI) broker integration to BrokerFactory. | `web-server` / `lib` | 🟥 To Do |
 | **BG-014** | Tech Debt | Set up comprehensive unit tests using Vitest for `format-utils` and `BrokerFactory` — unblocked by BG-016. See [sprint-1-iteration-3.md](sprints/sprint-1-iteration-3.md). | `web-server` / Tests | ✅ Done |
 | **BG-021** | Tech Debt | Decide whether `scripts/deactivate-kite-accounts.ts` must run against the production DB, then run + retire it. Operational carry-over from Kite removal. Script deleted; stale Kite rows cleaned up manually against the live DB (outside the codebase). See [sprint-1-iteration-3.md](sprints/sprint-1-iteration-3.md). | `scripts` / Database | ✅ Done |
+| **BG-030** | Scaling | Implement outbound IP rotation or proxy configuration for Binance API queries to expand rate limits under scale. | `web-server` / `lib` | 🟥 To Do |
 
 ---
 

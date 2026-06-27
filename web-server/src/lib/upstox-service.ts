@@ -194,14 +194,16 @@ export class UpstoxService {
       ? "https://api-sandbox.upstox.com"
       : "https://api.upstox.com";
 
-    const response = await fetch(`${baseUrl}/v2/user/profile`, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${this.accessToken}`,
-        "Api-Version": "2.0",
-      },
-    });
+    const response = await limiter.schedule(() =>
+      fetch(`${baseUrl}/v2/user/profile`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      })
+    );
 
     const data = await response.json();
 
@@ -260,14 +262,16 @@ export class UpstoxService {
         ? "https://api-sandbox.upstox.com"
         : "https://api.upstox.com";
 
-      const response = await fetch(`${baseUrl}/v2/user/get-funds-and-margin`, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${this.accessToken}`,
-          "Api-Version": "2.0",
-        },
-      });
+      const response = await limiter.schedule(() =>
+        fetch(`${baseUrl}/v2/user/get-funds-and-margin`, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${this.accessToken}`,
+            "Api-Version": "2.0",
+          },
+        })
+      );
 
       const data = await response.json();
 
@@ -304,14 +308,16 @@ export class UpstoxService {
         ? "https://api-sandbox.upstox.com"
         : "https://api.upstox.com";
 
-      const response = await fetch(`${baseUrl}/v2/portfolio/short-term-positions`, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${this.accessToken}`,
-          "Api-Version": "2.0",
-        },
-      });
+      const response = await limiter.schedule(() =>
+        fetch(`${baseUrl}/v2/portfolio/short-term-positions`, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${this.accessToken}`,
+            "Api-Version": "2.0",
+          },
+        })
+      );
 
       const data = await response.json();
 
@@ -353,14 +359,16 @@ export class UpstoxService {
         ? "https://api-sandbox.upstox.com"
         : "https://api.upstox.com";
 
-      const response = await fetch(`${baseUrl}/v2/portfolio/long-term-holdings`, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${this.accessToken}`,
-          "Api-Version": "2.0",
-        },
-      });
+      const response = await limiter.schedule(() =>
+        fetch(`${baseUrl}/v2/portfolio/long-term-holdings`, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${this.accessToken}`,
+            "Api-Version": "2.0",
+          },
+        })
+      );
 
       const data = await response.json();
 
@@ -402,14 +410,16 @@ export class UpstoxService {
         ? "https://api-sandbox.upstox.com"
         : "https://api.upstox.com";
 
-      const response = await fetch(`${baseUrl}/v2/order/retrieve-all`, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${this.accessToken}`,
-          "Api-Version": "2.0",
-        },
-      });
+      const response = await limiter.schedule(() =>
+        fetch(`${baseUrl}/v2/order/retrieve-all`, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${this.accessToken}`,
+            "Api-Version": "2.0",
+          },
+        })
+      );
 
       const data = await response.json();
 
@@ -516,14 +526,16 @@ export class UpstoxService {
       to,
     )}/${encodeURIComponent(from)}`;
 
-    const resp = await fetch(url, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${this.accessToken}`,
-        "Api-Version": "2.0",
-      },
-    });
+    const resp = await limiter.schedule(() =>
+      fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.accessToken}`,
+          "Api-Version": "2.0",
+        },
+      })
+    );
 
     const data: any = await resp.json().catch(() => ({}));
 
