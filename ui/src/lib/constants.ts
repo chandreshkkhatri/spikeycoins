@@ -48,6 +48,30 @@ const API_ROUTES = {
     equityChart: '/api/journal/chart/equity',
     dailyPnlChart: '/api/journal/chart/daily-pnl',
   },
+  gym: {
+    activeSession: '/api/gym/session/active',
+    newSession: '/api/gym/session/new',
+    session: (id: string) => `/api/gym/session/${id}`,
+    wait: (id: string) => `/api/gym/session/${id}/wait`,
+    trade: (id: string) => `/api/gym/session/${id}/trade`,
+    cancelTrade: (id: string) => `/api/gym/session/${id}/trade/cancel`,
+    closeTrade: (id: string) => `/api/gym/session/${id}/close`,
+    modifyStop: (id: string) => `/api/gym/session/${id}/modify-stop`,
+    abandonSession: (id: string) => `/api/gym/session/${id}/abandon`,
+    revealSession: (id: string) => `/api/gym/session/${id}/reveal`,
+    sessions: '/api/gym/sessions',
+    rules: '/api/gym/rules',
+    stats: '/api/gym/stats',
+    scorecard: (id: string) => `/api/gym/session/${id}/scorecard`,
+    processVsPnlChart: '/api/gym/chart/process-vs-pnl',
+    equityChart: '/api/gym/chart/equity',
+    thesisPreview: (id: string) => `/api/gym/session/${id}/thesis/preview`,
+    drills: {
+      start: '/api/gym/drills/start',
+      submit: (id: string) => `/api/gym/drills/${id}/submit`,
+      history: '/api/gym/drills/history',
+    },
+  },
 } as const;
 
 const API_CONFIG = {

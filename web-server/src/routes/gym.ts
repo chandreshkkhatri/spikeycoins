@@ -1,175 +1,75 @@
-import { Router, Response } from "express";
-import GymSession, { IGymTrade, IGymSession } from "../models/gym-session";
-import HistoricalDataCache from "../models/historical-data-cache";
+import { Router, Response, NextFunction, RequestHandler } from "express";
+import GymSession, { IGymSession, IGymTrade } from "../models/gym-session";
+import GymDrill from "../models/gym-drill";
 import { requireAuth, AuthenticatedRequest } from "../lib/auth-middleware";
-import axios from "axios";
+import { asyncHandler } from "../lib/async-handler";
+import {
+  SUPPORTED_SYMBOLS,
+  SUPPORTED_INTERVALS,
+  TIMEFRAME_CONFIGS,
+  INTERVAL_MS,
+  fetchCandles,
+  obfuscateSeries,
+  calculateVolumeDivisor,
+  snapToInterval,
+  advance,
+  recomputeTotals,
+  formatSessionResponse,
+  calcPctPnl,
+  calcCashPnl,
+  calcRMultiple,
+  getMethodologyRulesPayload,
+  validateThesis,
+  evaluateGovernor,
+  findPivots,
+  gradePivotDrill,
+  evaluateMomentum,
+  evaluateAlignment,
+  generateProcessScorecard,
+  calculatePearsonCorrelation,
+} from "../gym";
 
 const router: Router = Router();
 
 // All gym routes require authentication
 router.use(requireAuth);
 
-// Helper: Calculate percentage PnL
-function calcPctPnl(entryPrice: number, exitPrice: number, side: "LONG" | "SHORT"): number {
-  if (side === "LONG") {
-    return +(((exitPrice - entryPrice) / entryPrice) * 100).toFixed(4);
-  }
-  return +(((entryPrice - exitPrice) / entryPrice) * 100).toFixed(4);
+// GET /api/gym/rules - Get frozen methodology rules payload
+router.get("/rules", (_req, res) => {
+  return res.json({
+    success: true,
+    rules: getMethodologyRulesPayload(),
+  });
+});
+
+export interface GymRequest extends AuthenticatedRequest {
+  gymSession?: IGymSession;
 }
 
-// Supported symbols for gym practice
-const SUPPORTED_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"];
-const SUPPORTED_INTERVALS = ["15m", "1h", "4h", "1d"];
-
-// Interval to milliseconds mapping
-const INTERVAL_MS: Record<string, number> = {
-  "5m": 5 * 60 * 1000,
-  "15m": 15 * 60 * 1000,
-  "1h": 60 * 60 * 1000,
-  "4h": 4 * 60 * 60 * 1000,
-  "1d": 24 * 60 * 60 * 1000,
-};
-
-// Config for secondary charts
-const TIMEFRAME_CONFIGS: Record<string, { lower: string; lowerMultiplier: number; higher: string; higherMultiplier: number }> = {
-  "15m": { lower: "5m", lowerMultiplier: 3, higher: "1h", higherMultiplier: 4 },
-  "1h": { lower: "15m", lowerMultiplier: 4, higher: "4h", higherMultiplier: 4 },
-  "4h": { lower: "1h", lowerMultiplier: 4, higher: "1d", higherMultiplier: 6 },
-  "1d": { lower: "4h", lowerMultiplier: 6, higher: "1d", higherMultiplier: 1 },
-};
-
-// Helper: Fetch candles from cache or Binance in chunks of up to 1000
-async function fetchCandles(
-  symbol: string,
-  interval: string,
-  startTime: number,
-  limit: number = 300
-): Promise<Array<{ open: number; high: number; low: number; close: number; volume: number; timestamp: number }>> {
-  const marketType = "usdm";
-  
-  // Try cache first
-  const cachedCandles = await HistoricalDataCache.find({
-    symbol,
-    interval,
-    marketType,
-    timestamp: { $gte: startTime },
-  })
-    .sort({ timestamp: 1 })
-    .limit(limit)
-    .lean();
-
-  if (cachedCandles.length >= limit) {
-    return cachedCandles.map((c) => ({
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-      volume: c.volume,
-      timestamp: c.timestamp,
-    }));
-  }
-
-  // Fetch from Binance API in chunks
-  const candles: Array<{ open: number; high: number; low: number; close: number; volume: number; timestamp: number }> = [];
-  let currentStartTime = startTime;
-  let remaining = limit;
-
-  try {
-    while (remaining > 0) {
-      const chunkLimit = Math.min(remaining, 1000);
-      const endTime = currentStartTime + chunkLimit * INTERVAL_MS[interval];
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&startTime=${currentStartTime}&endTime=${endTime}&limit=${chunkLimit}`;
-      
-      const response = await axios.get(url);
-      const chunkCandles = response.data.map((k: unknown[]) => {
-        const arr = k as [number, string, string, string, string, string];
-        return {
-          timestamp: arr[0],
-          open: parseFloat(arr[1]),
-          high: parseFloat(arr[2]),
-          low: parseFloat(arr[3]),
-          close: parseFloat(arr[4]),
-          volume: parseFloat(arr[5]),
-        };
-      });
-
-      if (chunkCandles.length === 0) break;
-
-      candles.push(...chunkCandles);
-      remaining -= chunkCandles.length;
-      currentStartTime = chunkCandles[chunkCandles.length - 1].timestamp + INTERVAL_MS[interval];
+/**
+ * Middleware: Load owned session and attach to request
+ */
+export const loadOwnedSession: RequestHandler = asyncHandler(
+  async (req: GymRequest, res: Response, next: NextFunction) => {
+    const session = await GymSession.findById(req.params.id);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
     }
-
-    // Cache the candles (fire and forget)
-    if (candles.length > 0) {
-      const candlesToInsert = candles.map((c) => ({
-        symbol,
-        interval,
-        marketType,
-        timestamp: c.timestamp,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-        volume: c.volume,
-      }));
-      HistoricalDataCache.insertMany(candlesToInsert, { ordered: false }).catch(() => {});
+    if (session.userId !== req.user!.id) {
+      return res.status(403).json({ error: "Not authorized" });
     }
-  } catch (err: unknown) {
-    console.error(`[fetchCandles] Error fetching ${interval} candles from Binance:`, err);
+    req.gymSession = session;
+    return next();
   }
-
-  return candles;
-}
-
-// Helper: Obfuscate price series
-function obfuscateSeries(
-  candles: Array<{ open: number; high: number; low: number; close: number; volume: number; timestamp: number }>,
-  multiplier: number
-): typeof candles {
-  return candles.map((c, index) => ({
-    open: +(c.open * multiplier).toFixed(2),
-    high: +(c.high * multiplier).toFixed(2),
-    low: +(c.low * multiplier).toFixed(2),
-    close: +(c.close * multiplier).toFixed(2),
-    volume: c.volume,
-    timestamp: index,
-  }));
-}
-
-// Helper: Format consistent response payload for a session
-function formatSessionResponse(session: IGymSession) {
-  const config = TIMEFRAME_CONFIGS[session.interval] || { lowerMultiplier: 4, higherMultiplier: 4 };
-  const lowerCandleIndex = session.currentCandleIndex * config.lowerMultiplier;
-  const higherCandleIndex = Math.floor(session.currentCandleIndex / config.higherMultiplier);
-  const isRevealed = session.status === "REVEALED";
-
-  return {
-    id: session._id,
-    interval: session.interval,
-    currentCandleIndex: session.currentCandleIndex,
-    totalCandles: session.candles.length,
-    candles: session.candles.slice(0, session.currentCandleIndex),
-    lowerInterval: session.lowerInterval,
-    lowerCandles: session.lowerCandles ? session.lowerCandles.slice(0, lowerCandleIndex) : [],
-    higherInterval: session.higherInterval,
-    higherCandles: session.higherCandles ? session.higherCandles.slice(0, higherCandleIndex) : [],
-    trades: session.trades,
-    totalPnl: session.totalPnl,
-    status: session.status,
-    ...(isRevealed && {
-      actualSymbol: session.actualSymbol,
-      actualStartTimestamp: session.actualStartTimestamp,
-    }),
-  };
-}
+);
 
 // GET /api/gym/session/active - Get the user's current active session
-router.get("/session/active", async (req: AuthenticatedRequest, res: Response) => {
-  try {
+router.get(
+  "/session/active",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
     const session = await GymSession.findOne({ userId, status: "ACTIVE" });
-    
+
     if (!session) {
       return res.json({ success: true, session: null });
     }
@@ -178,61 +78,107 @@ router.get("/session/active", async (req: AuthenticatedRequest, res: Response) =
       success: true,
       session: formatSessionResponse(session),
     });
-  } catch (error: unknown) {
-    console.error("Error fetching active session:", error);
-    return res.status(500).json({ error: "Failed to fetch active session" });
-  }
-});
+  })
+);
 
 // POST /api/gym/session/new - Create a new gym session
-router.post("/session/new", async (req: AuthenticatedRequest, res: Response) => {
-  try {
+router.post(
+  "/session/new",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.id;
+    const { mode = "FREE" } = req.body;
 
-    // Pick random symbol and interval
     const symbol = SUPPORTED_SYMBOLS[Math.floor(Math.random() * SUPPORTED_SYMBOLS.length)];
     const interval = SUPPORTED_INTERVALS[Math.floor(Math.random() * SUPPORTED_INTERVALS.length)];
     const config = TIMEFRAME_CONFIGS[interval];
 
-    // Pick random start date (between 2 years ago and 100 candles before now)
     const twoYearsAgo = Date.now() - 2 * 365 * 24 * 60 * 60 * 1000;
     const minCandlesAhead = 300;
     const latestStart = Date.now() - minCandlesAhead * INTERVAL_MS[interval];
-    const randomStartTime = Math.floor(twoYearsAgo + Math.random() * (latestStart - twoYearsAgo));
+    const rawStart = Math.floor(twoYearsAgo + Math.random() * (latestStart - twoYearsAgo));
 
-    // Fetch primary and secondary timeframe charts in parallel
-    const [mainCandles, lowerCandlesRaw, higherCandlesRaw] = await Promise.all([
-      fetchCandles(symbol, interval, randomStartTime, 300),
-      fetchCandles(symbol, config.lower, randomStartTime, 300 * config.lowerMultiplier),
-      fetchCandles(symbol, config.higher, randomStartTime, Math.ceil(300 / config.higherMultiplier)),
+    // Snap start timestamp to higher timeframe boundary
+    const snappedStart = snapToInterval(rawStart, config.higher);
+
+    const WARMUP_COUNT = 250;
+    const TOTAL_MAIN_COUNT = WARMUP_COUNT + 300;
+    const warmupOffsetMs = WARMUP_COUNT * INTERVAL_MS[interval];
+    const fetchStartTime = snappedStart - warmupOffsetMs;
+
+    // Fetch primary and secondary timeframe charts with warmup prefix
+    const [mainCandlesRaw, lowerCandlesRaw, higherCandlesRaw] = await Promise.all([
+      fetchCandles(symbol, interval, fetchStartTime, TOTAL_MAIN_COUNT),
+      fetchCandles(symbol, config.lower, fetchStartTime, TOTAL_MAIN_COUNT * config.lowerMultiplier),
+      fetchCandles(
+        symbol,
+        config.higher,
+        fetchStartTime,
+        Math.ceil(TOTAL_MAIN_COUNT / config.higherMultiplier)
+      ),
     ]);
 
-    if (mainCandles.length < 100) {
+    if (mainCandlesRaw.length < 100) {
       return res.status(500).json({ error: "Failed to fetch enough historical data" });
     }
 
-    // Calculate multiplier based on main candles
-    const maxHigh = Math.max(...mainCandles.map((c) => c.high));
+    // Split main candles into warmup prefix and visible candles
+    const actualWarmupCount = Math.min(WARMUP_COUNT, Math.max(0, mainCandlesRaw.length - 100));
+    const warmupMain = mainCandlesRaw.slice(0, actualWarmupCount);
+    const visibleMain = mainCandlesRaw.slice(actualWarmupCount);
+
+    const lowerWarmupCount = actualWarmupCount * config.lowerMultiplier;
+    const warmupLower = lowerCandlesRaw.slice(0, lowerWarmupCount);
+    const visibleLower = lowerCandlesRaw.slice(lowerWarmupCount);
+
+    const higherWarmupCount = Math.floor(actualWarmupCount / config.higherMultiplier);
+    const warmupHigher = higherCandlesRaw.slice(0, higherWarmupCount);
+    const visibleHigher = higherCandlesRaw.slice(higherWarmupCount);
+
+    // Calculate volume normalization divisor and price multiplier
+    const volumeDivisor = calculateVolumeDivisor(visibleMain);
+    const maxHigh = Math.max(...visibleMain.map((c) => c.high));
     const randomFactor = Math.random() * 99 + 1;
     const multiplier = (100 / maxHigh) * randomFactor;
 
-    // Obfuscate all series with the same multiplier
-    const obfuscatedMain = obfuscateSeries(mainCandles, multiplier);
-    const obfuscatedLower = obfuscateSeries(lowerCandlesRaw, multiplier);
-    const obfuscatedHigher = obfuscateSeries(higherCandlesRaw, multiplier);
+    // Obfuscate series
+    const obfuscatedWarmupMain = obfuscateSeries(warmupMain, multiplier, volumeDivisor);
+    const obfuscatedMain = obfuscateSeries(visibleMain, multiplier, volumeDivisor);
 
-    // Create session
+    const obfuscatedWarmupLower = obfuscateSeries(warmupLower, multiplier, volumeDivisor);
+    const obfuscatedLower = obfuscateSeries(visibleLower, multiplier, volumeDivisor);
+
+    const obfuscatedWarmupHigher = obfuscateSeries(warmupHigher, multiplier, volumeDivisor);
+    const obfuscatedHigher = obfuscateSeries(visibleHigher, multiplier, volumeDivisor);
+
+    const startingCapital = 100000;
+
     const session = new GymSession({
       userId,
+      schemaVersion: 2,
+      mode: mode === "METHOD" ? "METHOD" : "FREE",
       actualSymbol: symbol,
-      actualStartTimestamp: randomStartTime,
+      actualStartTimestamp: snappedStart,
       interval,
       priceMultiplier: multiplier,
+      volumeDivisor,
+
+      startingCapital,
+      capital: startingCapital,
+      riskPercent: 1,
+      totalPnlCash: 0,
+      totalR: 0,
+
+      warmupCandles: obfuscatedWarmupMain,
       candles: obfuscatedMain,
+
+      warmupLowerCandles: obfuscatedWarmupLower,
       lowerCandles: obfuscatedLower,
       lowerInterval: config.lower,
+
+      warmupHigherCandles: obfuscatedWarmupHigher,
       higherCandles: obfuscatedHigher,
       higherInterval: config.higher,
+
       currentCandleIndex: 50,
       initialCandleCount: 50,
       trades: [],
@@ -246,148 +192,114 @@ router.post("/session/new", async (req: AuthenticatedRequest, res: Response) => 
       success: true,
       session: formatSessionResponse(session),
     });
-  } catch (error: unknown) {
-    console.error("Error creating gym session:", error);
-    return res.status(500).json({ error: "Failed to create gym session" });
-  }
-});
+  })
+);
 
 // GET /api/gym/session/:id - Get session state
-router.get("/session/:id", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const session = await GymSession.findById(req.params.id);
-    if (!session) {
-      return res.status(404).json({ error: "Session not found" });
-    }
-    if (session.userId !== req.user!.id) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-
+router.get(
+  "/session/:id",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
     return res.json({
       success: true,
-      session: formatSessionResponse(session),
+      session: formatSessionResponse(req.gymSession!),
     });
-  } catch (error: unknown) {
-    console.error("Error fetching gym session:", error);
-    return res.status(500).json({ error: "Failed to fetch gym session" });
-  }
-});
+  })
+);
 
 // POST /api/gym/session/:id/wait - Advance time (reveal more candles) and check fills
-router.post("/session/:id/wait", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { candlesToAdvance = 1 } = req.body;
-    const session = await GymSession.findById(req.params.id);
-
-    if (!session) {
-      return res.status(404).json({ error: "Session not found" });
-    }
-    if (session.userId !== req.user!.id) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
+router.post(
+  "/session/:id/wait",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
+    const session = req.gymSession!;
     if (session.status !== "ACTIVE") {
       return res.status(400).json({ error: "Session is not active" });
     }
 
-    const newIndex = Math.min(
-      session.currentCandleIndex + candlesToAdvance,
-      session.candles.length
-    );
-
-    const newCandles = session.candles.slice(session.currentCandleIndex, newIndex);
-
-    for (const trade of session.trades) {
-      if (
-        trade.status === "CLOSED" ||
-        trade.status === "STOPPED_OUT" ||
-        trade.status === "TARGET_HIT" ||
-        trade.status === "CANCELED"
-      ) {
-        continue;
-      }
-
-      for (let i = 0; i < newCandles.length; i++) {
-        const candle = newCandles[i];
-        const candleIndex = session.currentCandleIndex + i;
-
-        // Fill pending limit orders if matched
-        if (trade.status === "PENDING") {
-          if (trade.side === "LONG") {
-            if (candle.low <= trade.entryPrice) {
-              trade.status = "OPEN";
-              trade.entryCandle = candleIndex;
-            }
-          } else {
-            if (candle.high >= trade.entryPrice) {
-              trade.status = "OPEN";
-              trade.entryCandle = candleIndex;
-            }
-          }
-        }
-
-        // Process open trades for SL/TP hits
-        if (trade.status === "OPEN") {
-          if (trade.side === "LONG") {
-            if (candle.low <= trade.stopLoss) {
-              trade.status = "STOPPED_OUT";
-              trade.exitCandle = candleIndex;
-              trade.exitPrice = trade.stopLoss;
-              trade.pnl = calcPctPnl(trade.entryPrice, trade.stopLoss, "LONG");
-              session.totalPnl += trade.pnl;
-              break;
-            }
-            if (candle.high >= trade.takeProfit) {
-              trade.status = "TARGET_HIT";
-              trade.exitCandle = candleIndex;
-              trade.exitPrice = trade.takeProfit;
-              trade.pnl = calcPctPnl(trade.entryPrice, trade.takeProfit, "LONG");
-              session.totalPnl += trade.pnl;
-              break;
-            }
-          } else {
-            if (candle.high >= trade.stopLoss) {
-              trade.status = "STOPPED_OUT";
-              trade.exitCandle = candleIndex;
-              trade.exitPrice = trade.stopLoss;
-              trade.pnl = calcPctPnl(trade.entryPrice, trade.stopLoss, "SHORT");
-              session.totalPnl += trade.pnl;
-              break;
-            }
-            if (candle.low <= trade.takeProfit) {
-              trade.status = "TARGET_HIT";
-              trade.exitCandle = candleIndex;
-              trade.exitPrice = trade.takeProfit;
-              trade.pnl = calcPctPnl(trade.entryPrice, trade.takeProfit, "SHORT");
-              session.totalPnl += trade.pnl;
-              break;
-            }
-          }
-        }
-      }
+    const { candlesToAdvance = 1 } = req.body;
+    const parsedStep = parseInt(String(candlesToAdvance), 10);
+    if (isNaN(parsedStep) || parsedStep <= 0) {
+      return res.status(400).json({ error: "candlesToAdvance must be a positive integer" });
     }
 
-    session.currentCandleIndex = newIndex;
-
-    if (newIndex >= session.candles.length) {
-      session.status = "COMPLETED";
-    }
-
+    advance(session as any, parsedStep);
     await session.save();
 
     return res.json({
       success: true,
       session: formatSessionResponse(session),
     });
-  } catch (error: unknown) {
-    console.error("Error advancing gym session:", error);
-    return res.status(500).json({ error: "Failed to advance session" });
-  }
-});
+  })
+);
+
+// POST /api/gym/session/:id/thesis/preview - Dry-run preview thesis validation & sizing
+router.post(
+  "/session/:id/thesis/preview",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
+    const session = req.gymSession!;
+    if (session.status !== "ACTIVE") {
+      return res.status(400).json({ error: "Session is not active" });
+    }
+
+    if (session.currentCandleIndex <= 0) {
+      return res.status(400).json({ error: "No candles revealed yet" });
+    }
+
+    const currentCandle = session.candles[session.currentCandleIndex - 1];
+    const validation = validateThesis(req.body, session as any, currentCandle.close, 0);
+
+    return res.json({
+      success: true,
+      validation,
+    });
+  })
+);
 
 // POST /api/gym/session/:id/trade - Open a new trade (MARKET or LIMIT)
-router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { side, stopLoss, takeProfit, type = "MARKET", limitPrice } = req.body;
+router.post(
+  "/session/:id/trade",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
+    const session = req.gymSession!;
+    if (session.status !== "ACTIVE") {
+      return res.status(400).json({ error: "Session is not active" });
+    }
+
+    // Evaluate Risk Governor
+    const governorRes = evaluateGovernor(session as any);
+    if (governorRes.isHalted) {
+      // Record breach attempt
+      if (!session.governor) {
+        session.governor = {
+          riskTier: governorRes.riskTier,
+          consecutiveLosses: 0,
+          peakBufferPct: 0,
+          isHalted: true,
+          haltReason: governorRes.haltReason,
+          breachAttempts: [],
+        };
+      }
+      if (!session.governor.breachAttempts) {
+        session.governor.breachAttempts = [];
+      }
+      session.governor.breachAttempts.push({
+        candleIndex: session.currentCandleIndex - 1,
+        ruleId: governorRes.ruleId || "GOVERNOR_HALTED",
+        reason: governorRes.haltReason || "Trade rejected by risk governor",
+        timestamp: new Date(),
+      });
+      await session.save();
+
+      return res.status(403).json({
+        error: governorRes.haltReason || "Session is halted by risk governor",
+        code: "GOVERNOR_HALT",
+        ruleId: governorRes.ruleId,
+      });
+    }
+
+    const { side, stopLoss, takeProfit, type = "MARKET", limitPrice, thesis } = req.body;
 
     if (!side || !["LONG", "SHORT"].includes(side)) {
       return res.status(400).json({ error: "side must be 'LONG' or 'SHORT'" });
@@ -397,17 +309,6 @@ router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Respons
     }
     if (type === "LIMIT" && typeof limitPrice !== "number") {
       return res.status(400).json({ error: "limitPrice is required for LIMIT orders" });
-    }
-
-    const session = await GymSession.findById(req.params.id);
-    if (!session) {
-      return res.status(404).json({ error: "Session not found" });
-    }
-    if (session.userId !== req.user!.id) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-    if (session.status !== "ACTIVE") {
-      return res.status(400).json({ error: "Session is not active" });
     }
 
     // Restrict to one active trade/setup at a time
@@ -423,24 +324,64 @@ router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Respons
     const currentCandle = session.candles[session.currentCandleIndex - 1];
     const entryPrice = type === "LIMIT" ? limitPrice : currentCandle.close;
 
-    // Validate SL/TP
-    if (side === "LONG") {
-      if (stopLoss >= entryPrice) {
-        return res.status(400).json({ error: "For LONG, stopLoss must be below entry price" });
+    // Thesis validation for METHOD mode
+    let calculatedQuantity: number | undefined;
+    let riskAmount: number | undefined;
+    let riskPerUnit: number | undefined;
+
+    if (session.mode === "METHOD") {
+      if (!thesis) {
+        return res.status(400).json({
+          error: "A declared trade thesis is required in METHOD mode",
+          code: "THESIS_REQUIRED",
+        });
       }
-      if (takeProfit <= entryPrice) {
-        return res.status(400).json({ error: "For LONG, takeProfit must be above entry price" });
+
+      const validationInput = {
+        setupType: thesis.setupType,
+        side,
+        triggerPrice: entryPrice,
+        invalidationPrice: thesis.invalidationPrice ?? stopLoss,
+        plannedStop: stopLoss,
+        targetPrice: takeProfit,
+        classification: thesis.classification,
+        plannedRiskPercent: thesis.plannedRiskPercent,
+      };
+
+      const validation = validateThesis(validationInput, session as any, entryPrice, 0);
+      if (!validation.valid) {
+        return res.status(400).json({
+          error: validation.reason || "Thesis validation failed",
+          autoChecks: validation.autoChecks,
+          code: "THESIS_INVALID",
+        });
       }
+
+      calculatedQuantity = validation.calculatedQuantity;
+      riskAmount = validation.riskAmount;
+      riskPerUnit = validation.riskPerUnit;
     } else {
-      if (stopLoss <= entryPrice) {
-        return res.status(400).json({ error: "For SHORT, stopLoss must be above entry price" });
-      }
-      if (takeProfit >= entryPrice) {
-        return res.status(400).json({ error: "For SHORT, takeProfit must be below entry price" });
+      // Basic SL/TP check for FREE mode
+      if (side === "LONG") {
+        if (stopLoss >= entryPrice) {
+          return res.status(400).json({ error: "For LONG, stopLoss must be below entry price" });
+        }
+        if (takeProfit <= entryPrice) {
+          return res.status(400).json({ error: "For LONG, takeProfit must be above entry price" });
+        }
+      } else {
+        if (stopLoss <= entryPrice) {
+          return res.status(400).json({ error: "For SHORT, stopLoss must be above entry price" });
+        }
+        if (takeProfit >= entryPrice) {
+          return res.status(400).json({ error: "For SHORT, takeProfit must be below entry price" });
+        }
       }
     }
 
+    const tradeIndex = session.trades.length;
     const newTrade: IGymTrade = {
+      tradeIndex,
       entryCandle: session.currentCandleIndex - 1,
       exitCandle: null,
       side,
@@ -448,9 +389,14 @@ router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Respons
       exitPrice: null,
       stopLoss,
       takeProfit,
+      quantity: calculatedQuantity,
+      riskAmount,
+      riskPerUnit,
       pnl: null,
       status: type === "LIMIT" ? "PENDING" : "OPEN",
       type,
+      invalidationPrice: thesis?.invalidationPrice ?? stopLoss,
+      ...(thesis && { thesis }),
     };
 
     session.trades.push(newTrade);
@@ -461,21 +407,17 @@ router.post("/session/:id/trade", async (req: AuthenticatedRequest, res: Respons
       trade: newTrade,
       session: formatSessionResponse(session),
     });
-  } catch (error: unknown) {
-    console.error("Error opening trade:", error);
-    return res.status(500).json({ error: "Failed to open trade" });
-  }
-});
+  })
+);
 
 // POST /api/gym/session/:id/trade/cancel - Cancel a pending limit trade
-router.post("/session/:id/trade/cancel", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const session = await GymSession.findById(req.params.id);
-    if (!session) {
-      return res.status(404).json({ error: "Session not found" });
-    }
-    if (session.userId !== req.user!.id) {
-      return res.status(403).json({ error: "Not authorized" });
+router.post(
+  "/session/:id/trade/cancel",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
+    const session = req.gymSession!;
+    if (session.status !== "ACTIVE") {
+      return res.status(400).json({ error: "Session is not active" });
     }
 
     const pendingTrade = session.trades.find((t) => t.status === "PENDING");
@@ -491,21 +433,17 @@ router.post("/session/:id/trade/cancel", async (req: AuthenticatedRequest, res: 
       trade: pendingTrade,
       session: formatSessionResponse(session),
     });
-  } catch (error: unknown) {
-    console.error("Error cancelling pending trade:", error);
-    return res.status(500).json({ error: "Failed to cancel pending trade" });
-  }
-});
+  })
+);
 
 // POST /api/gym/session/:id/close - Close open trade at current price
-router.post("/session/:id/close", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const session = await GymSession.findById(req.params.id);
-    if (!session) {
-      return res.status(404).json({ error: "Session not found" });
-    }
-    if (session.userId !== req.user!.id) {
-      return res.status(403).json({ error: "Not authorized" });
+router.post(
+  "/session/:id/close",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
+    const session = req.gymSession!;
+    if (session.status !== "ACTIVE") {
+      return res.status(400).json({ error: "Session is not active" });
     }
 
     const openTrade = session.trades.find((t) => t.status === "OPEN");
@@ -522,8 +460,13 @@ router.post("/session/:id/close", async (req: AuthenticatedRequest, res: Respons
     openTrade.exitPrice = currentCandle.close;
     openTrade.status = "CLOSED";
     openTrade.pnl = calcPctPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side);
+    if (openTrade.quantity) {
+      openTrade.pnlCash = calcCashPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side, openTrade.quantity);
+    }
+    openTrade.rMultiple = calcRMultiple(openTrade.entryPrice, openTrade.exitPrice, openTrade.stopLoss, openTrade.side);
+    openTrade.durationBars = openTrade.exitCandle - openTrade.entryCandle;
 
-    session.totalPnl += openTrade.pnl;
+    recomputeTotals(session as any);
     await session.save();
 
     return res.json({
@@ -531,56 +474,152 @@ router.post("/session/:id/close", async (req: AuthenticatedRequest, res: Respons
       trade: openTrade,
       session: formatSessionResponse(session),
     });
-  } catch (error: unknown) {
-    console.error("Error closing trade:", error);
-    return res.status(500).json({ error: "Failed to close trade" });
-  }
-});
+  })
+);
 
-// POST /api/gym/session/:id/reveal - Reveal actual symbol and date
-router.post("/session/:id/reveal", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const session = await GymSession.findById(req.params.id);
-    if (!session) {
-      return res.status(404).json({ error: "Session not found" });
-    }
-    if (session.userId !== req.user!.id) {
-      return res.status(403).json({ error: "Not authorized" });
+// POST /api/gym/session/:id/modify-stop - Modify stop loss of active or pending trade
+router.post(
+  "/session/:id/modify-stop",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
+    const session = req.gymSession!;
+    if (session.status !== "ACTIVE") {
+      return res.status(400).json({ error: "Session is not active" });
     }
 
-    // Close any open trades at current price before reveal
-    const openTrade = session.trades.find((t) => t.status === "OPEN");
-    if (openTrade && session.currentCandleIndex > 0) {
-      const currentCandle = session.candles[session.currentCandleIndex - 1];
-      openTrade.exitCandle = session.currentCandleIndex - 1;
-      openTrade.exitPrice = currentCandle.close;
-      openTrade.status = "CLOSED";
-      openTrade.pnl = calcPctPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side);
-      session.totalPnl += openTrade.pnl;
+    const { tradeIndex, newStop } = req.body;
+    if (typeof tradeIndex !== "number" || typeof newStop !== "number") {
+      return res.status(400).json({ error: "tradeIndex and newStop numbers are required" });
     }
 
-    session.status = "REVEALED";
-    session.currentCandleIndex = session.candles.length; // Show all candles
+    const trade = session.trades[tradeIndex];
+    if (!trade) {
+      return res.status(404).json({ error: "Trade not found" });
+    }
+    if (trade.status !== "OPEN" && trade.status !== "PENDING") {
+      return res.status(400).json({ error: "Only open or pending trades can have stop loss modified" });
+    }
+
+    // Validate new stop direction
+    if (trade.side === "LONG" && newStop >= trade.entryPrice) {
+      return res.status(400).json({ error: "For LONG, stop loss must be below entry price" });
+    }
+    if (trade.side === "SHORT" && newStop <= trade.entryPrice) {
+      return res.status(400).json({ error: "For SHORT, stop loss must be above entry price" });
+    }
+
+    const oldStop = trade.stopLoss;
+    const isWidened =
+      trade.side === "LONG" ? newStop < oldStop : newStop > oldStop;
+
+    if (!trade.stopHistory) {
+      trade.stopHistory = [];
+    }
+
+    trade.stopHistory.push({
+      atCandle: session.currentCandleIndex - 1,
+      from: oldStop,
+      to: newStop,
+      widened: isWidened,
+    });
+
+    trade.stopLoss = newStop;
+    if (trade.quantity) {
+      trade.riskPerUnit = Math.abs(trade.entryPrice - newStop);
+      trade.riskAmount = +(trade.quantity * trade.riskPerUnit).toFixed(2);
+    }
+
+    await session.save();
+
+    return res.json({
+      success: true,
+      trade,
+      session: formatSessionResponse(session),
+    });
+  })
+);
+router.post(
+  "/session/:id/abandon",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
+    const session = req.gymSession!;
+    if (session.status !== "ACTIVE") {
+      return res.status(400).json({ error: "Session is not active" });
+    }
+
+    // Cancel pending trades
+    for (const trade of session.trades) {
+      if (trade.status === "PENDING" || trade.status === "OPEN") {
+        trade.status = "CANCELED";
+      }
+    }
+
+    session.status = "ABANDONED";
+    session.endedAt = new Date();
     await session.save();
 
     return res.json({
       success: true,
       session: formatSessionResponse(session),
     });
-  } catch (error: unknown) {
-    console.error("Error revealing session:", error);
-    return res.status(500).json({ error: "Failed to reveal session" });
-  }
-});
+  })
+);
+
+// POST /api/gym/session/:id/reveal - Reveal actual symbol and date
+router.post(
+  "/session/:id/reveal",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
+    const session = req.gymSession!;
+
+    // Close all open trades at current price before reveal
+    const openTrades = session.trades.filter((t) => t.status === "OPEN");
+    if (openTrades.length > 0 && session.currentCandleIndex > 0) {
+      const currentCandle = session.candles[session.currentCandleIndex - 1];
+      for (const openTrade of openTrades) {
+        openTrade.exitCandle = session.currentCandleIndex - 1;
+        openTrade.exitPrice = currentCandle.close;
+        openTrade.status = "CLOSED";
+        openTrade.pnl = calcPctPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side);
+        if (openTrade.quantity) {
+          openTrade.pnlCash = calcCashPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side, openTrade.quantity);
+        }
+        openTrade.rMultiple = calcRMultiple(openTrade.entryPrice, openTrade.exitPrice, openTrade.stopLoss, openTrade.side);
+        if (openTrade.entryCandle != null) {
+          openTrade.durationBars = openTrade.exitCandle - openTrade.entryCandle;
+        }
+      }
+    }
+
+    // Cancel all pending trades
+    for (const trade of session.trades) {
+      if (trade.status === "PENDING") {
+        trade.status = "CANCELED";
+      }
+    }
+
+    session.status = "REVEALED";
+    session.endedAt = new Date();
+    session.currentCandleIndex = session.candles.length; // Show all candles
+    recomputeTotals(session as any);
+    await session.save();
+
+    return res.json({
+      success: true,
+      session: formatSessionResponse(session),
+    });
+  })
+);
 
 // GET /api/gym/sessions - Get user's session history
-router.get("/sessions", async (req: AuthenticatedRequest, res: Response) => {
-  try {
+router.get(
+  "/sessions",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { limit = 10 } = req.query;
     const userId = req.user!.id;
 
     const sessions = await GymSession.find({ userId })
-      .select("_id interval status totalPnl createdAt actualSymbol")
+      .select("_id interval status totalPnl totalPnlCash totalR createdAt actualSymbol mode schemaVersion")
       .sort({ createdAt: -1 })
       .limit(Number(limit))
       .lean();
@@ -589,17 +628,351 @@ router.get("/sessions", async (req: AuthenticatedRequest, res: Response) => {
       success: true,
       sessions: sessions.map((s) => ({
         id: s._id,
+        schemaVersion: s.schemaVersion ?? 1,
+        mode: s.mode ?? "FREE",
         interval: s.interval,
         status: s.status,
         totalPnl: s.totalPnl,
+        totalPnlCash: s.totalPnlCash ?? 0,
+        totalR: s.totalR ?? 0,
         createdAt: s.createdAt,
         ...(s.status === "REVEALED" && { actualSymbol: s.actualSymbol }),
       })),
     });
-  } catch (error: unknown) {
-    console.error("Error fetching sessions:", error);
-    return res.status(500).json({ error: "Failed to fetch sessions" });
-  }
-});
+  })
+);
+
+// ── DRILL ENDPOINTS ───────────────────────────────────────
+
+// POST /api/gym/drills/start - Generate a new perceptual drill session
+router.post(
+  "/drills/start",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { drillType = "PIVOT" } = req.body;
+
+    const symbol = SUPPORTED_SYMBOLS[Math.floor(Math.random() * SUPPORTED_SYMBOLS.length)];
+    const interval = "15m";
+    const config = TIMEFRAME_CONFIGS[interval];
+
+    const twoYearsAgo = Date.now() - 2 * 365 * 24 * 60 * 60 * 1000;
+    const latestStart = Date.now() - 300 * INTERVAL_MS[interval];
+    const startTime = snapToInterval(
+      Math.floor(twoYearsAgo + Math.random() * (latestStart - twoYearsAgo)),
+      config.higher
+    );
+
+    const [mainCandlesRaw, lowerCandlesRaw, higherCandlesRaw] = await Promise.all([
+      fetchCandles(symbol, interval, startTime, 100),
+      fetchCandles(symbol, config.lower, startTime, 300),
+      fetchCandles(symbol, config.higher, startTime, 25),
+    ]);
+
+    if (mainCandlesRaw.length < 50) {
+      return res.status(500).json({ error: "Failed to fetch data for drill" });
+    }
+
+    const volumeDivisor = calculateVolumeDivisor(mainCandlesRaw);
+    const maxHigh = Math.max(...mainCandlesRaw.map((c) => c.high));
+    const multiplier = (100 / maxHigh) * (Math.random() * 99 + 1);
+
+    const obfuscatedMain = obfuscateSeries(mainCandlesRaw, multiplier, volumeDivisor);
+    const obfuscatedLower = obfuscateSeries(lowerCandlesRaw, multiplier, volumeDivisor);
+    const obfuscatedHigher = obfuscateSeries(higherCandlesRaw, multiplier, volumeDivisor);
+
+    let answerKey: any;
+    if (drillType === "PIVOT") {
+      answerKey = findPivots(obfuscatedMain);
+    } else if (drillType === "MOMENTUM") {
+      answerKey = evaluateMomentum(obfuscatedMain, obfuscatedHigher);
+    } else if (drillType === "ALIGNMENT") {
+      answerKey = evaluateAlignment(obfuscatedHigher, obfuscatedMain, obfuscatedLower);
+    } else {
+      answerKey = { type: "IMPULSE_CORRECTIVE", unscored: true };
+    }
+
+    const drill = new GymDrill({
+      userId,
+      drillType,
+      symbol,
+      interval,
+      candles: obfuscatedMain,
+      lowerCandles: obfuscatedLower,
+      higherCandles: obfuscatedHigher,
+      answerKey,
+      status: "ACTIVE",
+    });
+
+    await drill.save();
+
+    return res.json({
+      success: true,
+      drill: {
+        id: drill._id,
+        drillType: drill.drillType,
+        candles: drill.candles,
+        lowerCandles: drill.lowerCandles,
+        higherCandles: drill.higherCandles,
+        status: drill.status,
+      },
+    });
+  })
+);
+
+// POST /api/gym/drills/:id/submit - Submit user answer and receive score & metrics
+router.post(
+  "/drills/:id/submit",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user!.id;
+    const drill = await GymDrill.findById(req.params.id);
+
+    if (!drill) {
+      return res.status(404).json({ error: "Drill not found" });
+    }
+    if (drill.userId !== userId) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    if (drill.status !== "ACTIVE") {
+      return res.status(400).json({ error: "Drill already submitted" });
+    }
+
+    const { submission } = req.body;
+    let score: number | null = null;
+    let metrics: any = null;
+
+    if (drill.drillType === "PIVOT") {
+      const userMarks = Array.isArray(submission?.marks) ? submission.marks : [];
+      const grade = gradePivotDrill(drill.answerKey, userMarks, 1);
+      score = grade.f1Score;
+      metrics = grade;
+    } else if (drill.drillType === "MOMENTUM") {
+      const ansZone = drill.answerKey.rsiZone;
+      const userZone = submission?.rsiZone;
+      const isCorrect = ansZone === userZone;
+      score = isCorrect ? 100 : 0;
+      metrics = { isCorrect, expected: ansZone, submitted: userZone };
+    } else if (drill.drillType === "ALIGNMENT") {
+      const ansCode = drill.answerKey.code;
+      const userCode = submission?.code;
+      const isCorrect = ansCode === userCode;
+      score = isCorrect ? 100 : 0;
+      metrics = { isCorrect, expected: ansCode, submitted: userCode };
+    } else {
+      // IMPULSE_CORRECTIVE - unscored self-check
+      score = null;
+      metrics = { unscored: true, userSubmission: submission };
+    }
+
+    drill.userSubmission = submission;
+    drill.score = score;
+    drill.metrics = metrics;
+    drill.status = "SUBMITTED";
+    drill.submittedAt = new Date();
+    await drill.save();
+
+    return res.json({
+      success: true,
+      drill: {
+        id: drill._id,
+        drillType: drill.drillType,
+        score: drill.score,
+        metrics: drill.metrics,
+        answerKey: drill.answerKey,
+        userSubmission: drill.userSubmission,
+        status: drill.status,
+      },
+    });
+  })
+);
+
+// GET /api/gym/drills/history - Fetch user drill history
+router.get(
+  "/drills/history",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user!.id;
+    const { limit = 20 } = req.query;
+
+    const drills = await GymDrill.find({ userId })
+      .select("_id drillType score metrics status createdAt submittedAt")
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .lean();
+
+    return res.json({
+      success: true,
+      drills: drills.map((d) => ({
+        id: d._id,
+        drillType: d.drillType,
+        score: d.score,
+        metrics: d.metrics,
+        status: d.status,
+        createdAt: d.createdAt,
+        submittedAt: d.submittedAt,
+      })),
+    });
+  })
+);
+
+// GET /api/gym/session/:id/scorecard - Get frozen or evaluated session scorecard
+router.get(
+  "/session/:id/scorecard",
+  loadOwnedSession,
+  asyncHandler(async (req: GymRequest, res: Response) => {
+    const session = req.gymSession!;
+
+    if (session.schemaVersion < 2 || session.mode !== "METHOD") {
+      return res.status(409).json({
+        error: "Scorecard is only available for METHOD mode sessions (schemaVersion >= 2)",
+        code: "LEGACY_SESSION",
+      });
+    }
+
+    if (!session.scorecard) {
+      session.scorecard = generateProcessScorecard(session as any);
+      await session.save();
+    }
+
+    return res.json({
+      success: true,
+      scorecard: session.scorecard,
+    });
+  })
+);
+
+// GET /api/gym/stats - Get user's aggregated gym methodology statistics
+router.get(
+  "/stats",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user!.id;
+    const sessions = await GymSession.find({ userId, mode: "METHOD" })
+      .select("trades totalPnl totalPnlCash totalR scorecard status createdAt startingCapital")
+      .lean();
+
+    let totalSessions = sessions.length;
+    let completedSessions = 0;
+    let totalTrades = 0;
+    let winningTrades = 0;
+    let totalRPnL = 0;
+    let totalPctPnL = 0;
+
+    const correlationPoints: Array<{ processScore: number; pnlPct: number }> = [];
+
+    for (const s of sessions) {
+      if (s.status === "REVEALED" || s.status === "COMPLETED") {
+        completedSessions++;
+      }
+
+      totalRPnL += s.totalR || 0;
+      const capital = s.startingCapital || 100000;
+      const pctPnl = ((s.totalPnlCash || 0) / capital) * 100;
+      totalPctPnL += pctPnl;
+
+      if (s.scorecard?.processScore != null) {
+        correlationPoints.push({
+          processScore: s.scorecard.processScore,
+          pnlPct: pctPnl,
+        });
+      }
+
+      for (const t of s.trades) {
+        if (t.status === "CLOSED" || t.status === "STOPPED_OUT" || t.status === "TARGET_HIT") {
+          totalTrades++;
+          if ((t.pnl != null && t.pnl > 0) || (t.rMultiple != null && t.rMultiple > 0)) {
+            winningTrades++;
+          }
+        }
+      }
+    }
+
+    const winRate = totalTrades > 0 ? +((winningTrades / totalTrades) * 100).toFixed(1) : 0;
+    const meanExpectancyR = totalTrades > 0 ? +(totalRPnL / totalTrades).toFixed(2) : 0;
+    const meanProcessScore =
+      correlationPoints.length > 0
+        ? +(correlationPoints.reduce((sum, p) => sum + p.processScore, 0) / correlationPoints.length).toFixed(1)
+        : null;
+
+    const correlation = calculatePearsonCorrelation(correlationPoints);
+
+    return res.json({
+      success: true,
+      stats: {
+        totalSessions,
+        completedSessions,
+        totalTrades,
+        winRate,
+        totalRPnL: +totalRPnL.toFixed(2),
+        totalPctPnL: +totalPctPnL.toFixed(2),
+        meanExpectancyR,
+        meanProcessScore,
+        correlation,
+      },
+    });
+  })
+);
+
+// GET /api/gym/chart/process-vs-pnl - Get Process Score vs PnL scatter/line series
+router.get(
+  "/chart/process-vs-pnl",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user!.id;
+    const sessions = await GymSession.find({
+      userId,
+      mode: "METHOD",
+      "scorecard.processScore": { $ne: null },
+    })
+      .select("_id scorecard totalPnlCash totalR createdAt startingCapital")
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const points = sessions.map((s) => {
+      const capital = s.startingCapital || 100000;
+      const pnlPct = +(((s.totalPnlCash || 0) / capital) * 100).toFixed(2);
+      return {
+        sessionId: s._id,
+        processScore: s.scorecard!.processScore!,
+        pnlPct,
+        totalR: s.totalR || 0,
+        createdAt: s.createdAt,
+      };
+    });
+
+    const correlation = calculatePearsonCorrelation(points);
+
+    return res.json({
+      success: true,
+      data: points,
+      correlation,
+    });
+  })
+);
+
+// GET /api/gym/chart/equity - Get cumulative % capital equity curve
+router.get(
+  "/chart/equity",
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user!.id;
+    const sessions = await GymSession.find({ userId })
+      .select("totalPnlCash createdAt startingCapital")
+      .sort({ createdAt: 1 })
+      .lean();
+
+    let cumulativePct = 0;
+    const series = sessions.map((s) => {
+      const capital = s.startingCapital || 100000;
+      const pct = ((s.totalPnlCash || 0) / capital) * 100;
+      cumulativePct += pct;
+
+      return {
+        time: new Date(s.createdAt).toISOString().split("T")[0],
+        value: +cumulativePct.toFixed(2),
+      };
+    });
+
+    return res.json({
+      success: true,
+      series,
+    });
+  })
+);
 
 export default router;

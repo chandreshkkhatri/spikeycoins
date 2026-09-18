@@ -273,9 +273,168 @@ export const handlers = [
       (p) => !vendor || p.vendor.toLowerCase() === vendor.toLowerCase()
     );
 
+      return HttpResponse.json({
+        success: true,
+        data: filtered,
+      });
+    }),
+
+  // Fetch active gym session
+  http.get("*/api/gym/session/active", () => {
     return HttpResponse.json({
       success: true,
-      data: filtered,
+      session: null,
+    });
+  }),
+
+  // Create new gym session
+  http.post("*/api/gym/session/new", () => {
+    return HttpResponse.json({
+      success: true,
+      session: {
+        id: "mock-session-123",
+        schemaVersion: 2,
+        mode: "METHOD",
+        interval: "15m",
+        currentCandleIndex: 50,
+        totalCandles: 300,
+        candles: Array.from({ length: 50 }, (_, i) => ({
+          open: 100 + i,
+          high: 105 + i,
+          low: 95 + i,
+          close: 101 + i,
+          volume: 10,
+          timestamp: i,
+        })),
+        trades: [],
+        totalPnl: 0,
+        totalPnlCash: 0,
+        totalR: 0,
+        startingCapital: 100000,
+        capital: 100000,
+        riskPercent: 1,
+        status: "ACTIVE",
+      },
+    });
+  }),
+
+  // Fetch gym session by ID
+  http.get("*/api/gym/session/:id", () => {
+    return HttpResponse.json({
+      success: true,
+      session: {
+        id: "mock-session-123",
+        schemaVersion: 2,
+        mode: "METHOD",
+        interval: "15m",
+        currentCandleIndex: 50,
+        totalCandles: 300,
+        candles: Array.from({ length: 50 }, (_, i) => ({
+          open: 100 + i,
+          high: 105 + i,
+          low: 95 + i,
+          close: 101 + i,
+          volume: 10,
+          timestamp: i,
+        })),
+        trades: [],
+        totalPnl: 0,
+        totalPnlCash: 0,
+        totalR: 0,
+        startingCapital: 100000,
+        capital: 100000,
+        riskPercent: 1,
+        status: "ACTIVE",
+      },
+    });
+  }),
+
+  // Advance session
+  http.post("*/api/gym/session/:id/wait", () => {
+    return HttpResponse.json({
+      success: true,
+      session: {
+        id: "mock-session-123",
+        schemaVersion: 2,
+        mode: "METHOD",
+        interval: "15m",
+        currentCandleIndex: 55,
+        totalCandles: 300,
+        candles: Array.from({ length: 55 }, (_, i) => ({
+          open: 100 + i,
+          high: 105 + i,
+          low: 95 + i,
+          close: 101 + i,
+          volume: 10,
+          timestamp: i,
+        })),
+        trades: [],
+        totalPnl: 0,
+        totalPnlCash: 0,
+        totalR: 0,
+        startingCapital: 100000,
+        capital: 100000,
+        riskPercent: 1,
+        status: "ACTIVE",
+      },
+    });
+  }),
+
+  // Place trade
+  http.post("*/api/gym/session/:id/trade", () => {
+    return HttpResponse.json({
+      success: true,
+      trade: {
+        tradeIndex: 0,
+        entryCandle: 49,
+        exitCandle: null,
+        side: "LONG",
+        entryPrice: 150,
+        exitPrice: null,
+        stopLoss: 140,
+        takeProfit: 170,
+        pnl: null,
+        status: "OPEN",
+        type: "MARKET",
+      },
+      session: {
+        id: "mock-session-123",
+        schemaVersion: 2,
+        mode: "METHOD",
+        interval: "15m",
+        currentCandleIndex: 50,
+        totalCandles: 300,
+        candles: Array.from({ length: 50 }, (_, i) => ({
+          open: 100 + i,
+          high: 105 + i,
+          low: 95 + i,
+          close: 101 + i,
+          volume: 10,
+          timestamp: i,
+        })),
+        trades: [
+          {
+            tradeIndex: 0,
+            entryCandle: 49,
+            exitCandle: null,
+            side: "LONG",
+            entryPrice: 150,
+            exitPrice: null,
+            stopLoss: 140,
+            takeProfit: 170,
+            pnl: null,
+            status: "OPEN",
+            type: "MARKET",
+          },
+        ],
+        totalPnl: 0,
+        totalPnlCash: 0,
+        totalR: 0,
+        startingCapital: 100000,
+        capital: 100000,
+        riskPercent: 1,
+        status: "ACTIVE",
+      },
     });
   }),
 ];

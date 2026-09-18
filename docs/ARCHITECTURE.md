@@ -190,6 +190,7 @@ Never log or return plaintext credentials.
 | `JournalSync` | Metadata for journal syncing (resumability) |
 | `Instrument` | Symbol metadata (exchange, lot size, tick size) |
 | `GymSession` | Paper trading (backtesting) session |
+| `GymDrill` | Standalone perception drill session (pivot marking, momentum, alignment) |
 | `HistoricalDataCache` | Cached candles (reduces external API calls) |
 | `PushSubscription` | Browser push notification subscriptions (VAPID) |
 | `UserSettings` | Per-user preferences (theme, notifications, etc.) |
@@ -231,6 +232,23 @@ router.get("/my-endpoint", asyncHandler(async (req, res) => {
 ```
 
 Express 4 doesn't catch promise rejections in route handlers, so this wrapper ensures they become `500` responses instead of crashing the process.
+
+---
+
+### 9. Trading Gym (Methodology Trainer)
+
+**Files**:
+- [web-server/src/gym/](../web-server/src/gym/): Pure domain module for TA, rules, risk governor, drills, and process scoring
+- [GymSession Model](../web-server/src/models/gym-session.ts): Gym session schema (v2) with thesis, governor, scorecard, and warm-up prefix
+- [GymDrill Model](../web-server/src/models/gym-drill.ts): Standalone TA drill sessions, answer keys, and grading metrics
+
+**Architecture**:
+- Pure domain logic in `src/gym/` (no Mongoose imports in barrel `src/gym/index.ts`) allows fast Vitest coverage
+- Server-side indicator warm-up (`WARMUP = 250` main bars stored in `warmupCandles`) solves long-period EMA/RSI/ATR seed initialization
+- Forming higher timeframe bar aggregation without leaking future HTF candles
+- Mechanical risk governor enforcing consecutive loss halting (3 losses), peak buffer give-back halting (25%), and risk tier transitions (`WARMUP` -> `REDUCED` -> `FULL`)
+- Perceptual TA drills (Pivot identification with ±1 bar tolerance, RSI momentum zones, MTF alignment matrix)
+- Dual-scorecard reveal (Process Score /100 & P&L % Capital / R side-by-side) with Pearson correlation calculation
 
 ---
 

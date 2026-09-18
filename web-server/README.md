@@ -116,6 +116,17 @@ Server will start with Node.js inspector on port 9229.
 - `POST /api/watchlist` - Create watchlist
 - `GET /api/watchlist/symbols?watchlistId=xxx` - Get watchlist symbols
 
+#### Trading Gym & Methodology Trainer
+
+- `GET /api/gym/rules` - Get methodology rules, setup types & risk parameters
+- `POST /api/gym/session` - Create a new paper trading gym session (`FREE` or `METHOD`)
+- `POST /api/gym/session/:id/thesis/preview` - Validate thesis, ATR breathing room & calculate quantity
+- `POST /api/gym/session/:id/trade` - Place trade gated by server thesis validation & risk governor
+- `POST /api/gym/session/:id/abandon` - Abandon an active session
+- `GET /api/gym/session/:id/scorecard` - Get process scorecard & process-vs-P&L metrics
+- `GET /api/gym/drills` - List available perception drills (pivots, momentum, alignment)
+- `POST /api/gym/drills/:id/submit` - Submit drill answers for grading
+
 #### Utilities
 
 - `GET /health` - Health check
@@ -126,6 +137,7 @@ Server will start with Node.js inspector on port 9229.
 ```
 web-server/
 ├── src/
+│   ├── gym/               # Pure domain module (TA math, rules, governor, drills, scoring)
 │   ├── lib/               # Core services & utilities
 │   │   ├── broker-factory.ts          # Unified broker client factory
 │   │   ├── binance-service.ts         # Binance API client
