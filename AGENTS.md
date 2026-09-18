@@ -97,6 +97,7 @@ Spikey Coins is organized in **sprints**. Each sprint has:
 - ✅ Centralized API client on frontend with token refresh
 - ✅ Authentication via OAuth 2.0 (Google, Upstox)
 - ✅ Multi-session support with refresh token rotation
+- ✅ Trading Gym Methodology Trainer (Thesis gating, Risk Governor, TA Drills, Process Scoring, Correlation)
 
 ### Future Sprints
 
