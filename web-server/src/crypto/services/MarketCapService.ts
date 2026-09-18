@@ -77,6 +77,9 @@ class MarketCapService {
 
       // Populate market cap data
       for (const match of matches) {
+        if (!match.binanceSymbol || match.binanceSymbol === 'USDTUSDT' || !match.binanceSymbol.endsWith('USDT')) {
+          continue;
+        }
         this.marketCapData.set(match.binanceSymbol, {
           binanceSymbol: match.binanceSymbol,
           baseAsset: match.baseAsset,
@@ -132,7 +135,7 @@ class MarketCapService {
    */
   static getTopSymbolsByMarketCap(limit: number = 100): string[] {
     const symbolsWithMarketCap = Array.from(this.marketCapData.entries())
-      .filter(([_, data]) => data.marketCap && data.marketCap > 0)
+      .filter(([symbol, data]) => Boolean(data.marketCap && data.marketCap > 0 && symbol !== 'USDTUSDT' && symbol.endsWith('USDT')))
       .sort((a, b) => (b[1].marketCap || 0) - (a[1].marketCap || 0))
       .slice(0, limit)
       .map(([symbol]) => symbol);

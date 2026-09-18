@@ -27,7 +27,6 @@ export class BinanceClientBase {
     reservoir: 600,
     reservoirRefreshAmount: 1200,
     reservoirRefreshInterval: 60 * 1000,
-    maxConcurrent: 5,
     minTime: 100,
   });
 

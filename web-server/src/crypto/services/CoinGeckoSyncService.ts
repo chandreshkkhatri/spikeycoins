@@ -7,6 +7,7 @@
 import axios from 'axios';
 import logger from '../utils/logger';
 import DatabaseConnection from './DatabaseConnection';
+import DataManager from '../core/DataManager';
 
 interface CoinGeckoMarket {
   id: string;
@@ -160,12 +161,22 @@ class CoinGeckoSyncService {
     let upsertCount = 0;
 
     for (const coin of coins) {
+      const baseAsset = coin.symbol.toUpperCase();
+      if (baseAsset === 'USDT') {
+        continue;
+      }
+
       // Create Binance symbol (uppercase symbol + USDT)
-      const binanceSymbol = coin.symbol.toUpperCase() + 'USDT';
+      const binanceSymbol = baseAsset + 'USDT';
+
+      // If DataManager has live ticker data from Binance, verify symbol exists
+      if (DataManager.hasData() && !DataManager.getTickerBySymbol(binanceSymbol)) {
+        continue;
+      }
 
       const doc = {
         binanceSymbol,
-        baseAsset: coin.symbol.toUpperCase(),
+        baseAsset,
         marketType: 'spot',
         coingeckoId: coin.id,
         coingeckoName: coin.name,

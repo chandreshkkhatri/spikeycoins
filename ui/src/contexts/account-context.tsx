@@ -1,6 +1,5 @@
 "use client";
 
-import axios from 'axios';
 import React, {
   createContext,
   ReactNode,
@@ -11,7 +10,8 @@ import React, {
   useState,
 } from 'react';
 import { useAuth } from './auth-context';
-import { API_ROUTES, getApiUrl } from '@/lib/constants';
+import { API_ROUTES } from '@/lib/constants';
+import api, { getApiPath } from '@/lib/api';
 
 interface TradingAccount {
   _id: string;
@@ -62,7 +62,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   const [accounts, setAccounts] = useState<TradingAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { isLoggedIn, user, getAccessToken, isLoading: authLoading } = useAuth();
+  const { isLoggedIn, user, isLoading: authLoading } = useAuth();
 
   // Track in-flight requests to prevent duplicates
   const fetchInProgress = useRef(false);
@@ -149,22 +149,10 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
         let lastError: any = null;
         let response: any = null;
 
-        // Build headers with auth token if available
-        const headers: Record<string, string> = {};
-        const token = getAccessToken();
-        if (token) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-
         while (attempt <= maxRetries) {
           try {
-            // Build URL - include userId only if authenticated
-            const apiUrl = userId
-              ? `${API_ROUTES.accounts.getAccounts}?userId=${userId}`
-              : API_ROUTES.accounts.getAccounts;
-            response = await axios.get(getApiUrl(apiUrl), {
+            response = await api.get(getApiPath(API_ROUTES.accounts.getAccounts), {
               timeout: 12000,
-              headers,
             });
             break;
           } catch (err: any) {
@@ -249,7 +237,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
         if (!isBackground) setLoadingAccounts(false);
       }
     },
-    [isLoggedIn, user, getAccessToken]
+    [isLoggedIn, user]
   );
 
   const setSelectedAccount = useCallback((account: TradingAccount | null) => {

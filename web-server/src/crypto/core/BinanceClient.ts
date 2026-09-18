@@ -177,8 +177,16 @@ class BinanceClient {
     const allSymbols = new Set([...activeSymbols, ...topMarketCapSymbols]);
     
     // Sort by volume (prioritize high-volume pairs)
+    // Filter symbols: must end with USDT, cannot be self-referencing (USDTUSDT),
+    // and if DataManager has live ticker data, must be a confirmed Binance symbol.
     this.symbolsToTrack = Array.from(allSymbols)
-      .filter(symbol => symbol.endsWith('USDT'))
+      .filter(symbol => {
+        if (!symbol.endsWith('USDT') || symbol === 'USDTUSDT') return false;
+        if (DataManager.hasData() && !DataManager.getTickerBySymbol(symbol)) {
+          return false;
+        }
+        return true;
+      })
       .sort((a, b) => {
         const tickerA = DataManager.getTickerBySymbol(a);
         const tickerB = DataManager.getTickerBySymbol(b);
@@ -216,10 +224,14 @@ class BinanceClient {
         if ((i + 1) % 50 === 0) {
           logger.info(`BinanceClient: Fetched ${i + 1}/${this.symbolsToTrack.length} symbols`);
         }
-      } catch (error) {
+      } catch (err: any) {
         errorCount++;
-        if (errorCount < 5) { // Log first few errors only
-          logger.error(`BinanceClient: Error fetching ${symbol}:`, error);
+        const statusCode = err?.status || err?.response?.status;
+        const binanceCode = err?.response?.data?.code;
+        if (statusCode === 400 || binanceCode === -1121) {
+          logger.warn(`BinanceClient: Skipped invalid symbol ${symbol}`);
+        } else if (errorCount < 5) { // Log first few errors only
+          logger.error(`BinanceClient: Error fetching ${symbol}:`, err);
         }
       }
       
@@ -311,10 +323,21 @@ class BinanceClient {
         await CandlestickStorage.storeCandlesticks(symbol, response.data);
       }
     } catch (err: unknown) {
-      const error = err as { status?: number; message?: string };
-      if (error.status === 429) {
+      const error = err as {
+        status?: number;
+        response?: { status?: number; data?: { code?: number; msg?: string } };
+        message?: string;
+      };
+      const statusCode = error.status || error.response?.status;
+      const binanceCode = error.response?.data?.code;
+
+      if (statusCode === 429) {
         // Rate limited: the limiter will already have paused; just bail out
         logger.warn('BinanceClient: Rate limited by Binance, skipping symbol');
+      } else if (statusCode === 400 || binanceCode === -1121) {
+        // Invalid symbol on Binance: remove from tracking list to prevent re-querying
+        logger.warn(`BinanceClient: Symbol ${symbol} is not a valid Binance pair, evicting from tracking`);
+        this.symbolsToTrack = this.symbolsToTrack.filter(s => s !== symbol);
       } else {
         throw err;
       }

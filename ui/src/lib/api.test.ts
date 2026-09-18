@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { waitFor } from "@testing-library/react";
-import api, { AUTH_CLEARED_EVENT, manualRefreshTokens, setTokens } from "./api";
+import api, { AUTH_CLEARED_EVENT, getApiPath, manualRefreshTokens, setTokens } from "./api";
 
 const originalAdapter = api.defaults.adapter;
 const unauthorized = (config: InternalAxiosRequestConfig) => new AxiosError("Unauthorized", "ERR_BAD_REQUEST", config, undefined, {
@@ -101,3 +101,23 @@ describe("Shared authentication refresh", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("URL prefix normalization", () => {
+  it("normalizes /api/ prefix in request interceptor to prevent duplicate /api/api/... paths", async () => {
+    setTokens("fresh-access", "valid-refresh");
+    await api.get("/api/accounts");
+    expect(adapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "/accounts",
+      })
+    );
+  });
+
+  it("getApiPath strips /api/ prefix and handles /api correctly", () => {
+    expect(getApiPath("/api/accounts")).toBe("/accounts");
+    expect(getApiPath("/api/gym/session/123")).toBe("/gym/session/123");
+    expect(getApiPath("/api")).toBe("");
+    expect(getApiPath("/accounts")).toBe("/accounts");
+  });
+});
+

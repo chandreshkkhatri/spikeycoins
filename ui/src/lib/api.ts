@@ -92,8 +92,16 @@ const refreshTokens = async (): Promise<boolean> => {
   return refreshPromise;
 };
 
-// Add access token to requests
+// Add access token to requests and normalize /api prefix to avoid duplicate /api/api/...
 api.interceptors.request.use((config) => {
+  if (config.url) {
+    if (config.url.startsWith('/api/')) {
+      config.url = config.url.substring(4);
+    } else if (config.url === '/api') {
+      config.url = '';
+    }
+  }
+
   if (typeof window === 'undefined') return config;
   const token = localStorage.getItem(ACCESS_TOKEN_KEY);
   if (token) {
@@ -154,7 +162,13 @@ export const getApiUrl = (path: string): string => {
 // Helper to get API path (for axios calls using this instance)
 export const getApiPath = (path: string): string => {
   // Remove /api prefix if present since baseURL already has it
-  return path.startsWith('/api/') ? path.substring(4) : path;
+  if (path.startsWith('/api/')) {
+    return path.substring(4);
+  }
+  if (path === '/api') {
+    return '';
+  }
+  return path;
 };
 
 // Export for use in auth-context to manually trigger refresh

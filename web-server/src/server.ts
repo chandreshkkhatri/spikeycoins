@@ -41,7 +41,7 @@ import { marketsRouter } from "./markets/routes";
 import { BinanceProvider, getMarketRegistry } from "./markets";
 
 // Import database connection
-// import connectDB from "./lib/mongodb";
+import connectDB from "./lib/mongodb";
 
 // Import price service for server-side WebSocket
 import binancePriceService from "./lib/binance-price-service";
@@ -113,10 +113,10 @@ if (process.env.NODE_ENV !== "production") {
   app.use(morgan("combined"));
 }
 
-// Connect to MongoDB handled by initializeCryptoServices
-// connectDB().catch((err) => {
-//   console.error("Failed to connect to MongoDB:", err);
-// });
+// Connect to MongoDB
+connectDB().catch((err) => {
+  console.error("Failed to connect to MongoDB:", err);
+});
 
 // Health check endpoint
 app.get("/health", (req, res) => {

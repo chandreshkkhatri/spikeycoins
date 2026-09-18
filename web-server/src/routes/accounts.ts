@@ -5,21 +5,21 @@ import {
   updateAccount,
   deleteAccount,
 } from "../models/account";
-import { requireAuth, requireAccountAccess, AuthenticatedRequest } from "../lib/auth-middleware";
+import { requireAuth, requireAccountAccess, optionalAuth, AuthenticatedRequest } from "../lib/auth-middleware";
 import { demoAccountService } from "../lib/demo-account-service";
 import { asyncHandler } from "../lib/async-handler";
 
 const router: Router = Router();
 
-// All accounts routes require authentication
-router.use(requireAuth);
-
-// GET /api/accounts - Get all accounts for a user
+// GET /api/accounts - Get all accounts for a user (or demo account if unauthenticated)
 router.get(
   "/",
+  optionalAuth,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const userId = req.user!.id;
-    let accounts: any[] = await getAccountsByUserId(userId);
+    let accounts: any[] = [];
+    if (req.user?.id) {
+      accounts = await getAccountsByUserId(req.user.id);
+    }
 
     // Append demo account if enabled
     if (demoAccountService.isDemoAccountEnabled()) {
@@ -43,6 +43,7 @@ router.get(
 // POST /api/accounts - Create a new account
 router.post(
   "/",
+  requireAuth,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     console.log(
       "[Accounts] Creating account for user:",
