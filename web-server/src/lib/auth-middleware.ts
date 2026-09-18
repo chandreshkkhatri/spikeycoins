@@ -98,20 +98,26 @@ export function verifyToken(token: string): JWTPayload | null {
   }
 }
 
-// Auth middleware - requires valid JWT
+// Auth middleware - requires valid JWT (via Bearer header or ?token= query param for SSE)
 export function requireAuth(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): void {
   const authHeader = req.headers.authorization;
+  let token: string | null = null;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    token = authHeader.substring(7);
+  } else if (typeof req.query.token === "string" && req.query.token) {
+    token = req.query.token;
+  }
+
+  if (!token) {
     res.status(401).json({ error: "No token provided" });
     return;
   }
 
-  const token = authHeader.substring(7);
   const payload = verifyToken(token);
 
   if (!payload) {
@@ -127,16 +133,22 @@ export function requireAuth(
   next();
 }
 
-// Optional auth middleware - attaches user if valid token exists
+// Optional auth middleware - attaches user if valid token exists (header or query)
 export function optionalAuth(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): void {
   const authHeader = req.headers.authorization;
+  let token: string | null = null;
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.substring(7);
+    token = authHeader.substring(7);
+  } else if (typeof req.query.token === "string" && req.query.token) {
+    token = req.query.token;
+  }
+
+  if (token) {
     const payload = verifyToken(token);
 
     if (payload) {

@@ -22,7 +22,7 @@ const FUNDS_MAX_RETRIES = 3;          // max retries before falling back to poll
 
 export function HeaderFundsDisplay() {
     const { selectedAccount } = useAccount();
-    const { isLoggedIn } = useAuth();
+    const { isLoggedIn, isLoading: authLoading } = useAuth();
     const [funds, setFunds] = useState<FundsResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(false);
@@ -98,8 +98,8 @@ export function HeaderFundsDisplay() {
             return;
         }
 
-        // Skip funds polling for demo accounts when not signed in
-        if (selectedAccount.isDemo && !isLoggedIn) {
+        // Do not query funds while auth is settling or if user is not logged in
+        if (authLoading || !isLoggedIn) {
             setFunds(null);
             return;
         }
@@ -114,9 +114,8 @@ export function HeaderFundsDisplay() {
 
         // Refresh every 30 seconds with a fresh AbortController each time
         const interval = setInterval(() => {
+            if (!mountedRef.current) return;
             abortControllerRef.current?.abort();
-            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-            retryCountRef.current = 0; // reset retry count for each poll cycle
             const newController = new AbortController();
             abortControllerRef.current = newController;
             fetchFunds(newController.signal);
@@ -128,7 +127,7 @@ export function HeaderFundsDisplay() {
             if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
             abortControllerRef.current?.abort();
         };
-    }, [selectedAccount, selectedAccount?._id, isLoggedIn, fetchFunds]);
+    }, [selectedAccount, selectedAccount?._id, isLoggedIn, authLoading, fetchFunds]);
 
     if (!selectedAccount) return null;
 

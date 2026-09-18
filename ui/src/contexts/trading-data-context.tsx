@@ -180,7 +180,7 @@ const localCache = {
 
 export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ children }) => {
   const { selectedAccount } = useAccount();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
   
   // Active symbol for position/order filtering
   const [activeSymbol, setActiveSymbol] = useState<string>('');
@@ -783,8 +783,8 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
       return;
     }
 
-    // Skip trading data API calls for demo accounts when user is not signed in
-    if (selectedAccount.isDemo && !isLoggedIn) {
+    // Do not fetch private account trading data while auth is settling or if user is not signed in
+    if (authLoading || !isLoggedIn) {
       setPositions([]);
       setOrders([]);
       setAccountDetails(null);
@@ -841,7 +841,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
       fetchInProgress.current = false;
       setLoading(false);
     }
-  }, [selectedAccount, activeSymbol, isLoggedIn, fetchPositions, fetchOrders, fetchAccountDetails, fetchTradingSummary]);
+  }, [selectedAccount, activeSymbol, isLoggedIn, authLoading, fetchPositions, fetchOrders, fetchAccountDetails, fetchTradingSummary]);
   
   // ============================================================================
   // Effects
@@ -852,7 +852,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
     if (selectedAccount) {
       refreshAll();
     }
-  }, [selectedAccount?._id, activeSymbol, isLoggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedAccount?._id, activeSymbol, isLoggedIn, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // ============================================================================
   // Context Value

@@ -30,7 +30,7 @@ const AUTO_SYNC_STALE_MS = 5 * 60 * 1000; // 5 minutes
 
 export default function JournalPage() {
   const { selectedAccount } = useAccount();
-  const { isLoggedIn, isLoading: authLoading } = useAuth();
+  const { isLoggedIn, isLoading: authLoading, getAccessToken } = useAuth();
 
   const [period, setPeriod] = useState<JournalPeriod>("all");
   const [chartTab, setChartTab] = useState<"equity" | "daily">("equity");
@@ -120,7 +120,7 @@ export default function JournalPage() {
 
   // Open SSE stream for live sync progress
   const triggerSyncStream = useCallback(() => {
-    if (!accountId) return;
+    if (!accountId || !isLoggedIn) return;
 
     // Close any existing stream
     if (sseRef.current) {
@@ -132,7 +132,9 @@ export default function JournalPage() {
     setSyncStatus((prev) => prev ? { ...prev, syncStatus: "syncing" } : prev);
     setSyncProgress(null);
 
-    const es = new EventSource(`/api/journal/sync/stream?accountId=${accountId}`);
+    const token = getAccessToken();
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
+    const es = new EventSource(`/api/journal/sync/stream?accountId=${accountId}${tokenParam}`);
     sseRef.current = es;
 
     es.onmessage = (event) => {

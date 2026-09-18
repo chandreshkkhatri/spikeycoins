@@ -183,28 +183,37 @@ const MarketDepth = memo(function MarketDepth({
         const state = socket.readyState;
 
         if (state === WebSocket.CONNECTING) {
-          // Mobile Safari/Chrome: Don't close() during CONNECTING
-          // Wait for connection to open, then close
+          let timeoutId: ReturnType<typeof setTimeout> | null = null;
+          // Wait for connection to open, then close normally
           socket.onopen = () => {
+            if (timeoutId) clearTimeout(timeoutId);
             try {
               if (socket.readyState === WebSocket.OPEN) {
                 socket.close(1000, 'Normal closure');
               }
-            } catch (e) {
+            } catch {
               /* ignore */
             }
           };
 
-          // Safety net: force close after 2 seconds
-          setTimeout(() => {
+          socket.onclose = () => {
+            if (timeoutId) clearTimeout(timeoutId);
+          };
+
+          // Safety net: force close after 3 seconds if handshake stalled
+          timeoutId = setTimeout(() => {
             try {
-              if (socket.readyState !== WebSocket.CLOSED) {
+              if (socket.readyState === WebSocket.OPEN) {
+                socket.close(1000, 'Normal closure');
+              } else if (socket.readyState === WebSocket.CONNECTING) {
+                socket.onerror = () => {};
+                socket.onclose = () => {};
                 socket.close();
               }
-            } catch (e) {
+            } catch {
               /* ignore */
             }
-          }, 2000);
+          }, 3000);
         } else if (state === WebSocket.OPEN) {
           socket.close(1000, 'Normal closure');
         }
