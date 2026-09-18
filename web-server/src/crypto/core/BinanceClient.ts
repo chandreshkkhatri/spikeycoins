@@ -18,7 +18,8 @@ class BinanceClient {
   private isFuturesConnected: boolean = false;
   private reconnectAttempts: number = 0;
   private futuresReconnectAttempts: number = 0;
-  private readonly maxReconnectAttempts: number = 5;
+  private lastSpotMessageTime: number | null = null;
+  private lastFuturesMessageTime: number | null = null;
   
   // Candlestick fetching configuration
   private candlestickFetchInterval: NodeJS.Timeout | null = null;
@@ -67,6 +68,7 @@ class BinanceClient {
     
     this.tickerWs.on('message', (data: Buffer) => {
       try {
+        this.lastSpotMessageTime = Date.now();
         const tickerArray = JSON.parse(data.toString());
         if (Array.isArray(tickerArray)) {
           DataManager.updateTickers(tickerArray);
@@ -104,6 +106,7 @@ class BinanceClient {
 
     this.futuresWs.on('message', (data: Buffer) => {
       try {
+        this.lastFuturesMessageTime = Date.now();
         const tickerArray = JSON.parse(data.toString());
         if (Array.isArray(tickerArray)) {
           DataManager.updateFuturesTickers(tickerArray);
@@ -128,11 +131,6 @@ class BinanceClient {
    * Handle reconnection logic for futures stream
    */
   private handleFuturesReconnect(): void {
-    if (this.futuresReconnectAttempts >= this.maxReconnectAttempts) {
-      logger.error("BinanceClient: Max futures reconnection attempts reached");
-      return;
-    }
-
     if (this.futuresWs) {
       try {
         this.futuresWs.removeAllListeners();
@@ -144,9 +142,9 @@ class BinanceClient {
     }
 
     this.futuresReconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.futuresReconnectAttempts), 30000);
+    const delay = Math.min(1000 * Math.pow(1.5, Math.min(this.futuresReconnectAttempts, 12)), 60000);
 
-    logger.info(`BinanceClient: Reconnecting futures in ${delay}ms (attempt ${this.futuresReconnectAttempts})`);
+    logger.info(`BinanceClient: Reconnecting futures in ${Math.round(delay)}ms (attempt ${this.futuresReconnectAttempts})`);
 
     setTimeout(() => {
       this.connectFuturesTickerStream();
@@ -287,7 +285,10 @@ class BinanceClient {
    * Fetch candlestick data for a single symbol
    */
   private async fetchCandlesticksForSymbol(symbol: string): Promise<void> {
-    const url = 'https://api.binance.com/api/v3/klines';
+    const isFutures = DataManager.getTickerBySymbol(symbol)?.is_futures;
+    const url = isFutures
+      ? 'https://fapi.binance.com/fapi/v1/klines'
+      : 'https://api.binance.com/api/v3/klines';
     const params = {
       symbol,
       interval: '5m',
@@ -324,11 +325,6 @@ class BinanceClient {
    * Handle reconnection logic
    */
   private handleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      logger.error("BinanceClient: Max reconnection attempts reached");
-      return;
-    }
-
     // Clean up old connection to prevent memory leaks
     if (this.tickerWs) {
       try {
@@ -341,9 +337,9 @@ class BinanceClient {
     }
 
     this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    const delay = Math.min(1000 * Math.pow(1.5, Math.min(this.reconnectAttempts, 12)), 60000);
 
-    logger.info(`BinanceClient: Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    logger.info(`BinanceClient: Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts})`);
 
     setTimeout(() => {
       this.connectTickerStream();
@@ -354,10 +350,27 @@ class BinanceClient {
    * Get connection status
    */
   getStatus() {
+    const now = Date.now();
+    const spotStale = !this.lastSpotMessageTime || (now - this.lastSpotMessageTime > 60000);
+    const futuresStale = !this.lastFuturesMessageTime || (now - this.lastFuturesMessageTime > 60000);
+
     return {
       connected: this.isConnected,
       futuresConnected: this.isFuturesConnected,
       reconnectAttempts: this.reconnectAttempts,
+      futuresReconnectAttempts: this.futuresReconnectAttempts,
+      feedHealth: {
+        spot: {
+          connected: this.isConnected,
+          lastMessageAt: this.lastSpotMessageTime ? new Date(this.lastSpotMessageTime).toISOString() : null,
+          isStale: spotStale,
+        },
+        futures: {
+          connected: this.isFuturesConnected,
+          lastMessageAt: this.lastFuturesMessageTime ? new Date(this.lastFuturesMessageTime).toISOString() : null,
+          isStale: futuresStale,
+        },
+      },
       candlestickData: {
         symbolsTracked: this.symbolsToTrack.length,
         currentIndex: this.currentSymbolIndex,

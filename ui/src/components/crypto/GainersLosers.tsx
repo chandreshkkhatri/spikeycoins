@@ -80,7 +80,7 @@ export default function GainersLosers() {
             return;
           }
 
-          const formattedData = tickerData
+          const formattedData: CryptoItem[] = tickerData
             .map((item: TickerData) => ({
               id: item._id || item.s || Math.random().toString(36).substring(2, 11),
               symbol: item.s?.replace("USDT", "") || "Unknown",
@@ -91,18 +91,23 @@ export default function GainersLosers() {
             }))
             .filter((item: CryptoItem) => !isNaN(item.change) && item.change !== 0);
 
-          const sortedByChange = [...formattedData].sort((a, b) => b.change - a.change);
+          const topGainers = formattedData
+            .filter((item) => item.change > 0)
+            .sort((a, b) => b.change - a.change)
+            .slice(0, 5);
 
-          const topGainers = sortedByChange.slice(0, 5);
-          const topLosers = sortedByChange.slice(-5).reverse();
+          const topLosers = formattedData
+            .filter((item) => item.change < 0)
+            .sort((a, b) => a.change - b.change)
+            .slice(0, 5);
 
           setGainers(topGainers);
           setLosers(topLosers);
         } else {
           const response = await cryptoApi.get7dTopMovers();
-          const data = response.data?.data || {};
+          const data = response.data?.data || response.data || {};
 
-          const formatData = (items: TopMover7d[]) =>
+          const formatData = (items: TopMover7d[]): CryptoItem[] =>
             items.map((item) => ({
               id: item.symbol || Math.random().toString(36).substring(2, 11),
               symbol: item.symbol || "Unknown",
@@ -112,8 +117,11 @@ export default function GainersLosers() {
               volume: formatVolume(parseFloat(item.volume || "0")),
             }));
 
-          setGainers(formatData(data.gainers || []));
-          setLosers(formatData(data.losers || []));
+          const rawGainers = formatData(data.gainers || []).filter((item) => item.change > 0);
+          const rawLosers = formatData(data.losers || []).filter((item) => item.change < 0);
+
+          setGainers(rawGainers.slice(0, 5));
+          setLosers(rawLosers.slice(0, 5));
         }
       } catch {
         setError("Failed to load gainers and losers data");
@@ -133,82 +141,9 @@ export default function GainersLosers() {
 
   const items = activeTab === "gainers" ? gainers : losers;
 
-  if (loading) {
-    return (
-      <div className="bg-card rounded-lg border border-border p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex gap-2">
-            <div className="h-8 bg-muted rounded-lg w-24 animate-pulse"></div>
-            <div className="h-8 bg-muted rounded-lg w-24 animate-pulse"></div>
-          </div>
-          <div className="h-4 bg-muted rounded w-16 animate-pulse"></div>
-        </div>
-
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="p-2.5 bg-muted/50 rounded-lg animate-pulse">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                  <div className="h-3 bg-muted-foreground/20 rounded w-3"></div>
-                  <div>
-                    <div className="h-4 bg-muted-foreground/20 rounded w-16 mb-1"></div>
-                    <div className="h-3 bg-muted-foreground/20 rounded w-12"></div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="h-4 bg-muted-foreground/20 rounded w-16 mb-1"></div>
-                  <div className="h-3 bg-muted-foreground/20 rounded w-12"></div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (error || items.length === 0) {
-    return (
-      <div className="bg-card rounded-lg border border-border p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setActiveTab("gainers")}
-              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                activeTab === "gainers"
-                  ? "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              <TrendingUp className="h-3.5 w-3.5" />
-              Top Gainers
-            </button>
-            <button
-              onClick={() => setActiveTab("losers")}
-              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
-                activeTab === "losers"
-                  ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              <TrendingDown className="h-3.5 w-3.5" />
-              Top Losers
-            </button>
-          </div>
-          <span className="text-xs text-muted-foreground">Change</span>
-        </div>
-        <div className="flex items-center justify-center py-8 text-muted-foreground">
-          <div className="text-center">
-            <AlertCircle className="h-8 w-8 mx-auto mb-2 text-muted-foreground/60" />
-            <p className="text-sm">{error || "No data available yet"}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="bg-card rounded-lg border border-border p-4">
+      {/* Persistent Header Controls across loading, empty, and error states */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex gap-2">
           <button
@@ -258,57 +193,99 @@ export default function GainersLosers() {
         </div>
       </div>
 
-      <div className="space-y-2">
-        {items.map((item, index) => (
-          <div
-            key={item.id || item._id}
-            className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer"
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-medium text-muted-foreground w-4">
-                {index + 1}
-              </span>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm text-foreground">{item.symbol}</span>
-                  {item.name && item.name !== item.symbol && (
-                    <span className="text-xs text-muted-foreground">{item.name}</span>
-                  )}
+      {/* Content Area */}
+      {loading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="p-2.5 bg-muted/50 rounded-lg animate-pulse">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className="h-3 bg-muted-foreground/20 rounded w-3"></div>
+                  <div>
+                    <div className="h-4 bg-muted-foreground/20 rounded w-16 mb-1"></div>
+                    <div className="h-3 bg-muted-foreground/20 rounded w-12"></div>
+                  </div>
                 </div>
-                <span className="text-sm font-semibold text-foreground">{item.price}</span>
+                <div className="text-right">
+                  <div className="h-4 bg-muted-foreground/20 rounded w-16 mb-1"></div>
+                  <div className="h-3 bg-muted-foreground/20 rounded w-12"></div>
+                </div>
               </div>
             </div>
-
-            <div className="flex items-center gap-6">
-              <div className="text-center">
-                <span className="text-xs text-muted-foreground block">Timeframe</span>
-                <span className="text-sm font-medium text-foreground">{timeframe}</span>
-              </div>
-
-              <div className="flex flex-col items-end">
-                <div className="flex items-center gap-1">
-                  {item.change > 0 ? (
-                    <ArrowUp className="h-3.5 w-3.5 text-green-500" />
-                  ) : (
-                    <ArrowDown className="h-3.5 w-3.5 text-red-500" />
-                  )}
-                  <span
-                    className={`text-sm font-semibold ${
-                      item.change > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                    }`}
-                  >
-                    {item.change > 0 ? "+" : ""}{item.change.toFixed(2)}%
-                  </span>
-                </div>
-                <span className="text-xs text-muted-foreground">Vol: {item.volume}</span>
-              </div>
-            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <div className="flex items-center justify-center py-8 text-muted-foreground">
+          <div className="text-center">
+            <AlertCircle className="h-8 w-8 mx-auto mb-2 text-muted-foreground/60" />
+            <p className="text-sm">{error}</p>
           </div>
-        ))}
-      </div>
+        </div>
+      ) : items.length === 0 ? (
+        <div className="flex items-center justify-center py-8 text-muted-foreground">
+          <div className="text-center">
+            <AlertCircle className="h-8 w-8 mx-auto mb-2 text-muted-foreground/60" />
+            <p className="text-sm">
+              {activeTab === "gainers"
+                ? "No coins with positive returns in this timeframe"
+                : "No coins with negative returns in this timeframe"}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item, index) => (
+            <div
+              key={item.id || item._id}
+              onClick={() => router.push(`${PAGE_ROUTES.CRYPTO_SCREENER}?symbol=${item.symbol}USDT&timeframe=${timeframe}`)}
+              className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-medium text-muted-foreground w-4">
+                  {index + 1}
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm text-foreground">{item.symbol}</span>
+                    {item.name && item.name !== item.symbol && (
+                      <span className="text-xs text-muted-foreground">{item.name}</span>
+                    )}
+                  </div>
+                  <span className="text-sm font-semibold text-foreground">{item.price}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-6">
+                <div className="text-center">
+                  <span className="text-xs text-muted-foreground block">Timeframe</span>
+                  <span className="text-sm font-medium text-foreground">{timeframe}</span>
+                </div>
+
+                <div className="flex flex-col items-end">
+                  <div className="flex items-center gap-1">
+                    {item.change > 0 ? (
+                      <ArrowUp className="h-3.5 w-3.5 text-green-500" />
+                    ) : (
+                      <ArrowDown className="h-3.5 w-3.5 text-red-500" />
+                    )}
+                    <span
+                      className={`text-sm font-semibold ${
+                        item.change > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      {item.change > 0 ? "+" : ""}{item.change.toFixed(2)}%
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">Vol: {item.volume}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <button
-        onClick={() => router.push(PAGE_ROUTES.CRYPTO_SCREENER)}
+        onClick={() => router.push(`${PAGE_ROUTES.CRYPTO_SCREENER}?direction=${activeTab}&timeframe=${timeframe}`)}
         className="w-full mt-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors"
       >
         View All {activeTab === "gainers" ? "Gainers" : "Losers"}

@@ -79,7 +79,7 @@ class DataManager {
       this.spotSymbols.add(symbol);
       const price = parseFloat(rawTicker.c);
       const volume = parseFloat(rawTicker.v);
-      const volume24h = parseFloat(rawTicker.q) || 0;
+      const volume24h = parseFloat(rawTicker.q) || (volume * price) || 0;
       
       // Skip low volume pairs
       if (volume24h < this.MIN_VOLUME_THRESHOLD) continue;
@@ -139,7 +139,7 @@ class DataManager {
         high_24h: parseFloat(rawTicker.h),
         low_24h: parseFloat(rawTicker.l),
         range_position_24h: rangePosition,
-        volume_usd: volume * price,
+        volume_usd: parseFloat(rawTicker.q) || (volume * price),
         volume_base: volume,
         market_cap: marketCapData?.marketCap || null,
         is_futures: marketCapData?.marketType === 'futures' || false,
@@ -202,10 +202,29 @@ class DataManager {
 
       const price = parseFloat(rawTicker.c);
       const volume = parseFloat(rawTicker.v);
-      const volume24h = parseFloat(rawTicker.q) || 0;
+      const volume24h = parseFloat(rawTicker.q) || (volume * price) || 0;
 
       // Higher volume bar for futures-only to keep screener clean
       if (volume24h < this.FUTURES_MIN_VOLUME_THRESHOLD) continue;
+
+      // Calculate changes asynchronously and update ticker later
+      // THROTTLED: Only calculate if enough time has passed since last calculation
+      const lastCalc = this.lastCalculationTime.get(symbol) || 0;
+      if (timestamp - lastCalc > this.CALCULATION_THROTTLE_MS) {
+        this.lastCalculationTime.set(symbol, timestamp);
+
+        CandlestickStorage.calculatePriceChanges(symbol, price).then(changes => {
+          const existingTicker = this.tickers.get(symbol);
+          if (existingTicker) {
+            existingTicker.change_1h = changes.change_1h;
+            existingTicker.change_4h = changes.change_4h;
+            existingTicker.change_8h = changes.change_8h;
+            existingTicker.change_12h = changes.change_12h;
+          }
+        }).catch(_error => {
+          // Silently ignore errors to avoid log spam
+        });
+      }
 
       const rangePosition = calculate24hRangePosition(rawTicker);
       const existingTicker = this.tickers.get(symbol);
@@ -232,7 +251,7 @@ class DataManager {
         high_24h: parseFloat(rawTicker.h),
         low_24h: parseFloat(rawTicker.l),
         range_position_24h: rangePosition,
-        volume_usd: volume * price,
+        volume_usd: parseFloat(rawTicker.q) || (volume * price),
         volume_base: volume,
         market_cap: null,
         is_futures: true,

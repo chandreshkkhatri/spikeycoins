@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronUp, ChevronDown, Search, RefreshCw, ArrowUpDown, Sparkles, Loader2 } from "lucide-react";
+import { ChevronUp, ChevronDown, Search, RefreshCw, ArrowUpDown, Sparkles, Loader2, AlertCircle } from "lucide-react";
 import { cryptoApi } from "@/lib/crypto-api";
 import api from "@/lib/api";
 
@@ -95,11 +95,18 @@ export default function Ticker() {
   const [tickerArray, setTickerArray] = useState<TickerData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [analyzingSymbol, setAnalyzingSymbol] = useState<string | null>(null);
   const [analyzeResult, setAnalyzeResult] = useState<{ symbol: string; success: boolean; message: string } | null>(null);
   const isInitialLoad = useRef(true);
+
+  const [pagination, setPagination] = useState({
+    pageIndex: 0,
+    pageSize: 20,
+  });
 
   // Check admin status
   useEffect(() => {
@@ -117,15 +124,25 @@ export default function Ticker() {
   const fetchTickers = useCallback(async (showLoading = false) => {
     try {
       if (showLoading) setLoading(true);
-      setError(null);
+      setRefreshError(null);
       const response = await cryptoApi.getTickers();
       const data = response.data?.data || response.data || [];
-      setTickerArray(Array.isArray(data) ? data : []);
+      const newArray = Array.isArray(data) ? data : [];
+      setTickerArray(newArray);
+      setLastUpdated(new Date());
+      setError(null);
     } catch (err) {
       console.error("Error fetching tickers:", err);
-      setError("Failed to load market data");
+      setTickerArray((current) => {
+        if (current.length === 0) {
+          setError("Failed to load market data");
+        } else {
+          setRefreshError("Failed to update market data in background");
+        }
+        return current;
+      });
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
@@ -142,8 +159,7 @@ export default function Ticker() {
     try {
       setAnalyzingSymbol(symbol);
       setAnalyzeResult(null);
-      const token = localStorage.getItem("spikeyCoins_accessToken") || "";
-      const response = await cryptoApi.researchCoin(symbol, token);
+      const response = await cryptoApi.researchCoin(symbol);
       setAnalyzeResult({
         symbol,
         success: true,
@@ -152,7 +168,10 @@ export default function Ticker() {
       // Clear success message after 5 seconds
       setTimeout(() => setAnalyzeResult(null), 5000);
     } catch (err: unknown) {
-      const errorMsg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || "Analysis failed";
+      const errorMsg =
+        (err as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error ||
+        (err as Error)?.message ||
+        "Analysis failed";
       setAnalyzeResult({ symbol, success: false, message: errorMsg });
       setTimeout(() => setAnalyzeResult(null), 5000);
     } finally {
@@ -311,9 +330,30 @@ export default function Ticker() {
     [isAdmin, analyzingSymbol, analyzeResult, handleAnalyze]
   );
 
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "change_24h", desc: true },
-  ]);
+  const [sorting, setSorting] = useState<SortingState>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("spikeyCoins_screener_sorting");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        }
+      } catch {
+        // ignore JSON parse error
+      }
+    }
+    return [{ id: "change_24h", desc: true }];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("spikeyCoins_screener_sorting", JSON.stringify(sorting));
+    } catch {
+      // ignore
+    }
+  }, [sorting]);
 
   const resetSort = () => {
     setSorting([{ id: "change_24h", desc: true }]);
@@ -339,8 +379,11 @@ export default function Ticker() {
     state: {
       sorting,
       globalFilter: searchQuery,
+      pagination,
     },
     onSortingChange: setSorting,
+    onPaginationChange: setPagination,
+    autoResetPageIndex: false,
     globalFilterFn: customGlobalFilterFn,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -423,6 +466,27 @@ export default function Ticker() {
           </Button>
         </div>
       </div>
+
+      {/* Background refresh error banner */}
+      {refreshError && (
+        <div className="px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-sm text-amber-700 dark:text-amber-400 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>
+              Market feed update failed. Displaying cached data
+              {lastUpdated ? ` from ${lastUpdated.toLocaleTimeString()}` : ""}.
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-amber-700 dark:text-amber-400 hover:bg-amber-500/20"
+            onClick={() => fetchTickers(false)}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* Analyze result notification */}
       {analyzeResult && (

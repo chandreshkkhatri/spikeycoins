@@ -194,13 +194,26 @@ adminRouter.get('/research-status', requireAuth, requireAdmin, async (_req: Requ
   }
 });
 
+interface IResearchJob {
+  jobId: string;
+  symbol: string;
+  status: 'pending' | 'completed' | 'failed';
+  summary?: any;
+  error?: string;
+  createdAt: number;
+}
+
+const researchJobs = new Map<string, IResearchJob>();
+
 /**
  * POST /api/admin/research/:symbol
  * Research a specific coin and add to market summaries (one-click analyze)
+ * Supports async job dispatch (default) and sync mode (?sync=true)
  */
 adminRouter.post('/research/:symbol', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { symbol } = req.params;
+    const isSync = req.query.sync === 'true';
 
     if (!symbol) {
       res.status(400).json({ success: false, error: 'Symbol is required' });
@@ -210,28 +223,102 @@ adminRouter.post('/research/:symbol', requireAuth, requireAdmin, async (req: Req
     const ResearchService = (await import('../crypto/services/ResearchService')).default;
     const researchService = ResearchService.getInstance();
 
-    const result = await researchService.researchSingleCoin(symbol);
-
-    if (result.success) {
-      res.json({
-        success: true,
-        message: `Research completed for ${symbol}`,
-        summary: result.summary,
-      });
-    } else {
-      res.status(400).json({
-        success: false,
-        error: result.error || 'Research failed',
-      });
+    if (isSync) {
+      const result = await researchService.researchSingleCoin(symbol);
+      if (result.success) {
+        res.json({
+          success: true,
+          message: `Research completed for ${symbol}`,
+          summary: result.summary,
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error || 'Research failed',
+        });
+      }
+      return;
     }
+
+    // Check if an existing pending job for this symbol is running
+    for (const existingJob of researchJobs.values()) {
+      if (existingJob.symbol === symbol.toUpperCase() && existingJob.status === 'pending') {
+        res.json({
+          success: true,
+          jobId: existingJob.jobId,
+          status: 'pending',
+          message: `Research already in progress for ${symbol}`,
+        });
+        return;
+      }
+    }
+
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const job: IResearchJob = {
+      jobId,
+      symbol: symbol.toUpperCase(),
+      status: 'pending',
+      createdAt: Date.now(),
+    };
+    researchJobs.set(jobId, job);
+
+    // Execute research in background
+    (async () => {
+      try {
+        const result = await researchService.researchSingleCoin(symbol);
+        if (result.success) {
+          job.status = 'completed';
+          job.summary = result.summary;
+        } else {
+          job.status = 'failed';
+          job.error = result.error || 'Research failed';
+        }
+      } catch (err) {
+        job.status = 'failed';
+        job.error = err instanceof Error ? err.message : String(err);
+      }
+    })();
+
+    res.json({
+      success: true,
+      jobId,
+      status: 'pending',
+      message: `Research job created for ${symbol}`,
+    });
   } catch (error) {
     console.error(`Admin: Error researching ${req.params.symbol}:`, error);
     res.status(500).json({
       success: false,
-      error: 'Failed to research coin',
+      error: 'Failed to initiate coin research',
       details: error instanceof Error ? error.message : String(error),
     });
   }
+});
+
+/**
+ * GET /api/admin/research/jobs/:jobId
+ * Check the status of a background coin research job
+ */
+adminRouter.get('/research/jobs/:jobId', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const { jobId } = req.params;
+  const job = researchJobs.get(jobId);
+
+  if (!job) {
+    res.status(404).json({
+      success: false,
+      error: 'Research job not found',
+    });
+    return;
+  }
+
+  res.json({
+    success: true,
+    jobId: job.jobId,
+    symbol: job.symbol,
+    status: job.status,
+    summary: job.summary,
+    error: job.error,
+  });
 });
 
 /**

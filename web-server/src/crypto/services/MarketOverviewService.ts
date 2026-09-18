@@ -20,9 +20,10 @@ interface MarketOverviewData {
 }
 
 interface BitcoinDominance {
-  dominance: number;
-  change_24h: number;
+  dominance: number | null;
+  change_24h: number | null;
   last_updated: string;
+  is_stale?: boolean;
 }
 
 interface CachedMarketData {
@@ -30,6 +31,7 @@ interface CachedMarketData {
   bitcoin_dominance: BitcoinDominance;
   last_updated: string;
   next_update: string;
+  is_stale?: boolean;
 }
 
 class MarketOverviewService {
@@ -39,6 +41,7 @@ class MarketOverviewService {
   private isUpdating = false;
   private readonly UPDATE_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
   private btcDominanceBackoff = 0; // exponential backoff for CoinGecko 429s
+  private previousBtcDominance: number | null = null;
   
   // Major cryptocurrencies to track
   private readonly MAJOR_SYMBOLS = [
@@ -82,19 +85,7 @@ class MarketOverviewService {
       logger.info('MarketOverviewService: Initialization completed');
     } catch (error) {
       logger.error('MarketOverviewService: Initialization failed:', error);
-      // Still start with fallback data
-      this.cachedData = {
-        cryptocurrencies: this.getFallbackCryptoData(),
-        bitcoin_dominance: {
-          dominance: 52.5,
-          change_24h: 0.2,
-          last_updated: new Date().toISOString()
-        },
-        last_updated: new Date().toISOString(),
-        next_update: new Date(Date.now() + this.UPDATE_INTERVAL_MS).toISOString()
-      };
       this.startPeriodicUpdates();
-      logger.info('MarketOverviewService: Initialized with fallback data');
     }
   }
 
@@ -155,24 +146,61 @@ class MarketOverviewService {
       logger.info('MarketOverviewService: Fetching fresh market data...');
       
       // Fetch cryptocurrency data and BTC dominance in parallel
-      const [cryptoData, btcDominance] = await Promise.all([
+      const [cryptoDataResult, btcDominanceResult] = await Promise.allSettled([
         this.fetchCryptocurrencyData(),
         this.fetchBitcoinDominance()
       ]);
 
-      const timestamp = new Date().toISOString();
-      
+      const nowIso = new Date().toISOString();
+      let isStale = false;
+
+      let cryptoData: MarketOverviewData[];
+      if (cryptoDataResult.status === 'fulfilled' && cryptoDataResult.value !== null) {
+        cryptoData = cryptoDataResult.value;
+      } else {
+        isStale = true;
+        if (this.cachedData && this.cachedData.cryptocurrencies.length > 0) {
+          cryptoData = this.cachedData.cryptocurrencies;
+          logger.warn('MarketOverviewService: Binance fetch failed, preserving previous cached cryptocurrency data as stale');
+        } else {
+          cryptoData = [];
+        }
+      }
+
+      let btcDominance: BitcoinDominance;
+      if (btcDominanceResult.status === 'fulfilled' && btcDominanceResult.value !== null) {
+        btcDominance = btcDominanceResult.value;
+      } else {
+        isStale = true;
+        if (this.cachedData && this.cachedData.bitcoin_dominance.dominance !== null) {
+          btcDominance = { ...this.cachedData.bitcoin_dominance, is_stale: true };
+          logger.warn('MarketOverviewService: CoinGecko fetch failed, preserving previous cached BTC dominance as stale');
+        } else {
+          btcDominance = {
+            dominance: null,
+            change_24h: null,
+            last_updated: nowIso,
+            is_stale: true,
+          };
+        }
+      }
+
+      const lastUpdated = isStale && this.cachedData ? this.cachedData.last_updated : nowIso;
+
       this.cachedData = {
         cryptocurrencies: cryptoData,
         bitcoin_dominance: btcDominance,
-        last_updated: timestamp,
-        next_update: new Date(Date.now() + this.UPDATE_INTERVAL_MS).toISOString()
+        last_updated: lastUpdated,
+        next_update: new Date(Date.now() + this.UPDATE_INTERVAL_MS).toISOString(),
+        is_stale: isStale,
       };
 
-      // Save to database
-      await this.saveCachedDataToDatabase();
+      // Save to database only if we have fresh data
+      if (!isStale && cryptoData.length > 0) {
+        await this.saveCachedDataToDatabase();
+      }
       
-      logger.info(`MarketOverviewService: Updated ${cryptoData.length} cryptocurrencies and BTC dominance`);
+      logger.info(`MarketOverviewService: Updated ${cryptoData.length} cryptocurrencies and BTC dominance (isStale: ${isStale})`);
       
     } catch (error) {
       logger.error('MarketOverviewService: Failed to update market data:', error);
@@ -181,7 +209,7 @@ class MarketOverviewService {
     }
   }
 
-  private async fetchCryptocurrencyData(): Promise<MarketOverviewData[]> {
+  private async fetchCryptocurrencyData(): Promise<MarketOverviewData[] | null> {
     try {
       const symbolsQuery = this.MAJOR_SYMBOLS.map(s => `"${s}"`).join(',');
       const binanceUrl = `https://api.binance.com/api/v3/ticker/24hr?symbols=[${symbolsQuery}]`;
@@ -225,24 +253,11 @@ class MarketOverviewService {
 
     } catch (error) {
       logger.error('MarketOverviewService: Error fetching cryptocurrency data:', error);
-      
-      // Return fallback data instead of throwing
-      logger.warn('MarketOverviewService: Using fallback cryptocurrency data');
-      return this.getFallbackCryptoData();
+      return null;
     }
   }
 
-  private getFallbackCryptoData(): MarketOverviewData[] {
-    return [
-      { symbol: 'BTC', name: 'Bitcoin', price: 43000, change_24h: 2.5, high_24h: 44000, low_24h: 42000, volume: 15000, volume_usd: 650000000 },
-      { symbol: 'ETH', name: 'Ethereum', price: 2600, change_24h: -1.2, high_24h: 2650, low_24h: 2550, volume: 50000, volume_usd: 130000000 },
-      { symbol: 'BNB', name: 'BNB', price: 320, change_24h: 1.8, high_24h: 325, low_24h: 315, volume: 8000, volume_usd: 2560000 },
-      { symbol: 'SOL', name: 'Solana', price: 98, change_24h: 4.2, high_24h: 102, low_24h: 95, volume: 20000, volume_usd: 1960000 },
-      { symbol: 'XRP', name: 'XRP', price: 0.61, change_24h: 0.9, high_24h: 0.62, low_24h: 0.60, volume: 80000, volume_usd: 48800 }
-    ];
-  }
-
-  private async fetchBitcoinDominance(): Promise<BitcoinDominance> {
+  private async fetchBitcoinDominance(): Promise<BitcoinDominance | null> {
     try {
       // Exponential backoff for CoinGecko 429 errors
       if (this.btcDominanceBackoff > Date.now()) {
@@ -261,11 +276,19 @@ class MarketOverviewService {
       this.btcDominanceBackoff = 0;
 
       const globalData = response.data?.data;
-      if (globalData?.market_cap_percentage?.btc) {
+      if (globalData?.market_cap_percentage?.btc != null) {
+        const currentDominance = parseFloat(globalData.market_cap_percentage.btc.toFixed(2));
+        let change24h: number | null = null;
+        if (this.previousBtcDominance !== null) {
+          change24h = parseFloat((currentDominance - this.previousBtcDominance).toFixed(3));
+        }
+        this.previousBtcDominance = currentDominance;
+
         return {
-          dominance: parseFloat(globalData.market_cap_percentage.btc.toFixed(2)),
-          change_24h: parseFloat(((Math.random() - 0.5) * 2).toFixed(3)), // Mock change for now
-          last_updated: new Date().toISOString()
+          dominance: currentDominance,
+          change_24h: change24h,
+          last_updated: new Date().toISOString(),
+          is_stale: false,
         };
       } else {
         throw new Error('Invalid BTC dominance data from CoinGecko');
@@ -280,15 +303,10 @@ class MarketOverviewService {
         this.btcDominanceBackoff = Date.now() + nextBackoffMs;
         logger.warn(`MarketOverviewService: CoinGecko backoff set to ${Math.round(nextBackoffMs / 1000)}s`);
       } else {
-        logger.warn('MarketOverviewService: Using fallback BTC dominance data:', error);
+        logger.warn('MarketOverviewService: Error fetching BTC dominance data:', error);
       }
       
-      // Fallback data
-      return {
-        dominance: 52.5,
-        change_24h: 0.2,
-        last_updated: new Date().toISOString()
-      };
+      return null;
     }
   }
 
@@ -337,6 +355,7 @@ class MarketOverviewService {
       lastUpdated: this.cachedData?.last_updated || null,
       nextUpdate: this.cachedData?.next_update || null,
       isUpdating: this.isUpdating,
+      isStale: this.cachedData?.is_stale || false,
       cryptoCount: this.cachedData?.cryptocurrencies?.length || 0,
       updateInterval: this.UPDATE_INTERVAL_MS / 1000
     };

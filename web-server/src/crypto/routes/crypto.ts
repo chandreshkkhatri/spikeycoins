@@ -18,7 +18,6 @@ import {
   getMarketOverview,
   forceRefreshMarketOverview,
   getSummaries,
-  getUserWatchlists,
   get7dTopMovers,
 } from "./routes";
 
@@ -44,8 +43,7 @@ cryptoRouter.get("/ticker/7d", get7dTopMovers);
 cryptoRouter.get("/market/overview", getMarketOverview);
 cryptoRouter.post("/market/overview/refresh", forceRefreshMarketOverview);
 
-// Summaries and watchlists
+// Summaries
 cryptoRouter.get("/summaries", getSummaries);
-cryptoRouter.get("/watchlists", getUserWatchlists);
 
 export default cryptoRouter;

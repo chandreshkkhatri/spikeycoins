@@ -274,17 +274,21 @@ class DailyCandlestickService {
         return [];
       }
 
-      // Get 7-day old prices from daily candlesticks
-      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      const sixDaysAgo = Date.now() - 6 * 24 * 60 * 60 * 1000;
+      // Get 7-day old prices from daily candlesticks aligned to UTC calendar days
+      const now = new Date();
+      const todayMidnightUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const sevenDaysAgoMidnight = todayMidnightUTC - 7 * 24 * 60 * 60 * 1000;
 
       // Get all symbols
       const symbols = currentTickers.map((t: any) => t.s).filter((s: string) => s);
 
-      // Fetch old prices in one query from dedicated daily collection
+      // Fetch old prices in one query from dedicated daily collection matching 7 calendar days ago
       const oldCandles = await DailyCandlestickModel.find({
         symbol: { $in: symbols },
-        openTime: { $gte: sevenDaysAgo, $lte: sixDaysAgo }
+        openTime: {
+          $gte: sevenDaysAgoMidnight - 12 * 60 * 60 * 1000,
+          $lte: sevenDaysAgoMidnight + 12 * 60 * 60 * 1000,
+        },
       });
 
       // Create a map of symbol -> old price
@@ -350,11 +354,16 @@ class DailyCandlestickService {
         return { gainers: [], losers: [] };
       }
 
-      // Sort by 7d change
-      const sortedByChange = [...allCryptos].sort((a, b) => b.change_7d - a.change_7d);
+      // Filter gainers strictly to change_7d > 0 and losers to change_7d < 0
+      const gainers = allCryptos
+        .filter((c) => c.change_7d > 0)
+        .sort((a, b) => b.change_7d - a.change_7d)
+        .slice(0, limit);
 
-      const gainers = sortedByChange.slice(0, limit);
-      const losers = sortedByChange.slice(-limit).reverse();
+      const losers = allCryptos
+        .filter((c) => c.change_7d < 0)
+        .sort((a, b) => a.change_7d - b.change_7d)
+        .slice(0, limit);
 
       return { gainers, losers };
     } catch (error) {

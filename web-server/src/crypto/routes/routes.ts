@@ -471,54 +471,6 @@ export async function getSummaries(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * Get user watchlists from database
- * Fetches user-specific watchlists or returns empty defaults
- */
-export async function getUserWatchlists(req: Request, res: Response): Promise<void> {
-  try {
-    const userId = req.query.userId as string;
-
-    if (!DatabaseConnection.isConnectionReady()) {
-      await DatabaseConnection.initialize();
-    }
-
-    const db = DatabaseConnection.getDatabase();
-    if (!db) {
-      throw new Error('Database connection not available');
-    }
-    const watchlistsCollection = db.collection('watchlists');
-
-    let watchlists: any[] = [];
-    
-    if (userId) {
-      // Get user-specific watchlists
-      watchlists = await watchlistsCollection
-        .find({ userId })
-        .sort({ createdAt: -1 })
-        .limit(3)
-        .toArray();
-    } else {
-      // Return empty watchlists for anonymous users
-      watchlists = [];
-    }
-
-    res.json({
-      success: true,
-      data: watchlists,
-      count: watchlists.length,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    logger.error("Routes: Error getting user watchlists:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to retrieve user watchlists",
-      details: error instanceof Error ? error.message : String(error)
-    });
-  }
-}
-
-/**
  * Get 7-day top movers (gainers and losers)
  * Returns top 5 gainers and losers based on 7-day price changes
  */

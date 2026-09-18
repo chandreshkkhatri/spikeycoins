@@ -1,53 +1,68 @@
 "use client";
 
-import axios from "axios";
-import { API_CONFIG } from "@/lib/constants";
-
-const cryptoClient = axios.create({
-  baseURL: API_CONFIG.baseURL,
-  timeout: 10000,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
+import api from "@/lib/api";
 
 export const cryptoApi = {
   async getTickers() {
-    const response = await cryptoClient.get("/api/ticker/24hr");
-    return response;
+    return api.get("/ticker/24hr");
   },
 
   async get24hrTicker() {
-    const response = await cryptoClient.get("/api/ticker/24hr");
-    return response;
+    return api.get("/ticker/24hr");
   },
 
   async refreshMarketcapData() {
-    const response = await cryptoClient.get("/api/ticker/refreshMarketcapData");
-    return response;
+    return api.get("/ticker/refreshMarketcapData");
   },
 
   async getMarketOverview() {
-    const response = await cryptoClient.get("/api/market/overview");
-    return response;
+    return api.get("/market/overview");
   },
 
   async getSummaries() {
-    const response = await cryptoClient.get("/api/summaries");
-    return response;
+    return api.get("/summaries");
   },
 
   async get7dTopMovers() {
-    const response = await cryptoClient.get("/api/ticker/7d");
-    return response;
+    return api.get("/ticker/7d");
   },
 
-  async researchCoin(symbol: string, authToken: string) {
-    const response = await cryptoClient.post(
-      `/api/admin/research/${symbol}`,
-      {},
-      { headers: { Authorization: `Bearer ${authToken}` } }
-    );
-    return response;
+  async researchCoin(symbol: string, _authToken?: string) {
+    // Initiate research job using shared API client with automatic token refresh
+    const initResponse = await api.post(`/admin/research/${symbol}`);
+
+    if (initResponse.data?.summary) {
+      return initResponse;
+    }
+
+    const jobId = initResponse.data?.jobId;
+    if (!jobId) {
+      return initResponse;
+    }
+
+    // Poll for status every 2 seconds up to 90 seconds
+    const maxAttempts = 45;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const statusResponse = await api.get(`/admin/research/jobs/${jobId}`);
+      const { status, summary, error } = statusResponse.data || {};
+
+      if (status === "completed") {
+        return {
+          ...statusResponse,
+          data: {
+            ...statusResponse.data,
+            success: true,
+            summary,
+          },
+        };
+      }
+
+      if (status === "failed") {
+        throw new Error(error || "Research analysis failed");
+      }
+    }
+
+    throw new Error("Research analysis timed out after 90 seconds");
   },
 };
