@@ -61,6 +61,7 @@ export interface GymTrade {
   quantity?: number;
   riskAmount?: number;
   riskPerUnit?: number;
+  initialStopLoss?: number;
   durationBars?: number | null;
   status: "PENDING" | "OPEN" | "CLOSED" | "STOPPED_OUT" | "TARGET_HIT" | "CANCELED";
   type: "MARKET" | "LIMIT";

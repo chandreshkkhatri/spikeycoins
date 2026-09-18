@@ -249,6 +249,13 @@ Express 4 doesn't catch promise rejections in route handlers, so this wrapper en
 - Mechanical risk governor enforcing consecutive loss halting (3 losses), peak buffer give-back halting (25%), and risk tier transitions (`WARMUP` -> `REDUCED` -> `FULL`)
 - Perceptual TA drills (Pivot identification with ±1 bar tolerance, RSI momentum zones, MTF alignment matrix)
 - Dual-scorecard reveal (Process Score /100 & P&L % Capital / R side-by-side) with Pearson correlation calculation
+- METHOD session writes refresh the governor using realized cash returns divided by starting capital; position sizing uses current realized equity. Peak buffers are reconstructed from closed trade history.
+- Thesis preview and placement calculate ATR from warm-up plus revealed candles only. Stops may sit beyond structural invalidation (`Stop <= Invalidation < Entry < Target` for longs; reversed for shorts).
+- Trades store immutable `initialStopLoss` for R accounting. Older trades recover their initial stop from the first stop-history entry, then thesis, then current stop.
+- Reveal, natural completion, and abandonment persist process scorecards and include them in session responses. Active scorecard reads are live previews and never persist. Natural completion settles open trades at the last close and cancels pending entries before scoring.
+- Gym routes wait for `AuthProvider` before mounting protected requests. API callers and the provider share one refresh promise; rejected refresh credentials clear both browser storage and the current tab’s auth state.
+- Gym API calls normalize route constants with `getApiPath` because the shared Axios client already supplies `/api`.
+- FREE and legacy sessions expose market/limit order controls. Alignment drills display all three timeframes and offer all four backend verdicts.
 
 ---
 

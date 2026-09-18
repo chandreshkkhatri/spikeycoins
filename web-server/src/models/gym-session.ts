@@ -49,6 +49,7 @@ export interface IGymTrade {
   quantity?: number;
   riskAmount?: number;
   riskPerUnit?: number;
+  initialStopLoss?: number;
   durationBars?: number | null;
   status: "PENDING" | "OPEN" | "CLOSED" | "STOPPED_OUT" | "TARGET_HIT" | "CANCELED";
   type: "MARKET" | "LIMIT";
@@ -73,6 +74,7 @@ const GymTradeSchema = new Schema<IGymTrade>(
     quantity: { type: Number },
     riskAmount: { type: Number },
     riskPerUnit: { type: Number },
+    initialStopLoss: { type: Number },
     durationBars: { type: Number, default: null },
     status: {
       type: String,

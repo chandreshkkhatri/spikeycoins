@@ -22,7 +22,7 @@ import {
   FileText,
 } from "lucide-react";
 import { GymThesis, MethodologyRuleConfig } from "./types";
-import api from "@/lib/api";
+import api, { getApiPath, isAuthenticationError } from "@/lib/api";
 import { API_ROUTES } from "@/lib/constants";
 
 export interface ThesisFormProps {
@@ -69,12 +69,12 @@ export function ThesisForm({
   useEffect(() => {
     async function loadRules() {
       try {
-        const res = await api.get(API_ROUTES.gym.rules);
+        const res = await api.get(getApiPath(API_ROUTES.gym.rules));
         if (res.data?.success) {
           setRules(res.data.rules);
         }
       } catch (err) {
-        console.error("[ThesisForm] Error loading rules:", err);
+        if (!isAuthenticationError(err)) console.error("[ThesisForm] Error loading rules:", err);
       }
     }
     loadRules();
@@ -117,7 +117,7 @@ export function ThesisForm({
       }
 
       try {
-        const res = await api.post(API_ROUTES.gym.thesisPreview(sessionId), {
+        const res = await api.post(getApiPath(API_ROUTES.gym.thesisPreview(sessionId)), {
           setupType,
           side,
           triggerPrice,

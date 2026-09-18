@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GymChart } from "@/components/gym/gym-chart";
 import { GymCandle } from "@/components/gym/types";
-import api from "@/lib/api";
+import api, { getApiPath, isAuthenticationError } from "@/lib/api";
 import { API_ROUTES } from "@/lib/constants";
-import { Target, CheckCircle2, RefreshCw, Trophy, AlertCircle, ArrowLeft } from "lucide-react";
+import { Target, Trophy, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 export default function GymDrillsPage() {
@@ -16,10 +16,12 @@ export default function GymDrillsPage() {
     id: string;
     drillType: string;
     candles: GymCandle[];
+    lowerCandles?: GymCandle[];
+    higherCandles?: GymCandle[];
     status: string;
     score?: number | null;
-    metrics?: any;
-    answerKey?: any;
+    metrics?: { precision?: number; recall?: number; tp?: number; fp?: number; fn?: number };
+    answerKey?: unknown;
   } | null>(null);
 
   const [loading, setLoading] = useState<boolean>(false);
@@ -31,13 +33,13 @@ export default function GymDrillsPage() {
     try {
       setLoading(true);
       setMarkedIndices([]);
-      const res = await api.post(API_ROUTES.gym.drills.start, { drillType: type });
+      const res = await api.post(getApiPath(API_ROUTES.gym.drills.start), { drillType: type });
       if (res.data?.success) {
         setDrill(res.data.drill);
         setDrillType(type);
       }
     } catch (err) {
-      console.error("[DrillsPage] Error starting drill:", err);
+      if (!isAuthenticationError(err)) console.error("[DrillsPage] Error starting drill:", err);
     } finally {
       setLoading(false);
     }
@@ -54,7 +56,7 @@ export default function GymDrillsPage() {
     if (!drill) return;
     try {
       setLoading(true);
-      let submission: any = {};
+      let submission: { marks?: number[]; rsiZone?: string; code?: string } = {};
       if (drillType === "PIVOT") {
         submission = { marks: markedIndices };
       } else if (drillType === "MOMENTUM") {
@@ -63,12 +65,12 @@ export default function GymDrillsPage() {
         submission = { code: selectedAlignment };
       }
 
-      const res = await api.post(API_ROUTES.gym.drills.submit(drill.id), { submission });
+      const res = await api.post(getApiPath(API_ROUTES.gym.drills.submit(drill.id)), { submission });
       if (res.data?.success) {
-        setDrill(res.data.drill);
+        setDrill((previous) => previous ? { ...previous, ...res.data.drill } : previous);
       }
     } catch (err) {
-      console.error("[DrillsPage] Error submitting drill:", err);
+      if (!isAuthenticationError(err)) console.error("[DrillsPage] Error submitting drill:", err);
     } finally {
       setLoading(false);
     }
@@ -169,6 +171,19 @@ export default function GymDrillsPage() {
               onCandleClick={handleCandleClick}
             />
 
+            {drillType === "ALIGNMENT" && (
+              <div className="grid grid-cols-2 gap-3">
+                <section aria-label="Higher timeframe">
+                  <h3 className="text-xs font-semibold mb-2">Higher timeframe (1h)</h3>
+                  <GymChart candles={drill.higherCandles ?? []} height={240} />
+                </section>
+                <section aria-label="Lower timeframe">
+                  <h3 className="text-xs font-semibold mb-2">Lower timeframe (5m)</h3>
+                  <GymChart candles={drill.lowerCandles ?? []} height={240} />
+                </section>
+              </div>
+            )}
+
             {/* Drill controls depending on type */}
             {drill.status === "ACTIVE" && drillType === "MOMENTUM" && (
               <div className="flex gap-2 pt-2">
@@ -211,6 +226,14 @@ export default function GymDrillsPage() {
                   onClick={() => setSelectedAlignment("FULL_ALIGNMENT_NO_TRADE")}
                 >
                   No Trade: All 3 Timeframes Impulsing Together
+                </Button>
+                <Button size="sm" variant={selectedAlignment === "CHOP_NO_TRADE" ? "default" : "outline"}
+                  onClick={() => setSelectedAlignment("CHOP_NO_TRADE")}>
+                  No Trade: Chop / No Clear Alignment
+                </Button>
+                <Button size="sm" variant={selectedAlignment === "COUNTER_TREND_NO_TRADE" ? "default" : "outline"}
+                  onClick={() => setSelectedAlignment("COUNTER_TREND_NO_TRADE")}>
+                  No Trade: Lower Timeframe Against Higher Trend
                 </Button>
               </div>
             )}

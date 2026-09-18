@@ -1,3 +1,6 @@
+import { IEngineTrade } from "./engine";
+import { IGovernorState } from "../risk/governor";
+import { IScorecardResult } from "../scoring/process-score";
 import { ICandle, TIMEFRAME_CONFIGS } from "./candles";
 
 export interface IProjectionSession {
@@ -13,7 +16,7 @@ export interface IProjectionSession {
   lowerCandles?: ICandle[];
   higherInterval?: string;
   higherCandles?: ICandle[];
-  trades: any[];
+  trades: IEngineTrade[];
   totalPnl: number;
   totalPnlCash?: number;
   totalR?: number;
@@ -25,7 +28,8 @@ export interface IProjectionSession {
   actualStartTimestamp?: number;
   methodologyVersion?: string;
   endedAt?: Date;
-  governor?: any;
+  governor?: IGovernorState;
+  scorecard?: IScorecardResult;
 }
 
 /**
@@ -90,6 +94,7 @@ export function formatSessionResponse(session: IProjectionSession) {
     methodologyVersion: session.methodologyVersion,
     endedAt: session.endedAt,
     governor: session.governor,
+    scorecard: session.status === "ACTIVE" ? undefined : session.scorecard,
     ...(isRevealed && {
       actualSymbol: session.actualSymbol,
       actualStartTimestamp: session.actualStartTimestamp,

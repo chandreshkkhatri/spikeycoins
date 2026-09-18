@@ -15,9 +15,9 @@ import {
   advance,
   recomputeTotals,
   formatSessionResponse,
-  calcPctPnl,
-  calcCashPnl,
-  calcRMultiple,
+  closeTrade,
+  getInitialStop,
+  atr,
   getMethodologyRulesPayload,
   validateThesis,
   evaluateGovernor,
@@ -30,6 +30,30 @@ import {
 } from "../gym";
 
 const router: Router = Router();
+
+// Only observed candles (including the hidden warm-up prefix) inform entry risk.
+function currentAtr(session: IGymSession): number {
+  const values = atr([
+    ...(session.warmupCandles ?? []),
+    ...session.candles.slice(0, session.currentCandleIndex),
+  ]);
+  return values[values.length - 1] ?? 0;
+}
+
+async function saveSession(session: IGymSession): Promise<void> {
+  recomputeTotals(session);
+  if (session.mode === "METHOD") {
+    evaluateGovernor(session);
+    if (session.status === "ACTIVE") {
+      // Discard snapshots saved by older clients before the session finished.
+      session.scorecard = undefined;
+    } else {
+      session.endedAt ??= new Date();
+      session.scorecard = generateProcessScorecard(session);
+    }
+  }
+  await session.save();
+}
 
 // All gym routes require authentication
 router.use(requireAuth);
@@ -186,7 +210,7 @@ router.post(
       status: "ACTIVE",
     });
 
-    await session.save();
+    await saveSession(session);
 
     return res.json({
       success: true,
@@ -223,8 +247,8 @@ router.post(
       return res.status(400).json({ error: "candlesToAdvance must be a positive integer" });
     }
 
-    advance(session as any, parsedStep);
-    await session.save();
+    advance(session, parsedStep);
+    await saveSession(session);
 
     return res.json({
       success: true,
@@ -248,7 +272,7 @@ router.post(
     }
 
     const currentCandle = session.candles[session.currentCandleIndex - 1];
-    const validation = validateThesis(req.body, session as any, currentCandle.close, 0);
+    const validation = validateThesis(req.body, session, currentCandle.close, currentAtr(session));
 
     return res.json({
       success: true,
@@ -268,8 +292,8 @@ router.post(
     }
 
     // Evaluate Risk Governor
-    const governorRes = evaluateGovernor(session as any);
-    if (governorRes.isHalted) {
+    const governorRes = evaluateGovernor(session);
+    if (session.mode === "METHOD" && governorRes.isHalted) {
       // Record breach attempt
       if (!session.governor) {
         session.governor = {
@@ -290,7 +314,7 @@ router.post(
         reason: governorRes.haltReason || "Trade rejected by risk governor",
         timestamp: new Date(),
       });
-      await session.save();
+      await saveSession(session);
 
       return res.status(403).json({
         error: governorRes.haltReason || "Session is halted by risk governor",
@@ -348,7 +372,7 @@ router.post(
         plannedRiskPercent: thesis.plannedRiskPercent,
       };
 
-      const validation = validateThesis(validationInput, session as any, entryPrice, 0);
+      const validation = validateThesis(validationInput, session, entryPrice, currentAtr(session));
       if (!validation.valid) {
         return res.status(400).json({
           error: validation.reason || "Thesis validation failed",
@@ -392,6 +416,7 @@ router.post(
       quantity: calculatedQuantity,
       riskAmount,
       riskPerUnit,
+      initialStopLoss: stopLoss,
       pnl: null,
       status: type === "LIMIT" ? "PENDING" : "OPEN",
       type,
@@ -400,7 +425,7 @@ router.post(
     };
 
     session.trades.push(newTrade);
-    await session.save();
+    await saveSession(session);
 
     return res.json({
       success: true,
@@ -426,7 +451,7 @@ router.post(
     }
 
     pendingTrade.status = "CANCELED";
-    await session.save();
+    await saveSession(session);
 
     return res.json({
       success: true,
@@ -456,18 +481,9 @@ router.post(
     }
 
     const currentCandle = session.candles[session.currentCandleIndex - 1];
-    openTrade.exitCandle = session.currentCandleIndex - 1;
-    openTrade.exitPrice = currentCandle.close;
-    openTrade.status = "CLOSED";
-    openTrade.pnl = calcPctPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side);
-    if (openTrade.quantity) {
-      openTrade.pnlCash = calcCashPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side, openTrade.quantity);
-    }
-    openTrade.rMultiple = calcRMultiple(openTrade.entryPrice, openTrade.exitPrice, openTrade.stopLoss, openTrade.side);
-    openTrade.durationBars = openTrade.exitCandle - openTrade.entryCandle;
+    closeTrade(openTrade, currentCandle.close, session.currentCandleIndex - 1);
 
-    recomputeTotals(session as any);
-    await session.save();
+    await saveSession(session);
 
     return res.json({
       success: true,
@@ -508,6 +524,7 @@ router.post(
       return res.status(400).json({ error: "For SHORT, stop loss must be above entry price" });
     }
 
+    trade.initialStopLoss ??= getInitialStop(trade);
     const oldStop = trade.stopLoss;
     const isWidened =
       trade.side === "LONG" ? newStop < oldStop : newStop > oldStop;
@@ -529,7 +546,7 @@ router.post(
       trade.riskAmount = +(trade.quantity * trade.riskPerUnit).toFixed(2);
     }
 
-    await session.save();
+    await saveSession(session);
 
     return res.json({
       success: true,
@@ -556,7 +573,7 @@ router.post(
 
     session.status = "ABANDONED";
     session.endedAt = new Date();
-    await session.save();
+    await saveSession(session);
 
     return res.json({
       success: true,
@@ -572,22 +589,16 @@ router.post(
   asyncHandler(async (req: GymRequest, res: Response) => {
     const session = req.gymSession!;
 
+    if (session.status === "REVEALED") {
+      return res.json({ success: true, session: formatSessionResponse(session) });
+    }
+
     // Close all open trades at current price before reveal
     const openTrades = session.trades.filter((t) => t.status === "OPEN");
     if (openTrades.length > 0 && session.currentCandleIndex > 0) {
       const currentCandle = session.candles[session.currentCandleIndex - 1];
       for (const openTrade of openTrades) {
-        openTrade.exitCandle = session.currentCandleIndex - 1;
-        openTrade.exitPrice = currentCandle.close;
-        openTrade.status = "CLOSED";
-        openTrade.pnl = calcPctPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side);
-        if (openTrade.quantity) {
-          openTrade.pnlCash = calcCashPnl(openTrade.entryPrice, openTrade.exitPrice, openTrade.side, openTrade.quantity);
-        }
-        openTrade.rMultiple = calcRMultiple(openTrade.entryPrice, openTrade.exitPrice, openTrade.stopLoss, openTrade.side);
-        if (openTrade.entryCandle != null) {
-          openTrade.durationBars = openTrade.exitCandle - openTrade.entryCandle;
-        }
+        closeTrade(openTrade, currentCandle.close, session.currentCandleIndex - 1);
       }
     }
 
@@ -601,8 +612,7 @@ router.post(
     session.status = "REVEALED";
     session.endedAt = new Date();
     session.currentCandleIndex = session.candles.length; // Show all candles
-    recomputeTotals(session as any);
-    await session.save();
+    await saveSession(session);
 
     return res.json({
       success: true,
@@ -827,15 +837,18 @@ router.get(
       });
     }
 
-    if (!session.scorecard) {
-      session.scorecard = generateProcessScorecard(session as any);
-      await session.save();
+    // An active-session read is a live preview and must never freeze a score.
+    if (session.status === "ACTIVE") {
+      return res.json({ success: true, scorecard: generateProcessScorecard(session) });
     }
 
-    return res.json({
-      success: true,
-      scorecard: session.scorecard,
-    });
+    // Mongoose nested objects may be truthy even when no score was saved.
+    if (!session.scorecard?.evaluatedAt ||
+        (session.endedAt && session.scorecard.evaluatedAt < session.endedAt)) {
+      await saveSession(session);
+    }
+
+    return res.json({ success: true, scorecard: session.scorecard });
   })
 );
 
@@ -848,7 +861,7 @@ router.get(
       .select("trades totalPnl totalPnlCash totalR scorecard status createdAt startingCapital")
       .lean();
 
-    let totalSessions = sessions.length;
+    const totalSessions = sessions.length;
     let completedSessions = 0;
     let totalTrades = 0;
     let winningTrades = 0;

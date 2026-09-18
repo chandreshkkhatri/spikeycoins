@@ -23,6 +23,7 @@ export interface IGovernorSessionState {
   trades: Array<{
     status: string;
     pnl: number | null;
+    pnlCash?: number | null;
     rMultiple?: number | null;
   }>;
   governor?: IGvernorState;
@@ -53,7 +54,7 @@ export function evaluateGovernor(state: IGovernorSessionState): IGovernorResult 
   const giveBackPct = state.config?.giveBackPct ?? SESSION_RULES.giveBackPct;
   const bufferToFullPct = state.config?.bufferToFullPct ?? SESSION_RULES.bufferToFullPct;
 
-  let governor: IGovernorState = state.governor || {
+  const governor: IGovernorState = state.governor || {
     riskTier: "WARMUP",
     consecutiveLosses: 0,
     peakBufferPct: 0,
@@ -76,7 +77,8 @@ export function evaluateGovernor(state: IGovernorSessionState): IGovernorResult 
   // 2. Count consecutive losses from most recent closed trades
   let consecutiveLosses = 0;
   let runningPnl = 0;
-  let peakBufferPct = governor.peakBufferPct || 0;
+  let peakBufferPct = 0;
+  const startingCapital = state.startingCapital ?? 100000;
 
   const closedTrades = state.trades.filter(
     (t) => t.status === "CLOSED" || t.status === "STOPPED_OUT" || t.status === "TARGET_HIT"
@@ -93,14 +95,12 @@ export function evaluateGovernor(state: IGovernorSessionState): IGovernorResult 
 
   // Calculate overall cumulative PnL %
   for (const trade of closedTrades) {
-    if (trade.pnl != null) {
-      runningPnl += trade.pnl;
-    }
+    runningPnl += startingCapital > 0 ? ((trade.pnlCash ?? 0) / startingCapital) * 100 : 0;
+    peakBufferPct = Math.max(peakBufferPct, runningPnl);
   }
 
-  if (runningPnl > peakBufferPct) {
-    peakBufferPct = +runningPnl.toFixed(4);
-  }
+  governor.consecutiveLosses = consecutiveLosses;
+  governor.peakBufferPct = +peakBufferPct.toFixed(4);
 
   // 3. Rule: Consecutive losses exceeded
   if (consecutiveLosses >= maxConsecutiveLosses) {
@@ -218,19 +218,19 @@ export function validateThesis(
 
   if (input.side === "LONG") {
     orderingPassed =
-      input.invalidationPrice <= input.plannedStop &&
-      input.plannedStop < input.triggerPrice &&
+      input.plannedStop <= input.invalidationPrice &&
+      input.invalidationPrice < input.triggerPrice &&
       input.triggerPrice < input.targetPrice;
     if (!orderingPassed) {
-      orderingReason = "LONG requirement: Invalidation <= Stop < Trigger < Target";
+      orderingReason = "LONG requirement: Stop <= Invalidation < Trigger < Target";
     }
   } else {
     orderingPassed =
-      input.invalidationPrice >= input.plannedStop &&
-      input.plannedStop > input.triggerPrice &&
+      input.plannedStop >= input.invalidationPrice &&
+      input.invalidationPrice > input.triggerPrice &&
       input.triggerPrice > input.targetPrice;
     if (!orderingPassed) {
-      orderingReason = "SHORT requirement: Invalidation >= Stop > Trigger > Target";
+      orderingReason = "SHORT requirement: Stop >= Invalidation > Trigger > Target";
     }
   }
 

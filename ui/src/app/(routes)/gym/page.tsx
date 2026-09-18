@@ -5,14 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GymChart } from "@/components/gym/gym-chart";
 import { RiskPanel } from "@/components/gym/risk-panel";
+import { FreeTradeForm } from "@/components/gym/free-trade-form";
 import { ThesisForm } from "@/components/gym/thesis-form";
 import { TradeList } from "@/components/gym/trade-list";
 import { SessionScorecard } from "@/components/gym/session-scorecard";
 import { useGymSession } from "@/components/gym/use-gym-session";
 import {
   Play,
-  RefreshCw,
-  Trophy,
   ChevronRight,
   ChevronsRight,
   Eye,
@@ -45,7 +44,8 @@ export default function TradingGymPage() {
   const [splitView, setSplitView] = useState<boolean>(false);
 
   const isLegacySession = session?.schemaVersion === 1;
-  const isHalted = session?.governor?.isHalted;
+  const isHalted = session?.mode === "METHOD" && session.governor?.isHalted;
+  const hasActiveTrade = session?.trades.some((trade) => trade.status === "OPEN" || trade.status === "PENDING");
 
   const currentCandle =
     session && session.candles.length > 0
@@ -144,7 +144,9 @@ export default function TradingGymPage() {
         </div>
       )}
 
-      {!session ? (
+      {error && !governorRejection && <p role="alert" className="text-sm text-red-500">{error}</p>}
+
+      {loading ? <p>Loading session…</p> : !session ? (
         <div className="rounded-lg border bg-card p-12 text-center space-y-4">
           <Play className="h-12 w-12 mx-auto text-primary opacity-50" />
           <h3 className="text-lg font-semibold">No Active Gym Session</h3>
@@ -152,16 +154,19 @@ export default function TradingGymPage() {
             Train your discretionary trading process. Declare a thesis before entry while the mechanical governor enforces risk limits.
           </p>
           <div className="flex justify-center gap-3">
-            <Button onClick={() => startNewSession("METHOD")} className="bg-emerald-600 hover:bg-emerald-700">
+            <Button onClick={() => startNewSession("METHOD")} disabled={actionLoading} className="bg-emerald-600 hover:bg-emerald-700">
               Start Method Session
             </Button>
-            <Button variant="outline" onClick={() => startNewSession("FREE")}>
+            <Button variant="outline" disabled={actionLoading} onClick={() => startNewSession("FREE")}>
               Start Free Sandbox
             </Button>
           </div>
         </div>
-      ) : session.status === "REVEALED" ? (
+      ) : session.status !== "ACTIVE" ? (
         <div className="space-y-4">
+          {session.status === "COMPLETED" && (
+            <Button onClick={revealSession} disabled={actionLoading}>Reveal Symbol</Button>
+          )}
           <SessionScorecard
             scorecard={session.scorecard ?? null}
             totalPnlCash={session.totalPnlCash ?? 0}
@@ -235,7 +240,7 @@ export default function TradingGymPage() {
               onModifyStop={modifyStop}
               onCloseTrade={closeOpenTrade}
               onCancelTrade={cancelPendingTrade}
-              disabled={isHalted}
+              disabled={actionLoading}
             />
           </div>
 
@@ -247,16 +252,16 @@ export default function TradingGymPage() {
               <ThesisForm
                 sessionId={session.id}
                 currentPrice={currentCandle?.close || 100}
-                onSubmitTrade={placeTrade as any}
-                disabled={isHalted}
+                onSubmitTrade={async (params) => { await placeTrade(params); }}
+                disabled={Boolean(isHalted || actionLoading || hasActiveTrade)}
               />
             ) : (
-              <div className="rounded-lg border bg-card p-4 text-center space-y-3 text-xs">
-                <Badge variant="neutral">FREE MODE SANDBOX</Badge>
-                <p className="text-muted-foreground">
-                  Free sandbox mode operates without mandatory trade thesis gating.
-                </p>
-              </div>
+              <FreeTradeForm
+                key={session.id}
+                currentPrice={currentCandle?.close || 100}
+                onSubmitTrade={placeTrade}
+                disabled={Boolean(actionLoading || hasActiveTrade)}
+              />
             )}
           </div>
         </div>

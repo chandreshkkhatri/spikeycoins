@@ -15,6 +15,7 @@ import api, {
   manualRefreshTokens,
   manualClearAuth,
   getApiUrl,
+  AUTH_CLEARED_EVENT,
 } from "@/lib/api";
 
 // Storage keys (must match api.ts)
@@ -102,6 +103,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return result;
   }, []);
 
+  // Token invalidation in the API client must also update this tab's UI.
+  useEffect(() => {
+    const onAuthCleared = () => setUser(null);
+    window.addEventListener(AUTH_CLEARED_EVENT, onAuthCleared);
+    return () => window.removeEventListener(AUTH_CLEARED_EVENT, onAuthCleared);
+  }, []);
+
   // Check current auth status on mount
   useEffect(() => {
     const isTokenExpired = (token: string) => {
@@ -130,13 +138,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       const token = getStoredAccessToken();
 
-      if (!token) {
+      if (!token && !getRefreshToken()) {
+        clearAuth();
         setIsLoading(false);
         return;
       }
 
-      // Check if token is expired locally to avoid 401 error
-      if (isTokenExpired(token)) {
+      // Recover a missing or expired access token before protected pages mount.
+      if (!token || isTokenExpired(token)) {
         const refreshed = await refreshTokens();
         if (!refreshed) {
           setIsLoading(false);

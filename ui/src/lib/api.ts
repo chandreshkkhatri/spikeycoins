@@ -20,29 +20,12 @@ const api = axios.create({
   timeout: 30000,
 });
 
-// Track if we're currently refreshing to prevent concurrent refresh attempts
-let isRefreshing = false;
+// All callers, including AuthProvider, share the same refresh operation.
 let refreshPromise: Promise<boolean> | null = null;
+export const AUTH_CLEARED_EVENT = "spikeycoins:auth-cleared";
 
-// Queue of failed requests to retry after token refresh
-let failedQueue: Array<{
-  resolve: (value: unknown) => void;
-  reject: (reason?: unknown) => void;
-  config: InternalAxiosRequestConfig;
-}> = [];
-
-// Process the queue of failed requests
-const processQueue = (error: Error | null, token: string | null = null) => {
-  failedQueue.forEach(({ resolve, reject, config }) => {
-    if (error) {
-      reject(error);
-    } else if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-      resolve(api(config));
-    }
-  });
-  failedQueue = [];
-};
+export const isAuthenticationError = (error: unknown): boolean =>
+  axios.isAxiosError(error) && error.response?.status === 401;
 
 // Clear all auth data
 const clearAuth = () => {
@@ -55,6 +38,7 @@ const clearAuth = () => {
   localStorage.removeItem("accountsCache");
   localStorage.removeItem("accountsCacheTime");
   localStorage.removeItem("selectedAccountId");
+  window.dispatchEvent(new Event(AUTH_CLEARED_EVENT));
 };
 
 // Refresh tokens
@@ -69,7 +53,6 @@ const refreshTokens = async (): Promise<boolean> => {
   const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
   if (!refreshToken) return false;
 
-  isRefreshing = true;
   refreshPromise = (async () => {
     try {
       // Use fetch to avoid interceptor loop
@@ -102,7 +85,6 @@ const refreshTokens = async (): Promise<boolean> => {
       console.error("Token refresh failed:", error);
       return false;
     } finally {
-      isRefreshing = false;
       refreshPromise = null;
     }
   })();
@@ -126,41 +108,40 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    // If no config or already retried, reject
-    if (!originalRequest || originalRequest._retry) {
+    if (!originalRequest || error.response?.status !== 401) {
       return Promise.reject(error);
     }
 
-    // Only handle 401 errors
-    if (error.response?.status !== 401) {
+    // Invalid credentials at sign-in are not an expired authenticated session.
+    if (/\/auth\/(login|register|refresh)(?:[/?]|$)/.test(originalRequest.url ?? "")) {
       return Promise.reject(error);
     }
 
-    // Don't retry refresh endpoint itself
-    if (originalRequest.url?.includes('/auth/refresh')) {
+    if (originalRequest._retry) {
       return Promise.reject(error);
     }
-
     originalRequest._retry = true;
 
-    // If currently refreshing, queue this request
-    if (isRefreshing) {
-      return new Promise((resolve, reject) => {
-        failedQueue.push({ resolve, reject, config: originalRequest });
-      });
+    // A late 401 may belong to the old token after another request refreshed it.
+    const currentToken = getAccessToken();
+    if (currentToken && originalRequest.headers.Authorization !== `Bearer ${currentToken}`) {
+      originalRequest.headers.Authorization = `Bearer ${currentToken}`;
+      return api(originalRequest);
     }
 
-    // Try to refresh
-    const refreshed = await refreshTokens();
-    if (refreshed) {
-      const newToken = typeof window !== 'undefined' ? localStorage.getItem(ACCESS_TOKEN_KEY) : null;
-      processQueue(null, newToken);
-      originalRequest.headers.Authorization = `Bearer ${newToken}`;
-      return api(originalRequest);
-    } else {
-      processQueue(new Error('Token refresh failed'), null);
+    if (!getRefreshToken()) {
+      clearAuth();
       return Promise.reject(error);
     }
+
+    // Await the shared promise even when AuthProvider initiated the refresh.
+    // Every waiter settles on failure; no independent queue can be stranded.
+    if (await refreshTokens()) {
+      const newToken = getAccessToken();
+      originalRequest.headers.Authorization = `Bearer ${newToken}`;
+      return api(originalRequest);
+    }
+    return Promise.reject(error);
   }
 );
 

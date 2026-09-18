@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { advance, calcPctPnl, calcCashPnl, calcRMultiple, recomputeTotals, IEngineSessionState } from "./engine";
+import { advance, calcPctPnl, calcCashPnl, calcRMultiple, recomputeTotals, closeTrade, IEngineTrade, IEngineSessionState } from "./engine";
 
 describe("Gym Engine", () => {
   it("calculates percentage PnL correctly", () => {
@@ -121,5 +121,48 @@ describe("Gym Engine", () => {
     expect(state.totalPnl).toBe(10);
     expect(state.totalPnlCash).toBe(50);
     expect(state.totalR).toBe(1);
+  });
+});
+
+describe("Original trade risk", () => {
+  const makeTrade = (): IEngineTrade => ({
+    entryCandle: 0, exitCandle: null, side: "LONG", entryPrice: 100, exitPrice: null,
+    initialStopLoss: 95, stopLoss: 90, takeProfit: 110, quantity: 100,
+    pnl: null, status: "OPEN", type: "MARKET",
+  });
+
+  it("uses initial risk for automatic stops and updates capital", () => {
+    const state: IEngineSessionState = {
+      currentCandleIndex: 0, status: "ACTIVE", totalPnl: 0, startingCapital: 100000,
+      candles: [{ open: 100, high: 100, low: 89, close: 90, volume: 1, timestamp: 0 }],
+      trades: [makeTrade()],
+    };
+    advance(state);
+    expect(state.trades[0].rMultiple).toBe(-2);
+    expect(state.totalR).toBe(-2);
+    expect(state.capital).toBe(99000);
+    recomputeTotals(state);
+    expect(state.capital).toBe(99000);
+  });
+
+  it("recovers original risk from legacy stop history for manual closure", () => {
+    const trade = makeTrade();
+    delete trade.initialStopLoss;
+    trade.stopHistory = [{ from: 95 }, { from: 92 }];
+    closeTrade(trade, 110, 5);
+    expect(trade.rMultiple).toBe(2);
+    expect(trade.pnlCash).toBe(1000);
+  });
+
+  it("settles open trades at the final candle before completion", () => {
+    const state: IEngineSessionState = {
+      currentCandleIndex: 0, status: "ACTIVE", totalPnl: 0,
+      candles: [{ open: 100, high: 104, low: 99, close: 103, volume: 1, timestamp: 0 }],
+      trades: [makeTrade()],
+    };
+    advance(state);
+    expect(state.status).toBe("COMPLETED");
+    expect(state.trades[0].status).toBe("CLOSED");
+    expect(state.totalR).toBe(0.6);
   });
 });

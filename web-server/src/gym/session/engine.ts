@@ -13,9 +13,12 @@ export interface IEngineTrade {
   rMultiple?: number | null;
   quantity?: number;
   riskAmount?: number;
+  initialStopLoss?: number;
+  stopHistory?: Array<{ from: number }>;
+  thesis?: { plannedStop: number };
   status: "PENDING" | "OPEN" | "CLOSED" | "STOPPED_OUT" | "TARGET_HIT" | "CANCELED";
   type: "MARKET" | "LIMIT";
-  durationBars?: number;
+  durationBars?: number | null;
   invalidationPrice?: number;
 }
 
@@ -27,6 +30,7 @@ export interface IEngineSessionState {
   totalPnlCash?: number;
   totalR?: number;
   capital?: number;
+  startingCapital?: number;
   status: "ACTIVE" | "COMPLETED" | "REVEALED" | "ABANDONED";
 }
 
@@ -68,6 +72,24 @@ export function calcRMultiple(
   return +(rewardPerUnit / riskPerUnit).toFixed(2);
 }
 
+/** Recover original risk for older trades before the immutable field existed. */
+export function getInitialStop(trade: IEngineTrade): number {
+  return trade.initialStopLoss ?? trade.stopHistory?.[0]?.from ?? trade.thesis?.plannedStop ?? trade.stopLoss;
+}
+
+/** Settle a trade using its original risk, regardless of later stop modifications. */
+export function closeTrade(trade: IEngineTrade, exitPrice: number, exitCandle: number): void {
+  trade.exitPrice = exitPrice;
+  trade.exitCandle = exitCandle;
+  trade.status = "CLOSED";
+  trade.pnl = calcPctPnl(trade.entryPrice, exitPrice, trade.side);
+  if (trade.quantity != null) {
+    trade.pnlCash = calcCashPnl(trade.entryPrice, exitPrice, trade.side, trade.quantity);
+  }
+  trade.rMultiple = calcRMultiple(trade.entryPrice, exitPrice, getInitialStop(trade), trade.side);
+  trade.durationBars = exitCandle - trade.entryCandle;
+}
+
 /**
  * Idempotently recompute total PnL, cash PnL, and total R for a session.
  */
@@ -97,6 +119,9 @@ export function recomputeTotals(state: IEngineSessionState): void {
   state.totalPnl = +totalPnl.toFixed(4);
   state.totalPnlCash = +totalPnlCash.toFixed(2);
   state.totalR = +totalR.toFixed(2);
+  if (state.startingCapital != null) {
+    state.capital = +(state.startingCapital + totalPnlCash).toFixed(2);
+  }
 }
 
 /**
@@ -164,7 +189,7 @@ export function advance(state: IEngineSessionState, candlesToAdvance: number = 1
             if (trade.quantity) {
               trade.pnlCash = calcCashPnl(trade.entryPrice, trade.stopLoss, "LONG", trade.quantity);
             }
-            trade.rMultiple = calcRMultiple(trade.entryPrice, trade.stopLoss, trade.stopLoss, "LONG");
+            trade.rMultiple = calcRMultiple(trade.entryPrice, trade.stopLoss, getInitialStop(trade), "LONG");
             trade.durationBars = trade.exitCandle - trade.entryCandle;
             break;
           }
@@ -177,7 +202,7 @@ export function advance(state: IEngineSessionState, candlesToAdvance: number = 1
             if (trade.quantity) {
               trade.pnlCash = calcCashPnl(trade.entryPrice, trade.takeProfit, "LONG", trade.quantity);
             }
-            trade.rMultiple = calcRMultiple(trade.entryPrice, trade.takeProfit, trade.stopLoss, "LONG");
+            trade.rMultiple = calcRMultiple(trade.entryPrice, trade.takeProfit, getInitialStop(trade), "LONG");
             trade.durationBars = trade.exitCandle - trade.entryCandle;
             break;
           }
@@ -191,7 +216,7 @@ export function advance(state: IEngineSessionState, candlesToAdvance: number = 1
             if (trade.quantity) {
               trade.pnlCash = calcCashPnl(trade.entryPrice, trade.stopLoss, "SHORT", trade.quantity);
             }
-            trade.rMultiple = calcRMultiple(trade.entryPrice, trade.stopLoss, trade.stopLoss, "SHORT");
+            trade.rMultiple = calcRMultiple(trade.entryPrice, trade.stopLoss, getInitialStop(trade), "SHORT");
             trade.durationBars = trade.exitCandle - trade.entryCandle;
             break;
           }
@@ -204,7 +229,7 @@ export function advance(state: IEngineSessionState, candlesToAdvance: number = 1
             if (trade.quantity) {
               trade.pnlCash = calcCashPnl(trade.entryPrice, trade.takeProfit, "SHORT", trade.quantity);
             }
-            trade.rMultiple = calcRMultiple(trade.entryPrice, trade.takeProfit, trade.stopLoss, "SHORT");
+            trade.rMultiple = calcRMultiple(trade.entryPrice, trade.takeProfit, getInitialStop(trade), "SHORT");
             trade.durationBars = trade.exitCandle - trade.entryCandle;
             break;
           }
@@ -215,6 +240,13 @@ export function advance(state: IEngineSessionState, candlesToAdvance: number = 1
 
   state.currentCandleIndex = newIndex;
   if (newIndex >= state.candles.length) {
+    for (const trade of state.trades) {
+      if (trade.status === "OPEN" && newIndex > 0) {
+        closeTrade(trade, state.candles[newIndex - 1].close, newIndex - 1);
+      } else if (trade.status === "PENDING") {
+        trade.status = "CANCELED";
+      }
+    }
     state.status = "COMPLETED";
   }
 

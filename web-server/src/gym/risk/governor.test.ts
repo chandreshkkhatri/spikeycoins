@@ -20,9 +20,9 @@ describe("Mechanical Risk Governor", () => {
       currentCandleIndex: 30,
       totalPnl: -3,
       trades: [
-        { status: "STOPPED_OUT", pnl: -1 },
-        { status: "STOPPED_OUT", pnl: -1 },
-        { status: "STOPPED_OUT", pnl: -1 },
+        { status: "STOPPED_OUT", pnl: -1, pnlCash: -1000 },
+        { status: "STOPPED_OUT", pnl: -1, pnlCash: -1000 },
+        { status: "STOPPED_OUT", pnl: -1, pnlCash: -1000 },
       ],
     };
 
@@ -44,8 +44,8 @@ describe("Mechanical Risk Governor", () => {
         haltReason: null,
       },
       trades: [
-        { status: "TARGET_HIT", pnl: 4.0 },
-        { status: "STOPPED_OUT", pnl: -1.5 }, // Dropped from 4.0% to 2.5% -> giveback = 1.5/4.0 = 37.5% > 25%
+        { status: "TARGET_HIT", pnl: 4.0, pnlCash: 4000 },
+        { status: "STOPPED_OUT", pnl: -1.5, pnlCash: -1500 }, // Dropped from 4.0% to 2.5% -> giveback = 1.5/4.0 = 37.5% > 25%
       ],
     };
 
@@ -59,7 +59,7 @@ describe("Mechanical Risk Governor", () => {
     const state: IGovernorSessionState = {
       currentCandleIndex: 20,
       totalPnl: 2.5,
-      trades: [{ status: "TARGET_HIT", pnl: 2.5 }],
+      trades: [{ status: "TARGET_HIT", pnl: 2.5, pnlCash: 2500 }],
     };
 
     const res = evaluateGovernor(state);
@@ -122,5 +122,35 @@ describe("Thesis Validation Engine", () => {
 
     expect(res.valid).toBe(false);
     expect(res.reason).toContain("LONG requirement");
+  });
+});
+
+describe("Governor account returns and structural stops", () => {
+  it("does not promote based on instrument returns or a stale price-return peak", () => {
+    const state: IGovernorSessionState = {
+      currentCandleIndex: 50, totalPnl: 2, startingCapital: 100000,
+      trades: [{ status: "CLOSED", pnl: 2, pnlCash: 200 }],
+      governor: { riskTier: "FULL", peakBufferPct: 2, consecutiveLosses: 0, isHalted: false, haltReason: null },
+    };
+    expect(evaluateGovernor(state).riskTier).toBe("WARMUP");
+    expect(state.governor?.peakBufferPct).toBe(0.2);
+  });
+
+  it("recovers the account equity peak from closed trades without prior evaluations", () => {
+    const state: IGovernorSessionState = {
+      currentCandleIndex: 50, totalPnl: 1, startingCapital: 100000,
+      trades: [{ status: "CLOSED", pnl: 2, pnlCash: 4000 }, { status: "CLOSED", pnl: -1, pnlCash: -1500 }],
+    };
+    expect(evaluateGovernor(state).ruleId).toBe("PEAK_BUFFER_GIVEBACK_EXCEEDED");
+    expect(state.governor?.peakBufferPct).toBe(4);
+  });
+
+  it.each([
+    { side: "LONG" as const, plannedStop: 94, invalidationPrice: 95, targetPrice: 110 },
+    { side: "SHORT" as const, plannedStop: 106, invalidationPrice: 105, targetPrice: 90 },
+  ])("accepts a $side stop beyond structural invalidation", (prices) => {
+    const result = validateThesis({ ...prices, triggerPrice: 100, setupType: "pullback-to-structure" },
+      { currentCandleIndex: 50, totalPnl: 0, trades: [] }, 100, 2);
+    expect(result.valid).toBe(true);
   });
 });

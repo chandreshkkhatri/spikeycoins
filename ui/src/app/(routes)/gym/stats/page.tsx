@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ProcessVsPnlChart, ProcessVsPnlPoint } from "@/components/gym/process-vs-pnl-chart";
-import api from "@/lib/api";
+import api, { getApiPath, isAuthenticationError } from "@/lib/api";
 import { API_ROUTES } from "@/lib/constants";
 import { Trophy, TrendingUp, ArrowLeft, Shield, BarChart3, Activity } from "lucide-react";
 import Link from "next/link";
@@ -30,8 +30,8 @@ export default function GymStatsPage() {
       try {
         setLoading(true);
         const [statsRes, chartRes] = await Promise.all([
-          api.get(API_ROUTES.gym.stats),
-          api.get(API_ROUTES.gym.processVsPnlChart),
+          api.get(getApiPath(API_ROUTES.gym.stats)),
+          api.get(getApiPath(API_ROUTES.gym.processVsPnlChart)),
         ]);
 
         if (statsRes.data?.success) {
@@ -41,7 +41,7 @@ export default function GymStatsPage() {
           setChartData(chartRes.data.data || []);
         }
       } catch (err) {
-        console.error("[GymStatsPage] Error loading stats:", err);
+        if (!isAuthenticationError(err)) console.error("[GymStatsPage] Error loading stats:", err);
       } finally {
         setLoading(false);
       }
