@@ -1,0 +1,45 @@
+{
+  "fixture": "Synthetic API responses; anonymous non-admin; no external services contacted",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "viewAllLosersFirstRow": "BTC/USDT\nPERP\n\t$65000.00\t+9.00%\tN/A\t+1.00%\t+1.50%\t+0.80%\t\n$67500.00\n$63000.00\n\t80.0%\t$1.50B\t$100.00B",
+  "moverClickChangesUrl": false,
+  "summaryDialogRoleCount": 0,
+  "summaryStillOpenAfterEscape": true,
+  "overviewCardDestination": "http://127.0.0.1:3035/market-watch/screener",
+  "searchAfterOverviewCard": "",
+  "btcSearchFooter": "Showing 1 of 15 pairs",
+  "displayedPairSearchRows": 0,
+  "zeroMatchFooter": "Page 1 of 0",
+  "searchAfterReload": "",
+  "pageBeforeRefresh": "Page 2 of 2",
+  "pageAfterRefresh": "Page 1 of 2",
+  "pageBeforeAutoRefresh": "Page 2 of 2",
+  "pageAfterAutoRefresh": "Page 1 of 2",
+  "autoRefreshRequested": true,
+  "emptyRefreshButtonCount": 0,
+  "timeframeButtonsAfterFailure": {
+    "h24": 0,
+    "d7": 0
+  },
+  "moversMobileY": 1379.234375,
+  "mobileOverflow": {
+    "viewport": 390,
+    "document": 390,
+    "mainWidth": 390,
+    "mainContentWidth": 390,
+    "refreshRight": 385.15625,
+    "tableWidth": 999.453125
+  },
+  "sortHeaderTabIndex": null,
+  "rowsAfterOutage": 0,
+  "tickerRequests": 17
+}

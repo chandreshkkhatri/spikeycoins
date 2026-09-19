@@ -96,8 +96,7 @@ router.get(
       if (funds.segment === "spot") {
         try {
           const { default: MarketOverviewService } = await import("../crypto/services/MarketOverviewService");
-          const marketData = MarketOverviewService.getInstance().getCachedData();
-          cryptocurrencies = marketData?.cryptocurrencies || [];
+          cryptocurrencies = MarketOverviewService.getInstance().getFreshCryptocurrencyData();
         } catch (e) {
           console.warn("Could not calculate spot balance values", e);
         }

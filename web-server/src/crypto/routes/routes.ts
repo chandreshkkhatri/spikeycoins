@@ -362,7 +362,7 @@ export async function refreshMarketCapData(req: Request, res: Response): Promise
 
 /**
  * Get market overview data (cryptocurrencies + Bitcoin dominance)
- * Returns cached data updated every 30 seconds
+ * Returns verified provider observations updated every two minutes.
  */
 export function getMarketOverview(req: Request, res: Response): void {
   try {
@@ -372,17 +372,17 @@ export function getMarketOverview(req: Request, res: Response): void {
 
     logger.info(`MarketOverview API: Service status - hasData: ${status.hasData}, cryptoCount: ${status.cryptoCount}`);
 
-    if (!cachedData || !cachedData.cryptocurrencies || cachedData.cryptocurrencies.length === 0) {
-      logger.warn("MarketOverview API: No cached data available, returning service status");
+    if (!cachedData || !status.hasData) {
+      logger.warn("MarketOverview API: No verified market data available");
       res.status(503).json({
         success: false,
         error: "Market data not available yet",
-        message: "Service is initializing, please try again in a few seconds",
-        status: status,
-        debug: {
-          hasCachedData: !!cachedData,
-          cryptoCount: cachedData?.cryptocurrencies?.length || 0,
-          lastUpdated: cachedData?.last_updated || null
+        message: "No verified provider observations are available. Please try again shortly.",
+        meta: {
+          status: status.overviewStatus,
+          sources: status.sources,
+          next_update: status.nextUpdate,
+          update_interval_seconds: status.updateInterval
         }
       });
       return;
@@ -397,6 +397,8 @@ export function getMarketOverview(req: Request, res: Response): void {
         bitcoin_dominance: cachedData.bitcoin_dominance
       },
       meta: {
+        status: status.overviewStatus,
+        sources: status.sources,
         crypto_count: cachedData.cryptocurrencies.length,
         last_updated: cachedData.last_updated,
         next_update: cachedData.next_update,
@@ -422,16 +424,20 @@ export function getMarketOverview(req: Request, res: Response): void {
 export async function forceRefreshMarketOverview(req: Request, res: Response): Promise<void> {
   try {
     const marketService = MarketOverviewService.getInstance();
-    await marketService.forceUpdate();
+    const updateResult = await marketService.forceUpdate();
     
     const cachedData = marketService.getCachedData();
     const status = marketService.getStatus();
+    const refreshed = updateResult.binance || updateResult.coingecko;
 
-    res.json({
-      success: true,
-      message: "Market overview data refreshed successfully",
+    res.status(refreshed ? 200 : 503).json({
+      success: refreshed,
+      message: refreshed
+        ? "Market overview provider observations refreshed"
+        : "Market overview providers could not be refreshed",
       data: cachedData,
-      status: status,
+      status,
+      update_result: updateResult,
       timestamp: new Date().toISOString()
     });
 

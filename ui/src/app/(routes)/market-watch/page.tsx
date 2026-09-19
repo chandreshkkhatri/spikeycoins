@@ -16,7 +16,7 @@ export default function CryptoHomePage() {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Crypto Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Real-time cryptocurrency market overview and insights
+            Cryptocurrency market overview with source and update status
           </p>
         </div>
         <Link href={PAGE_ROUTES.CRYPTO_SCREENER}>
