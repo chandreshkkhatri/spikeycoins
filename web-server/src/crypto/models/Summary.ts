@@ -6,6 +6,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface ISummary extends Document {
+  researchRevision?: number;
   researchId: mongoose.Types.ObjectId;
   title: string;
   isPublished: boolean;
@@ -15,6 +16,7 @@ export interface ISummary extends Document {
 }
 
 export interface Summary {
+  researchRevision?: number;
   _id?: mongoose.Types.ObjectId;
   researchId: mongoose.Types.ObjectId;
   title: string;
@@ -25,6 +27,7 @@ export interface Summary {
 }
 
 const summarySchema = new Schema<ISummary>({
+  researchRevision: { type: Number, min: 1 },
   researchId: {
     type: Schema.Types.ObjectId,
     ref: 'Research',
@@ -50,5 +53,9 @@ const summarySchema = new Schema<ISummary>({
 
 // Compound index for querying published summaries by date
 summarySchema.index({ isPublished: 1, createdAt: -1 });
+// Legacy rows are untouched; only versioned publication records are unique.
+summarySchema.index({ researchId: 1, researchRevision: 1 }, {
+  unique: true, partialFilterExpression: { researchRevision: { $exists: true } },
+});
 
 export const SummaryModel = mongoose.model<ISummary>('Summary', summarySchema);

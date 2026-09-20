@@ -12,6 +12,7 @@ import MarketCapService from "./MarketCapService";
 import DailyCandlestickService from "./DailyCandlestickService";
 import logger from "../utils/logger";
 import { replaceResearchRevision } from './researchRevisions';
+import { recordResearchPublication, matchesResearchRevision } from './researchSummary';
 import { snapshot24h, snapshot7d, type ResearchInputSnapshot } from './researchInputSnapshot';
 import { eligibleResearchTicker, directionalMovers, retainResearchHorizons } from "./researchCandidates";
 import { evaluatePublication, searchEntryPoint, PUBLICATION_POLICY_VERSION, type ResearchEvidence } from "./researchPublication";
@@ -51,6 +52,7 @@ interface ResearchResult {
 }
 
 interface ResearchFeedRow {
+  researchRevision?: number;
   _id: unknown;
   title: string;
   createdAt: Date;
@@ -475,8 +477,9 @@ Respond with JSON:
       if (research.isPublishable) {
         const title = research.headline || `${research.coinSymbol}: ${research.priceChange > 0 ? '+' : ''}${research.priceChange.toFixed(2)}% - ${research.category}`;
 
-        await SummaryModel.create({
+        await recordResearchPublication({
           researchId: researchDoc._id,
+          revision: 1,
           title,
           isPublished: true,
           publishedAt: new Date(),
@@ -690,7 +693,7 @@ Respond with JSON:
                 `ResearchService: Updating ${mover.symbol} - ${comparison.reason}`
               );
 
-              await replaceResearchRevision(recentResearch, {
+              const revision = await replaceResearchRevision(recentResearch, {
                   headline: newResearch.headline,
                   inputSnapshot: newResearch.inputSnapshot,
                   evidence: newResearch.evidence,
@@ -704,38 +707,12 @@ Respond with JSON:
                   impact: newResearch.impact,
               });
 
-              // Update summary if it exists and research is publishable
-              if (newResearch.isPublishable) {
-                const existingSummary = await SummaryModel.findOne({
-                  researchId: recentResearch._id,
-                });
-
-                const newTitle = newResearch.headline || `${newResearch.coinSymbol}: ${newResearch.priceChange > 0 ? '+' : ''}${newResearch.priceChange.toFixed(2)}% - ${newResearch.category}`;
-
-                if (existingSummary) {
-                  await SummaryModel.findByIdAndUpdate(existingSummary._id, {
-                    $set: {
-                      title: newTitle,
-                      isPublished: true,
-                      publishedAt: new Date(),
-                      updatedAt: new Date(),
-                    },
-                  });
-                } else {
-                  // Create new summary if it didn't exist
-                  await SummaryModel.create({
-                    researchId: recentResearch._id,
-                    title: newTitle,
-                    isPublished: true,
-                    publishedAt: new Date(),
-                  });
-                }
-                publishableCount++;
-              } else {
-                await SummaryModel.updateMany({ researchId: recentResearch._id }, {
-                  $set: { isPublished: false, updatedAt: new Date() },
-                });
-              }
+              await recordResearchPublication({
+                researchId: recentResearch._id, revision,
+                title: newResearch.headline || `${newResearch.coinSymbol}: ${newResearch.category}`,
+                isPublished: newResearch.isPublishable, publishedAt: new Date(),
+              });
+              if (newResearch.isPublishable) publishableCount++;
 
               updatedCount++;
             } else {
@@ -886,6 +863,9 @@ Respond with JSON:
           localField: 'researchId', foreignField: '_id', as: 'research',
         } },
         { $unwind: '$research' },
+        { $match: { $expr: { $eq: [
+          { $ifNull: ['$researchRevision', 0] }, { $ifNull: ['$research.revision', 0] },
+        ] } } },
         { $match: {
           'research.isPublishable': true,
           'research.publicationPolicyVersion': PUBLICATION_POLICY_VERSION,
@@ -894,7 +874,7 @@ Respond with JSON:
         { $limit: Math.max(1, Math.min(100, Math.trunc(limit) || 10)) },
       ]);
 
-      return summaries.filter((summary) => summary.research?.isPublishable === true &&
+      return summaries.filter((summary) => matchesResearchRevision(summary) && summary.research?.isPublishable === true &&
         summary.research?.publicationPolicyVersion === PUBLICATION_POLICY_VERSION && summary.research?.evidence &&
         evaluatePublication(summary.research.evidence).isPublishable
       ).map((summary) => {

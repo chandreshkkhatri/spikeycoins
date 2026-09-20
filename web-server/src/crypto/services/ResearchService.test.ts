@@ -15,7 +15,7 @@ vi.mock("../models/Research", () => ({
 }));
 vi.mock('../models/ResearchRevision', () => ({ ResearchRevisionModel: { updateOne: mocks.archive } }));
 vi.mock("../models/Summary", () => ({
-  SummaryModel: { create: mocks.summaryCreate, updateMany: mocks.retract, aggregate: mocks.aggregate },
+  SummaryModel: { updateOne: mocks.summaryCreate, updateMany: mocks.retract, aggregate: mocks.aggregate },
 }));
 vi.mock("./DatabaseConnection", () => ({ default: { isConnectionReady: () => true } }));
 vi.mock("../core/DataManager", () => ({
@@ -118,6 +118,9 @@ describe("research publication paths", () => {
     const saved = mocks.create.mock.calls[0][0];
     expect(saved.inputSnapshotHistory).toEqual([saved.inputSnapshot]);
     expect(mocks.summaryCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.summaryCreate).toHaveBeenCalledWith({ researchId: 'research-id', researchRevision: 1 },
+      { $setOnInsert: expect.objectContaining({ researchRevision: 1, isPublished: true }) },
+      { upsert: true, runValidators: true });
   });
   it.each(['saved', 'archive-failure', 'conflict'])("handles rejected automated revisions safely: %s", async outcome => {
     vi.useFakeTimers();
@@ -154,9 +157,10 @@ describe("research publication paths", () => {
     const update = mocks.update.mock.calls.find(call => call[1].$push)![1];
     expect(update.$set.inputSnapshot).toEqual(update.$push.inputSnapshotHistory);
     expect(update.$set.inputSnapshotHistory).toBeUndefined();
-    expect(mocks.retract).toHaveBeenCalledWith({ researchId: "old" }, expect.objectContaining({
-      $set: expect.objectContaining({ isPublished: false }),
-    }));
+    expect(mocks.retract).not.toHaveBeenCalled();
+    expect(mocks.summaryCreate).toHaveBeenCalledWith({ researchId: 'old', researchRevision: 1 },
+      { $setOnInsert: expect.objectContaining({ researchRevision: 1, isPublished: false }) },
+      { upsert: true, runValidators: true });
   });
   it("leaves the published input snapshot alone when new research is not adopted", async () => {
     vi.useFakeTimers();
@@ -188,14 +192,20 @@ describe("research publication paths", () => {
       { _id: "legacy", research: { ...valid, publicationPolicyVersion: undefined } },
       { _id: "retracted", research: { ...valid, isPublishable: false } },
       { _id: "bad", research: { ...valid, evidence: { ...evidence(), grounding: null } } },
+      { _id: 'stale', researchRevision: 1, research: { ...valid, revision: 2 } },
+      { _id: 'unbound', research: { ...valid, revision: 2 } },
+      { _id: 'current', researchRevision: 2, research: { ...valid, revision: 2 } },
     ]);
     const results = await ResearchService.getInstance().getLatestSummaries(10);
-    expect(results).toHaveLength(1);
+    expect(results.map(row => row._id)).toEqual(['ok', 'current']);
     expect(results[0].title).toBe("Protocol upgrade announced");
     const pipeline = mocks.aggregate.mock.calls[0][0];
     expect(pipeline).toContainEqual({ $match: {
       "research.isPublishable": true, "research.publicationPolicyVersion": 1,
     } });
+    expect(pipeline).toContainEqual({ $match: { $expr: { $eq: [
+      { $ifNull: ['$researchRevision', 0] }, { $ifNull: ['$research.revision', 0] },
+    ] } } });
     expect(pipeline.findIndex((stage: object) => "$match" in stage)).toBeLessThan(
       pipeline.findIndex((stage: object) => "$limit" in stage));
   });

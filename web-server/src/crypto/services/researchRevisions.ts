@@ -21,7 +21,7 @@ export function archiveReport(previous: IResearch): ArchivedReport {
 }
 
 /** Archive first; a failed archive or stale writer must not replace the report. */
-export async function replaceResearchRevision(previous: IResearch, replacement: Replacement): Promise<void> {
+export async function replaceResearchRevision(previous: IResearch, replacement: Replacement): Promise<number> {
   const revision = previous.revision ?? 0;
   await ResearchRevisionModel.updateOne(
     { researchId: previous._id, revision },
@@ -44,4 +44,5 @@ export async function replaceResearchRevision(previous: IResearch, replacement: 
     $push: { inputSnapshotHistory: replacement.inputSnapshot },
   }, { runValidators: true, new: true });
   if (!updated) throw new Error('Research revision conflict; report was not replaced');
+  return revision + 1;
 }

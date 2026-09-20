@@ -381,3 +381,31 @@ remain separate, and concurrent summary ordering/reconciliation is still open.
 Discarded AI attempts, source retrieval snapshots, retention/size policy and a
 history viewer remain follow-ups. No live database or research job was run;
 regression tests mock writes and validate schemas without a database.
+
+## Implementation checkpoint — revision-bound publication
+
+Publication records now belong to `(researchId, researchRevision)` and are
+written with `$setOnInsert`. A partial unique index covers versioned records
+without imposing uniqueness on existing unversioned summaries. Accepted drafts
+also receive a non-published revision record on replacement. No research run
+updates or retracts another revision's publication record.
+
+The public feed matches publication revision to current research revision before
+sorting/limiting, then rechecks current publication flags and grounding. This
+prevents delayed older publication/retraction writes from changing the visibility
+of a newer report. Replacing a published report with a draft hides it through the
+authoritative research gate even before the draft publication record is written.
+Old records remain stored but cannot represent newer revisions.
+
+Rollout: unversioned summary/research pairs retain their existing gated behavior.
+An unversioned summary attached to a versioned report is hidden because its
+revision cannot be verified. No guessed backfill or live migration was run.
+Deployments with automatic indexing disabled must create the declared partial
+unique index before relying on publication identity uniqueness.
+
+A failed publication write is surfaced; the report may already be committed,
+and stays hidden until its matching record exists. Automatic reconciliation of
+these gaps and rollout-era unbound summaries remains a follow-up (there is no
+new retry/reconciliation worker in this slice). Cross-collection writes remain
+non-transactional. Tests cover delayed older publish/retract records, mismatched
+and current feed revisions, and schema/index declarations without a live DB.
