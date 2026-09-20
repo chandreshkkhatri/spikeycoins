@@ -402,7 +402,7 @@ export default function Ticker() {
         sortingFn: numberSort,
       }),
       columnHelper.accessor("volume_usd", {
-        header: "Volume (USD)",
+        header: "24h Volume (USD)",
         cell: (info) => (
           <span className="font-mono">${formatNumber(info.getValue())}</span>
         ),
@@ -645,6 +645,12 @@ export default function Ticker() {
     ? tickerArray.find((ticker) => normalizePair(ticker.s) === normalizePair(selectedSymbol))
     : undefined;
 
+  const mobileChangeColumn = timeframe === "7d" ? "change_7d" : "change_24h";
+  const mobileColumnClass = (columnId: string): string =>
+    ["s", "price", mobileChangeColumn, "volume_usd", "actions"].includes(columnId)
+      ? "table-cell"
+      : "hidden md:table-cell";
+
   const table = useReactTable({
     data: directionalTickers,
     columns,
@@ -705,8 +711,8 @@ export default function Ticker() {
   return (
     <div className="bg-card rounded-lg space-y-4">
       {/* Controls */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">
             {tickerArray.length} USDT trading pairs available
           </span>
@@ -746,8 +752,8 @@ export default function Ticker() {
             </Button>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          <div className="relative">
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:gap-3">
+          <div className="relative min-w-0 flex-1 sm:flex-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               type="text"
@@ -758,7 +764,7 @@ export default function Ticker() {
                 setSearchQuery(e.target.value);
                 setPagination((current) => ({ ...current, pageIndex: 0 }));
               }}
-              className="pl-9 w-64"
+              className="w-full pl-9 sm:w-64"
             />
           </div>
           <Button
@@ -915,8 +921,8 @@ export default function Ticker() {
           </Button>
         </div>
       ) : (
-      <div className="overflow-x-auto border border-border rounded-lg">
-        <table className="w-full text-sm">
+      <div className="overflow-hidden rounded-lg border border-border md:overflow-x-auto">
+        <table className="w-full table-fixed text-xs sm:text-sm md:table-auto">
           <thead className="bg-muted/50">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
@@ -930,7 +936,11 @@ export default function Ticker() {
                           ? "descending"
                           : "none"
                     }
-                    className="px-4 py-3 text-left font-medium text-muted-foreground uppercase tracking-wider"
+                    className={cn(
+                      "px-2 py-3 text-left font-medium uppercase tracking-wider text-muted-foreground sm:px-3 md:px-4",
+                      mobileColumnClass(header.column.id),
+                      header.column.id === "s" && "sticky left-0 z-10 bg-muted"
+                    )}
                   >
                     {header.isPlaceholder ? null : (
                       <button
@@ -962,7 +972,14 @@ export default function Ticker() {
             {table.getRowModel().rows.map((row) => (
               <tr key={row.id} className="hover:bg-muted/50">
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3 whitespace-nowrap">
+                  <td
+                    key={cell.id}
+                    className={cn(
+                      "whitespace-nowrap px-2 py-3 sm:px-3 md:px-4",
+                      mobileColumnClass(cell.column.id),
+                      cell.column.id === "s" && "sticky left-0 z-10 bg-card"
+                    )}
+                  >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}

@@ -128,15 +128,17 @@ export default function GainersLosers() {
       } finally {
         setLoading(false);
       }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe]);
 
   useEffect(() => {
-    fetchTickerData();
+    const initialRequest = window.setTimeout(() => void fetchTickerData(), 0);
 
     // Auto-refresh every 30s
     const interval = setInterval(fetchTickerData, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      window.clearTimeout(initialRequest);
+      clearInterval(interval);
+    };
   }, [fetchTickerData]);
 
   const items = activeTab === "gainers" ? gainers : losers;
@@ -235,10 +237,11 @@ export default function GainersLosers() {
       ) : (
         <div className="space-y-2">
           {items.map((item, index) => (
-            <div
+            <button
+              type="button"
               key={item.id || item._id}
               onClick={() => router.push(`${PAGE_ROUTES.CRYPTO_SCREENER}?symbol=${item.symbol}USDT&direction=${activeTab}&timeframe=${timeframe}`)}
-              className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer"
+              className="flex w-full items-center justify-between rounded-lg bg-muted/50 p-2.5 text-left transition-colors hover:bg-muted"
             >
               <div className="flex items-center gap-3">
                 <span className="text-xs font-medium text-muted-foreground w-4">
@@ -279,7 +282,7 @@ export default function GainersLosers() {
                   <span className="text-xs text-muted-foreground">Vol: {item.volume}</span>
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}

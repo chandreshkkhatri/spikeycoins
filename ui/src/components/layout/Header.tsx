@@ -115,7 +115,7 @@ export function Header() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors hover:bg-muted/60 hover:text-foreground ${pathname === item.href
+              className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors hover:bg-muted/60 hover:text-foreground ${(pathname === item.href || pathname?.startsWith(`${item.href}/`))
                 ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
                 : "text-muted-foreground"
                 }`}

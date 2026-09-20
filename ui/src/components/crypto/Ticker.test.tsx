@@ -73,6 +73,10 @@ describe("Ticker Screener", () => {
       expect(screen.getByText("COIN45/USDT")).toBeInTheDocument();
     });
 
+    expect(screen.getByRole("columnheader", { name: /24h change/i })).not.toHaveClass("hidden");
+    expect(screen.getByRole("columnheader", { name: /12h change/i })).toHaveClass("hidden");
+    expect(screen.getByRole("columnheader", { name: /24h volume/i })).not.toHaveClass("hidden");
+
     // Verify localStorage item was read and updated
     expect(localStorage.getItem("spikeyCoins_screener_sorting")).toContain("price");
   });
@@ -191,6 +195,8 @@ describe("Ticker Screener", () => {
       expect(cryptoApi.get7dTopMovers).toHaveBeenCalledWith(500);
     });
     expect(screen.getByRole("button", { name: /7d change/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /7d change/i })).not.toHaveClass("hidden");
+    expect(screen.getByRole("columnheader", { name: /24h change/i })).toHaveClass("hidden");
     expect(screen.getByText("COIN2/USDT")).toBeInTheDocument();
     expect(screen.getByText("COIN3/USDT")).toBeInTheDocument();
     expect(screen.queryByText("COIN1/USDT")).not.toBeInTheDocument();

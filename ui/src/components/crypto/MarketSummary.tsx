@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Clock, ExternalLink, TrendingUp, AlertCircle } from "lucide-react";
 import { cryptoApi } from "@/lib/crypto-api";
+import { Button } from "@/components/ui/button";
 
 interface TrendingStory {
   _id?: string;
@@ -44,6 +45,7 @@ export default function MarketSummary() {
   const [error, setError] = useState<string | null>(null);
   const [selectedStory, setSelectedStory] = useState<TrendingStory | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [showAllStories, setShowAllStories] = useState(false);
 
   const formatTimeAgo = (timestamp: string): string => {
     const date = new Date(timestamp);
@@ -181,10 +183,10 @@ export default function MarketSummary() {
       </div>
 
       <div className="space-y-3">
-        {stories.map((story) => (
+        {stories.map((story, index) => (
           <div
             key={story.id || story._id}
-            className="p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors group"
+            className={`rounded-lg bg-muted/50 p-3 transition-colors hover:bg-muted ${!showAllStories && index >= 3 ? "hidden lg:block" : ""}`}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1">
@@ -251,7 +253,18 @@ export default function MarketSummary() {
         ))}
       </div>
 
-
+      {stories.length > 3 && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-3 w-full lg:hidden"
+          onClick={() => setShowAllStories((current) => !current)}
+          aria-expanded={showAllStories}
+        >
+          {showAllStories ? "Show fewer stories" : `Show all ${stories.length} stories`}
+        </Button>
+      )}
 
       {showModal && selectedStory && (
         <div
