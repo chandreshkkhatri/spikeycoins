@@ -328,3 +328,28 @@ research prompts disclose this convention. Existing API keys remain compatible.
 Rolling 168-hour history, venue-keyed storage, the existing sampled backfill
 coverage policy and reproducible research snapshots remain follow-up work.
 No live research, database migration or environment-file reads were performed.
+
+## Implementation checkpoint — research input snapshots v1
+
+New manual and automated reports persist `inputSnapshot`, containing a unique
+snapshot ID, schema/policy versions, capture and observation timestamps, full
+pair symbol, Spot/Futures venue, horizon and window method, price, observed
+percentage return and USDT turnover. Seven-day snapshots include the exact daily
+open and reference timestamp; 24h snapshots retain exchange open price and
+window timestamps when provided. Unavailable fields are null, never inferred
+from rounded returns. Observation time is local ingestion time, distinguished
+from the exchange close timestamp.
+
+`inputSnapshotHistory` starts with the initial report's snapshot. Replacing a
+report atomically sets its current snapshot and appends the replacement inputs
+using `$push`, preserving earlier entries. Timestamp-only checks and research
+not adopted as a replacement leave both snapshot fields unchanged. Legacy rows
+remain without snapshots until new research replaces them; missing past inputs
+are not backfilled. These fields are stored internally; no new public API or UI
+was added.
+
+This is application-level append-only **input history**, not database-enforced
+immutability or full report/evidence revision history. It does not preserve
+discarded AI attempts or guarantee deterministic AI replay. Separate revision
+storage, concurrent-run ordering and retention/size policy remain follow-ups.
+No live research, database migration or environment-file reads were performed.

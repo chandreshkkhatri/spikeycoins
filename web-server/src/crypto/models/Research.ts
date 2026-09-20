@@ -5,8 +5,11 @@
 
 import mongoose, { Document, Schema } from 'mongoose';
 import type { ResearchEvidence } from '../services/researchPublication';
+import type { ResearchInputSnapshot } from '../services/researchInputSnapshot';
 
 export interface IResearch extends Document {
+  inputSnapshot?: ResearchInputSnapshot;
+  inputSnapshotHistory?: ResearchInputSnapshot[];
   headline?: string;
   evidence?: ResearchEvidence;
   publicationPolicyVersion?: number;
@@ -31,6 +34,8 @@ export interface IResearch extends Document {
 }
 
 export interface Research {
+  inputSnapshot?: ResearchInputSnapshot;
+  inputSnapshotHistory?: ResearchInputSnapshot[];
   headline?: string;
   evidence?: ResearchEvidence;
   publicationPolicyVersion?: number;
@@ -55,7 +60,29 @@ export interface Research {
   updatedAt: Date;
 }
 
+const inputSnapshotSchema = new Schema<ResearchInputSnapshot>({
+  id: { type: String, required: true },
+  version: { type: Number, enum: [1], required: true },
+  capturedAt: { type: String, required: true },
+  symbol: { type: String, required: true },
+  venue: { type: String, enum: ['binance-spot', 'binance-usdm-futures'], required: true },
+  timeframe: { type: String, enum: ['24h', '7d'], required: true },
+  windowMethod: { type: String, enum: ['exchange-24h-ticker', 'utc-calendar-7d'], required: true },
+  observedAt: { type: String, required: true },
+  price: { type: Number, required: true },
+  priceChange: { type: Number, required: true },
+  quoteTurnover: { type: Number, required: true },
+  quoteAsset: { type: String, enum: ['USDT'], required: true },
+  referencePrice: { type: Number, default: null },
+  referenceTime: { type: String, default: null },
+  exchangeCloseTime: { type: String, default: null },
+  eligibilityPolicyVersion: { type: Number, enum: [1], required: true },
+}, { _id: false });
+
 const researchSchema = new Schema<IResearch>({
+  // Optional for legacy rows; never backfill guessed historical observations.
+  inputSnapshot: { type: inputSnapshotSchema, default: undefined },
+  inputSnapshotHistory: { type: [inputSnapshotSchema], default: undefined },
   headline: String,
   // Normalized and gated by the publication policy before use.
   evidence: Schema.Types.Mixed,

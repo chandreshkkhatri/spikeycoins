@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ResearchService from "./ResearchService";
+import { snapshot24h } from './researchInputSnapshot';
 import { evaluatePublication, PUBLICATION_POLICY_VERSION, type ResearchEvidence } from "./researchPublication";
 
 const mocks = vi.hoisted(() => ({
@@ -72,7 +73,8 @@ describe("research publication paths", () => {
       { ...fresh, s: "PERPUSDT", is_futures: true },
     ]);
     mocks.weekly.mockResolvedValue([
-      { symbol: "BTC", price: "10", change_7d: 5 },
+      { symbol: "BTC", price: "10", change_7d: 5, volume: '9000', referencePrice: 10 / 1.05,
+        referenceTime: '2026-09-13T00:00:00Z', observedAt: fresh.last_updated },
       { symbol: "OLD", price: "10", change_7d: 99 },
       { symbol: "PERP", price: "10", change_7d: 50 },
     ]);
@@ -82,7 +84,9 @@ describe("research publication paths", () => {
       expect.objectContaining({ symbol: "PERPUSDT" }),
     ]);
     expect(await harness.getTopMovers("7d")).toEqual([
-      expect.objectContaining({ symbol: "BTCUSDT", timeframe: "7d", priceChange: 5 }),
+      expect.objectContaining({ symbol: "BTCUSDT", timeframe: "7d", priceChange: 5,
+        inputSnapshot: expect.objectContaining({ quoteTurnover: 9000, referencePrice: 10 / 1.05,
+          observedAt: fresh.last_updated, referenceTime: '2026-09-13T00:00:00Z' }) }),
     ]);
   });
   it("keeps manual negative research private even when grounding exists", async () => {
@@ -105,7 +109,11 @@ describe("research publication paths", () => {
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       isPublishable: true, publicationPolicyVersion: PUBLICATION_POLICY_VERSION,
       evidence: expect.objectContaining({ model: "fixture" }),
+      inputSnapshot: expect.objectContaining({ symbol: 'BTCUSDT', price: 10, priceChange: 30,
+        venue: 'binance-spot', windowMethod: 'exchange-24h-ticker', referencePrice: null }),
     }));
+    const saved = mocks.create.mock.calls[0][0];
+    expect(saved.inputSnapshotHistory).toEqual([saved.inputSnapshot]);
     expect(mocks.summaryCreate).toHaveBeenCalledTimes(1);
   });
   it("retracts a rejected automated revision even if semantic comparison would say unchanged", async () => {
@@ -113,6 +121,8 @@ describe("research publication paths", () => {
     const service = ResearchService.getInstance();
     const harness = service as unknown as Harness;
     vi.spyOn(harness, "getTopMovers").mockImplementation(async period => period === "24h" ? [{
+      inputSnapshot: snapshot24h({ s: 'BTCUSDT', price: 10, change_24h: 30, volume_usd: 1000000,
+        last_updated: new Date().toISOString(), is_futures: false }),
       symbol: "BTC", name: "Bitcoin", priceChange: 30, price: 10, volume: 1000000, timeframe: "24h",
     }] : []);
     vi.spyOn(harness, "findRecentResearch").mockImplementation(async (_s, _t, hours) =>
@@ -125,11 +135,38 @@ describe("research publication paths", () => {
     await run;
     expect(compare).not.toHaveBeenCalled();
     expect(mocks.update).toHaveBeenCalledWith("old", expect.objectContaining({
-      $set: expect.objectContaining({ isPublishable: false }),
-    }));
+      $set: expect.objectContaining({ isPublishable: false, inputSnapshot: expect.objectContaining({ priceChange: 30 }) }),
+      $push: { inputSnapshotHistory: expect.objectContaining({ priceChange: 30 }) },
+    }), { runValidators: true });
+    const update = mocks.update.mock.calls.find(call => call[1].$push)![1];
+    expect(update.$set.inputSnapshot).toEqual(update.$push.inputSnapshotHistory);
+    expect(update.$set.inputSnapshotHistory).toBeUndefined();
     expect(mocks.retract).toHaveBeenCalledWith({ researchId: "old" }, expect.objectContaining({
       $set: expect.objectContaining({ isPublished: false }),
     }));
+  });
+  it("leaves the published input snapshot alone when new research is not adopted", async () => {
+    vi.useFakeTimers();
+    const service = ResearchService.getInstance();
+    const harness = service as unknown as Harness;
+    vi.spyOn(harness, 'getTopMovers').mockImplementation(async period => period === '24h' ? [{
+      symbol: 'BTCUSDT', name: 'Bitcoin', priceChange: 30, price: 10, volume: 1000000, timeframe: '24h',
+      inputSnapshot: snapshot24h({ s: 'BTCUSDT', price: 10, change_24h: 30, volume_usd: 1000000,
+        last_updated: new Date().toISOString(), is_futures: false }),
+    }] : []);
+    vi.spyOn(harness, 'findRecentResearch').mockImplementation(async (_s, _t, hours) =>
+      hours === 2 ? null : { _id: 'old', priceChange: 1, isPublishable: true,
+        publicationPolicyVersion: PUBLICATION_POLICY_VERSION,
+        researchedAt: new Date(Date.now() - 3 * 3600000) });
+    vi.spyOn(harness, 'hasSignificantEvent').mockResolvedValue({ hasEvent: true, reason: 'Event' });
+    vi.spyOn(harness, 'hasSignificantNewInfo').mockResolvedValue({ hasNewInfo: false, reason: 'Same' });
+    const run = service.runAutomatedResearch();
+    await vi.runAllTimersAsync();
+    await run;
+    expect(mocks.evidence).toHaveBeenCalledTimes(1);
+    expect(mocks.update).toHaveBeenCalledWith('old', { $set: { updatedAt: expect.any(Date) } });
+    expect(mocks.update).toHaveBeenCalledTimes(1);
+    expect(mocks.create).not.toHaveBeenCalled();
   });
   it("filters legacy/rejected stories and uses gated evidence rather than stale summary text", async () => {
     const valid = { ...evaluatePublication(evidence()), evidence: evidence(), publicationPolicyVersion: 1, coinSymbol: "BTC" };

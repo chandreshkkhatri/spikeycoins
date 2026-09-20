@@ -23,6 +23,7 @@ interface DailyCandle {
 }
 
 interface CryptoWith7dChange {
+  referencePrice?: number;
   referenceTime?: string;
   observedAt?: string;
   windowMethod?: 'utc-calendar-7d';
@@ -325,6 +326,7 @@ class DailyCandlestickService {
           if (!Number.isFinite(change_7d)) return [];
 
           return [{
+            referencePrice: oldPrice,
             referenceTime: new Date(sevenDaysAgoMidnight).toISOString(),
             observedAt: ticker.last_updated,
             windowMethod: 'utc-calendar-7d' as const,

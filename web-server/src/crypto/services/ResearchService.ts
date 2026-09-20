@@ -11,10 +11,12 @@ import DataManager from "../core/DataManager";
 import MarketCapService from "./MarketCapService";
 import DailyCandlestickService from "./DailyCandlestickService";
 import logger from "../utils/logger";
+import { snapshot24h, snapshot7d, type ResearchInputSnapshot } from './researchInputSnapshot';
 import { eligibleResearchTicker, directionalMovers, retainResearchHorizons } from "./researchCandidates";
 import { evaluatePublication, searchEntryPoint, PUBLICATION_POLICY_VERSION, type ResearchEvidence } from "./researchPublication";
 
 interface TopMover {
+  inputSnapshot: ResearchInputSnapshot;
   referenceTime?: string;
   observedAt?: string;
   symbol: string;
@@ -26,6 +28,7 @@ interface TopMover {
 }
 
 interface ResearchResult {
+  inputSnapshot: ResearchInputSnapshot;
   evidence: ResearchEvidence;
   publicationPolicyVersion: number;
   coinSymbol: string;
@@ -91,6 +94,7 @@ class ResearchService {
       logger.info(`ResearchService: ${eligible.length} fresh eligible tickers for ${timeframe}`);
       if (timeframe === '24h') {
         return directionalMovers(eligible.map(ticker => ({
+          inputSnapshot: snapshot24h(ticker),
           symbol: ticker.s,
           name: MarketCapService.getMarketCapData(ticker.s)?.coingeckoName || ticker.s.slice(0, -4),
           priceChange: ticker.change_24h,
@@ -110,15 +114,22 @@ class ResearchService {
         const symbol = change.symbol + 'USDT';
         const ticker = bySymbol.get(symbol);
         if (!ticker || !eligibleResearchTicker(ticker, Date.now()) || !Number.isFinite(change.change_7d) ||
-            !Number.isFinite(Number(change.price)) || Number(change.price) <= 0) continue;
+            !Number.isFinite(Number(change.price)) || Number(change.price) <= 0 ||
+            !change.referenceTime || !change.observedAt ||
+            !Number.isFinite(Date.parse(change.referenceTime)) || !Number.isFinite(Date.parse(change.observedAt)) ||
+            !Number.isFinite(Number(change.volume)) || Number(change.volume) < 1000 ||
+            change.referencePrice === undefined || !Number.isFinite(change.referencePrice) || change.referencePrice <= 0) continue;
         candidates.push({
+          inputSnapshot: snapshot7d({ symbol, price: Number(change.price), priceChange: change.change_7d,
+            volume: Number(change.volume), observedAt: change.observedAt,
+            referenceTime: change.referenceTime, referencePrice: change.referencePrice }),
           referenceTime: change.referenceTime,
           observedAt: change.observedAt,
           symbol,
           name: MarketCapService.getMarketCapData(symbol)?.coingeckoName || change.symbol,
           priceChange: change.change_7d,
           price: Number(change.price),
-          volume: ticker.volume_usd,
+          volume: Number(change.volume),
           timeframe,
         });
       }
@@ -328,6 +339,7 @@ Every factual statement in the headline and report must be supported by search e
       const decision = evaluatePublication(evidence);
       return {
         ...decision,
+        inputSnapshot: mover.inputSnapshot,
         coinSymbol: mover.symbol,
         coinName: mover.name,
         priceChange: mover.priceChange,
@@ -437,6 +449,8 @@ Respond with JSON:
       research = { ...research, ...evaluatePublication(research.evidence) };
       // Save research to database
       const researchDoc = await ResearchModel.create({
+        inputSnapshot: research.inputSnapshot,
+        inputSnapshotHistory: [research.inputSnapshot],
         headline: research.headline,
         evidence: research.evidence,
         publicationPolicyVersion: PUBLICATION_POLICY_VERSION,
@@ -677,6 +691,7 @@ Respond with JSON:
               await ResearchModel.findByIdAndUpdate(recentResearch._id, {
                 $set: {
                   headline: newResearch.headline,
+                  inputSnapshot: newResearch.inputSnapshot,
                   evidence: newResearch.evidence,
                   publicationPolicyVersion: PUBLICATION_POLICY_VERSION,
                   priceChange: newResearch.priceChange,
@@ -689,7 +704,8 @@ Respond with JSON:
                   researchedAt: new Date(),
                   updatedAt: new Date(),
                 },
-              });
+                $push: { inputSnapshotHistory: newResearch.inputSnapshot },
+              }, { runValidators: true });
 
               // Update summary if it exists and research is publishable
               if (newResearch.isPublishable) {
@@ -817,6 +833,7 @@ Respond with JSON:
       const coinName = marketCapData?.coingeckoName || normalizedSymbol.replace('USDT', '');
 
       const mover: TopMover = {
+        inputSnapshot: snapshot24h(ticker),
         symbol: normalizedSymbol,
         name: coinName,
         priceChange: ticker.change_24h,
