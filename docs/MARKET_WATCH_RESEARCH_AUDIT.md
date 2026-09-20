@@ -278,3 +278,29 @@ source authority, publication date, primary-source status, event identity or
 price causality. Full source/date verification, factual review, reproducible
 revision history, candidate freshness, return windows, ranking and novelty rules
 are still follow-up work.
+
+## Implementation checkpoint — candidate selection v1
+
+- Automated and manual research require valid positive prices, finite returns,
+  and observations less than five minutes old (future timestamps are rejected).
+- Existing turnover floors are explicit: 1,000 USDT for Spot and 50,000 USDT
+  for Futures-only instruments. These are eligibility floors, not validated
+  execution-liquidity criteria or recommendations.
+- 24h rankings enforce direction, exclude zero/non-finite returns and break
+  ties by symbol. Ineligible rows are removed before ranking.
+- Both 24h and calendar-seven-day candidates survive per-symbol deduplication.
+  This can increase research calls up to the existing combined quota of sixteen
+  instrument/horizon candidates; return magnitudes from different windows no
+  longer compete directly.
+- Newly selected automated candidates use full USDT pair symbols, matching
+  manual research. Recent-research lookup also recognizes legacy stripped
+  symbols; no database migration was performed.
+- Seven-day research ranks the full eligible Spot universe, rather than filtering
+  a pre-truncated top-five list. Futures-only candidates are excluded from this
+  horizon because its history provider currently uses Spot candles.
+
+This checkpoint does not change the public screener's return calculations.
+The calendar-based seven-day reference still spans 168–192 hours; rolling-window
+or explicit calendar-window presentation, venue-correct historical storage,
+durable exclusion reports and event-driven novelty remain open. No live
+research jobs or environment-file reads were performed.

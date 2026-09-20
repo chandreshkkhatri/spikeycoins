@@ -5,6 +5,7 @@ import { evaluatePublication, PUBLICATION_POLICY_VERSION, type ResearchEvidence 
 const mocks = vi.hoisted(() => ({
   evidence: vi.fn(), create: vi.fn(), update: vi.fn(),
   summaryCreate: vi.fn(), retract: vi.fn(), aggregate: vi.fn(),
+  tickers: vi.fn(), weekly: vi.fn(),
 }));
 vi.mock("../utils/aiClient", () => ({ default: class { generateWithEvidence = mocks.evidence; } }));
 vi.mock("../models/Research", () => ({
@@ -15,10 +16,15 @@ vi.mock("../models/Summary", () => ({
 }));
 vi.mock("./DatabaseConnection", () => ({ default: { isConnectionReady: () => true } }));
 vi.mock("../core/DataManager", () => ({
-  default: { getTickerBySymbol: () => ({ price: 10, change_24h: 30, volume_usd: 1000000 }) },
+  default: { getAllTickers: mocks.tickers, getTickerBySymbol: () => ({
+    s: "BTCUSDT", price: 10, change_24h: 30, volume_usd: 1000000,
+    last_updated: new Date().toISOString(), is_futures: false,
+  }) },
 }));
 vi.mock("./MarketCapService", () => ({ default: { getMarketCapData: () => null } }));
-vi.mock("./DailyCandlestickService", () => ({ default: {} }));
+vi.mock("./DailyCandlestickService", () => ({
+  default: { getInstance: () => ({ calculate7dChanges: mocks.weekly }) },
+}));
 vi.mock("../utils/logger", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 function evidence(publish = true): ResearchEvidence {
@@ -55,6 +61,30 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("research publication paths", () => {
+  it("filters stale observations before ranking and keeps only Spot-backed weekly candidates", async () => {
+    const fresh = {
+      s: "BTCUSDT", price: 10, change_24h: 2, volume_usd: 1000000,
+      last_updated: new Date().toISOString(), is_futures: false,
+    };
+    mocks.tickers.mockReturnValue([
+      fresh,
+      { ...fresh, s: "OLDUSDT", change_24h: 99, last_updated: "2000-01-01T00:00:00Z" },
+      { ...fresh, s: "PERPUSDT", is_futures: true },
+    ]);
+    mocks.weekly.mockResolvedValue([
+      { symbol: "BTC", price: "10", change_7d: 5 },
+      { symbol: "OLD", price: "10", change_7d: 99 },
+      { symbol: "PERP", price: "10", change_7d: 50 },
+    ]);
+    const harness = ResearchService.getInstance() as unknown as Harness;
+    expect(await harness.getTopMovers("24h")).toEqual([
+      expect.objectContaining({ symbol: "BTCUSDT" }),
+      expect.objectContaining({ symbol: "PERPUSDT" }),
+    ]);
+    expect(await harness.getTopMovers("7d")).toEqual([
+      expect.objectContaining({ symbol: "BTCUSDT", timeframe: "7d", priceChange: 5 }),
+    ]);
+  });
   it("keeps manual negative research private even when grounding exists", async () => {
     mocks.evidence.mockResolvedValue(evidence(false));
     const result = await ResearchService.getInstance().researchSingleCoin("BTCUSDT");

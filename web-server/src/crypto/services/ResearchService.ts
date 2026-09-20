@@ -11,6 +11,7 @@ import DataManager from "../core/DataManager";
 import MarketCapService from "./MarketCapService";
 import DailyCandlestickService from "./DailyCandlestickService";
 import logger from "../utils/logger";
+import { eligibleResearchTicker, directionalMovers, retainResearchHorizons } from "./researchCandidates";
 import { evaluatePublication, searchEntryPoint, PUBLICATION_POLICY_VERSION, type ResearchEvidence } from "./researchPublication";
 
 interface TopMover {
@@ -83,66 +84,41 @@ class ResearchService {
    */
   private async getTopMovers(timeframe: '24h' | '7d' = '24h'): Promise<TopMover[]> {
     try {
+      const now = Date.now();
+      const eligible = DataManager.getAllTickers().filter(ticker => eligibleResearchTicker(ticker, now));
+      logger.info(`ResearchService: ${eligible.length} fresh eligible tickers for ${timeframe}`);
       if (timeframe === '24h') {
-        // Use 24h data from Binance tickers
-        const tickers = DataManager.getAllTickers();
-
-        if (tickers.length === 0) {
-          logger.warn('ResearchService: No ticker data available');
-          return [];
-        }
-
-        // Filter and format ticker data
-        const formattedData = tickers
-          .map((ticker: any) => ({
-            symbol: ticker.s?.replace('USDT', '') || 'Unknown',
-            name: ticker.s?.replace('USDT', '') || 'Unknown',
-            priceChange: parseFloat(ticker.P || '0'),
-            price: parseFloat(ticker.c || '0'),
-            volume: parseFloat(ticker.q || '0'),
-            timeframe,
-          }))
-          .filter((item: any) => !isNaN(item.priceChange) && item.priceChange !== 0);
-
-        // Sort by price change
-        const sortedByChange = [...formattedData].sort((a, b) => b.priceChange - a.priceChange);
-
-        // Get top 3 gainers and losers (reduced from 5 to optimize quota usage)
-        const topGainers = sortedByChange.slice(0, 3);
-        const topLosers = sortedByChange.slice(-3).reverse();
-
-        return [...topGainers, ...topLosers];
-      } else {
-        // Use 7d data from DailyCandlestickService
-        const dailyCandlestickService = DailyCandlestickService.getInstance();
-        const topMovers7d = await dailyCandlestickService.get7dTopMovers(5);
-        
-        if (!topMovers7d.gainers || !topMovers7d.losers) {
-          logger.warn('ResearchService: No 7d data available');
-          return [];
-        }
-
-        // Format to TopMover interface
-        const formattedGainers: TopMover[] = topMovers7d.gainers.map((item: any) => ({
-          symbol: item.symbol,
-          name: item.name || item.symbol,
-          priceChange: item.change_7d,
-          price: parseFloat(item.price),
-          volume: parseFloat(item.volume),
-          timeframe: '7d',
-        }));
-
-        const formattedLosers: TopMover[] = topMovers7d.losers.map((item: any) => ({
-          symbol: item.symbol,
-          name: item.name || item.symbol,
-          priceChange: item.change_7d,
-          price: parseFloat(item.price),
-          volume: parseFloat(item.volume),
-          timeframe: '7d',
-        }));
-
-        return [...formattedGainers, ...formattedLosers];
+        return directionalMovers(eligible.map(ticker => ({
+          symbol: ticker.s,
+          name: MarketCapService.getMarketCapData(ticker.s)?.coingeckoName || ticker.s.slice(0, -4),
+          priceChange: ticker.change_24h,
+          price: ticker.price,
+          volume: ticker.volume_usd,
+          timeframe,
+        })), 3);
       }
+
+      // Daily history currently comes from Spot. Never attach it to Futures prices.
+      // Calculate the full universe before filtering/ranking so ineligible rows
+      // cannot consume the top-five quota.
+      const changes = await DailyCandlestickService.getInstance().calculate7dChanges();
+      const bySymbol = new Map(eligible.filter(ticker => !ticker.is_futures).map(ticker => [ticker.s, ticker]));
+      const candidates: TopMover[] = [];
+      for (const change of changes) {
+        const symbol = change.symbol + 'USDT';
+        const ticker = bySymbol.get(symbol);
+        if (!ticker || !eligibleResearchTicker(ticker, Date.now()) || !Number.isFinite(change.change_7d) ||
+            !Number.isFinite(Number(change.price)) || Number(change.price) <= 0) continue;
+        candidates.push({
+          symbol,
+          name: MarketCapService.getMarketCapData(symbol)?.coingeckoName || change.symbol,
+          priceChange: change.change_7d,
+          price: Number(change.price),
+          volume: ticker.volume_usd,
+          timeframe,
+        });
+      }
+      return directionalMovers(candidates, 5);
     } catch (error) {
       logger.error('ResearchService: Error getting top movers:', error);
       return [];
@@ -375,7 +351,7 @@ Every factual statement in the headline and report must be supported by search e
       const cutoffTime = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
 
       const recentResearch = await ResearchModel.findOne({
-        coinSymbol,
+        coinSymbol: { $in: [coinSymbol, coinSymbol.endsWith('USDT') ? coinSymbol.slice(0, -4) : coinSymbol] },
         timeframe,
         researchedAt: { $gte: cutoffTime },
       })
@@ -506,25 +482,15 @@ Respond with JSON:
       const topMovers24h = await this.getTopMovers('24h');
       const topMovers7d = await this.getTopMovers('7d');
       
-      // Combine and deduplicate (a coin might be in both lists)
-      const allMoversMap = new Map<string, TopMover>();
-      
-      [...topMovers24h, ...topMovers7d].forEach(mover => {
-        // If coin exists, keep the one with larger absolute change
-        const existing = allMoversMap.get(mover.symbol);
-        if (!existing || Math.abs(mover.priceChange) > Math.abs(existing.priceChange)) {
-          allMoversMap.set(mover.symbol, mover);
-        }
-      });
-      
-      const allMovers = Array.from(allMoversMap.values());
+      // Different return horizons are separate research questions, not comparable scores.
+      const allMovers = retainResearchHorizons([...topMovers24h, ...topMovers7d]);
 
       if (allMovers.length === 0) {
         logger.warn('ResearchService: No top movers found, skipping research');
         return;
       }
 
-      logger.info(`ResearchService: Found ${allMovers.length} unique top movers (${topMovers24h.length} from 24h, ${topMovers7d.length} from 7d)`);
+      logger.info(`ResearchService: Found ${allMovers.length} instrument/horizon candidates (${topMovers24h.length} from 24h, ${topMovers7d.length} from 7d)`);
 
       // Phase 1: Pre-screen all coins to find those with significant events
       // First, check for recent research to skip coins that don't need pre-screening
@@ -834,6 +800,10 @@ Respond with JSON:
       const ticker = DataManager.getTickerBySymbol(normalizedSymbol);
       if (!ticker) {
         return { success: false, error: `Symbol ${normalizedSymbol} not found in active tickers` };
+      }
+
+      if (!eligibleResearchTicker(ticker, Date.now())) {
+        return { success: false, error: 'Research requires a fresh, valid ticker with sufficient observed turnover' };
       }
 
       // Get coin name from MarketCapService
