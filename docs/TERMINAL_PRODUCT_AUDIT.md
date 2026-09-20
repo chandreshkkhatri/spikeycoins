@@ -100,11 +100,39 @@ T-01 and T-04 are implemented:
 - Mocked component tests cover both venues, invalid/stale messages, reconnects,
   pending updates, symbol switches, unmount cleanup and unsupported accounts.
 
-The rest of the first slice remains open: independent selected-symbol quotes,
-verified funds/rules readiness, removal of guessed sizing, and explicit
-account/order-bound protection retries (T-02, T-03, T-05). This checkpoint does
-not make the complete live-order journey release-ready. No live orders were
-placed during verification.
+### Implementation checkpoint: funds and readiness
+
+T-02 now has an explicit source-scoped funds/rules gate:
+
+- Available balance zero remains zero; missing/invalid funds are unavailable,
+  never substituted with equity or a $1,000 balance.
+- Percentage sizing requires verified positive funds; new positions cannot be
+  submitted with zero funds. Verified zero funds do not block reduce-only orders.
+- Summary source time survives cache hits. Readiness expires after 90 seconds,
+  is disabled during refresh/errors, and is rechecked at submission time.
+- Account/symbol mismatches and late old-account responses cannot grant readiness.
+  Cached local-storage balances/rules are not authoritative.
+- Synchronizing the selected order account also clears old retry state; protection
+  retries carry the originating account ID and refuse mismatched account/symbols.
+  Late entry responses and order-level recovery still need the full T-05 contract.
+- Summary cache hits await the actual result. Exchange filters and leverage
+  brackets no longer silently become fallback rules for trading.
+- Quantities start/reset empty and percentage sizing rounds down to the lot step;
+  oversized margin requests and non-finite inputs
+  are rejected. Unavailable funds and the blocking reason are visible.
+- Unsupported/missing verified rules deliberately disable this form. Currently
+  the verified summary contract supports Binance Futures; Spot and Upstox need
+  equivalent instrument-rule support before this form enables their orders.
+
+Verification: 161 UI tests, 125 backend tests, both type checks, and an isolated
+browser fixture covering zero funds followed by a verified refresh. Existing
+lint debt remains in the large order-form/context files; new readiness/test
+modules pass lint. No live orders were placed.
+
+Still open: independently fresh selected-symbol quotes (T-03) and full
+account/order-bound drafts, in-flight submissions and protection retries (T-05).
+Readiness scope protection is not a substitute for that retry contract. The
+complete live-order journey is not yet release-ready.
 
 Keep responsive workspace consolidation and navigation fixes after that
 foundation; revisit positions/bulk-close outcome recovery subsequently.

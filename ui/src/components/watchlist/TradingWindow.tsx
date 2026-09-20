@@ -16,6 +16,7 @@ import { useDebouncedCallback } from "@/lib/use-debounce";
 import { AlertTriangle, HelpCircle, RefreshCw, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MarketDepth from "./MarketDepth";
+import { tradingReadinessReason } from "./trading-readiness";
 import MultiTimeframeChart from "./MultiTimeframeChart";
 import TradingPanelTabs from "./TradingPanelTabs";
 
@@ -55,6 +56,7 @@ interface OrderForm {
 }
 
 interface RetryState {
+  accountId: string;
   symbol: string;
   quantity: number;
   originalSide: "BUY" | "SELL";
@@ -89,6 +91,8 @@ export function useTradingWindow({
     setActiveSymbol,
     loading: contextLoading,
     lastRefresh: contextLastRefresh,
+    dataScope,
+    error: contextError,
   } = useTradingData();
 
   // Check if user is authenticated for demo trading restrictions
@@ -101,7 +105,7 @@ export function useTradingWindow({
     accountId: selectedAccount?._id || accounts[0]?._id || "",
     side: "BUY",
     type: "LIMIT",
-    quantity: "0.001",
+    quantity: "",
     price: currentPrice.toFixed(2), // Initial value, will be updated by effect
     stopPrice: "",
     leverage: "1",
@@ -112,11 +116,26 @@ export function useTradingWindow({
 
   const [positionSizePercentage, setPositionSizePercentage] = useState(1);
   // Track the last percentage that was applied to quantity, so the effect fires on mount (initial value of 1)
-  const lastAppliedPercentage = useRef<number | null>(null);
+  const lastAppliedPercentage = useRef<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [availableBalance, setAvailableBalance] = useState<number>(0);
+  const [readinessNow, setReadinessNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setReadinessNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const readinessInput = {
+    accountId: selectedAccount?._id, symbol, authenticated: isLoggedIn,
+    loading: contextLoading, error: contextError, scope: dataScope,
+    funds: contextAccountDetails?.availableBalance, rules: contextSymbolInfo,
+  };
+  const dataReadinessReason = tradingReadinessReason(readinessInput, readinessNow);
+  const availableBalance = dataReadinessReason ? 0 : contextAccountDetails!.availableBalance;
+  const readinessReason = dataReadinessReason ||
+    (orderForm.accountId !== selectedAccount?._id ? "Waiting for the selected account." : null) ||
+    (!orderForm.reduceOnly && availableBalance === 0 ? "No available funds for a new position." : null);
+  const canSize = !dataReadinessReason && availableBalance > 0;
   const [hasUserEditedSL, setHasUserEditedSL] = useState(false);
   const [hasUserEditedTP, setHasUserEditedTP] = useState(false);
   const [hasUserEditedPrice, setHasUserEditedPrice] = useState(false);
@@ -214,7 +233,8 @@ export function useTradingWindow({
     // Sync account details from context
     if (contextAccountDetails) {
       setAccountDetails(contextAccountDetails);
-      setAvailableBalance(contextAccountDetails.availableBalance || contextAccountDetails.equity || 0);
+    } else {
+      setAccountDetails(null);
     }
 
     // Sync symbol info from context
@@ -223,7 +243,7 @@ export function useTradingWindow({
       setStepSize(contextSymbolInfo.stepSize);
       setMinQty(contextSymbolInfo.minQty || 0);
       setMinNotional(contextSymbolInfo.minNotional || 0);
-      setExchangeMaxLeverage(contextSymbolInfo.maxLeverage);
+      setExchangeMaxLeverage(Number.isFinite(contextSymbolInfo.maxLeverage) ? contextSymbolInfo.maxLeverage : 1);
     }
 
     // Sync last refresh time
@@ -235,6 +255,9 @@ export function useTradingWindow({
   // Reset synced state when symbol or account changes
   useEffect(() => {
     hasSyncedLeverage.current = false;
+    setRetryState(null);
+    lastAppliedPercentage.current = null;
+    setOrderForm(prev => ({ ...prev, accountId: selectedAccount?._id || '' }));
     setHasUserEditedPrice(false);
     setHasUserEditedSL(false);
     setHasUserEditedTP(false);
@@ -343,14 +366,14 @@ export function useTradingWindow({
     }
   };
 
-  // Helper to round value to nearest step size
+  // Round quantities down so sizing never spends more than its funds allocation.
   const roundToStep = (value: number, step: string): string => {
     const stepNum = parseFloat(step);
     if (stepNum <= 0 || isNaN(stepNum)) return value.toFixed(8);
     const decimals = step.includes(".")
       ? step.split(".")[1].replace(/0+$/, "").length
       : 0;
-    const rounded = Math.round(value / stepNum) * stepNum;
+    const rounded = Math.floor(value / stepNum) * stepNum;
     return rounded.toFixed(decimals);
   };
 
@@ -1063,6 +1086,7 @@ export function useTradingWindow({
   ]);
 
   const setQuickQuantity = (percentage: number) => {
+    if (!canSize || tradingReadinessReason(readinessInput, Date.now())) return;
     const limitPrice = parseFloat(orderForm.price);
     const referencePrice =
       orderForm.type === "LIMIT" && Number.isFinite(limitPrice) && limitPrice > 0
@@ -1083,19 +1107,16 @@ export function useTradingWindow({
       return;
     }
 
-    // Fallback if balance not available
-    const baseAmount = 1000;
-    const rawQuantity = (baseAmount * leverage / referencePrice) * (percentage / 100);
-    const quantity = roundToStep(rawQuantity, stepSize);
-    handleInputChange("quantity", quantity);
+
   };
 
   // Recalculate quantity whenever position size percentage changes, OR on the first render
   // with a valid price (ensures the 1% default is applied on mount).
   useEffect(() => {
-    if (positionSizePercentage <= 0) return;
+    if (!canSize || positionSizePercentage <= 0) return;
     // Only recalculate if the percentage has actually changed since last time we applied it
-    if (lastAppliedPercentage.current === positionSizePercentage) return;
+    const sizingKey = `${selectedAccount?._id}:${symbol}:${positionSizePercentage}:${availableBalance}:${orderForm.leverage}:${stepSize}`;
+    if (lastAppliedPercentage.current === sizingKey) return;
 
     const limitPrice = parseFloat(orderForm.price);
     const referencePrice =
@@ -1107,17 +1128,20 @@ export function useTradingWindow({
 
     const leverage = parseFloat(orderForm.leverage) || 1;
     const maxPositionValue =
-      availableBalance > 0 ? availableBalance * leverage : 1000 * leverage;
+      availableBalance * leverage;
     const rawQuantity = (maxPositionValue / referencePrice) * (positionSizePercentage / 100);
     const nextQuantity = roundToStep(rawQuantity, stepSize);
 
-    lastAppliedPercentage.current = positionSizePercentage;
+    lastAppliedPercentage.current = sizingKey;
     setOrderForm((prev) => {
       if (prev.quantity === nextQuantity) return prev;
       return { ...prev, quantity: nextQuantity };
     });
   }, [
     positionSizePercentage,
+    canSize,
+    selectedAccount?._id,
+    symbol,
     orderForm.leverage,
     orderForm.type,
     orderForm.price,
@@ -1133,31 +1157,54 @@ export function useTradingWindow({
       return;
     }
 
+    const blocked = tradingReadinessReason(readinessInput, Date.now()) || readinessReason;
+    if (blocked) {
+      setError(blocked);
+      return;
+    }
+
     if (!orderForm.accountId) {
       setError("Please select a trading account");
       return;
     }
 
-    if (!orderForm.quantity || parseFloat(orderForm.quantity) <= 0) {
+    if (!Number.isFinite(Number(orderForm.quantity)) || Number(orderForm.quantity) <= 0) {
       setError("Please enter a valid quantity");
       return;
     }
 
     // Mandatory Stop Loss check
-    if (!orderForm.stopLoss || parseFloat(orderForm.stopLoss) <= 0) {
+    if (!Number.isFinite(Number(orderForm.stopLoss)) || Number(orderForm.stopLoss) <= 0) {
       setError("Stop Loss is mandatory for risk management");
       return;
     }
 
     if (
       orderForm.type === "LIMIT" &&
-      (!orderForm.price || parseFloat(orderForm.price) <= 0)
+      (!Number.isFinite(Number(orderForm.price)) || Number(orderForm.price) <= 0)
     ) {
       setError("Please enter a valid price");
       return;
     }
 
+    const entryPrice = orderForm.type === "LIMIT" ? Number(orderForm.price) : currentPrice;
+    const leverage = Number(orderForm.leverage);
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0 ||
+        !Number.isFinite(leverage) || leverage <= 0 || leverage > contextSymbolInfo.maxLeverage) {
+      setError("A valid price and leverage are required.");
+      return;
+    }
+    if (!orderForm.reduceOnly && Number(orderForm.quantity) * entryPrice / leverage > availableBalance) {
+      setError("Order size exceeds available funds. Reduce the quantity.");
+      return;
+    }
+    if (orderForm.takeProfit && (!Number.isFinite(Number(orderForm.takeProfit)) || Number(orderForm.takeProfit) <= 0)) {
+      setError("Please enter a valid take profit price");
+      return;
+    }
+
     // Validate minimum quantity and notional value
+    const { minQty, minNotional } = contextSymbolInfo;
     const quantity = parseFloat(orderForm.quantity);
     if (minQty > 0 && quantity < minQty) {
       setError(
@@ -1260,6 +1307,7 @@ export function useTradingWindow({
 
         if (failedTypes.length > 0) {
           setRetryState({
+            accountId: orderForm.accountId,
             symbol,
             quantity: parseFloat(orderForm.quantity),
             originalSide: orderForm.side,
@@ -1273,7 +1321,7 @@ export function useTradingWindow({
           setRetryState(null);
           setOrderForm((prev) => ({
             ...prev,
-            quantity: "0.001",
+            quantity: "",
             price: currentPrice.toFixed(
               tickSize.includes(".")
                 ? tickSize.split(".")[1].replace(/0+$/, "").length
@@ -1290,7 +1338,7 @@ export function useTradingWindow({
         setRetryState(null);
         setOrderForm((prev) => ({
           ...prev,
-          quantity: "0.001",
+          quantity: "",
           price: currentPrice.toFixed(
             tickSize.includes(".")
               ? tickSize.split(".")[1].replace(/0+$/, "").length
@@ -1318,6 +1366,10 @@ export function useTradingWindow({
 
   const handleRetrySlTp = async () => {
     if (!retryState || !orderForm.accountId) return;
+    if (retryState.accountId !== selectedAccount?._id || retryState.symbol !== symbol) {
+      setError("Return to the original account and instrument to review protection orders.");
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -1345,7 +1397,7 @@ export function useTradingWindow({
         // SL is opposite side of entry
         const slSide = originalSide === "BUY" ? "SELL" : "BUY";
         inputsToRetry.push({
-          accountId: orderForm.accountId,
+          accountId: retryState.accountId,
           symbol: rSymbol,
           side: slSide,
           type: "STOP_MARKET",
@@ -1360,7 +1412,7 @@ export function useTradingWindow({
         // TP is opposite side of entry
         const tpSide = originalSide === "BUY" ? "SELL" : "BUY";
         inputsToRetry.push({
-          accountId: orderForm.accountId,
+          accountId: retryState.accountId,
           symbol: rSymbol,
           side: tpSide,
           type: "TAKE_PROFIT_MARKET",
@@ -1397,7 +1449,7 @@ export function useTradingWindow({
         // Reset form now that everything is done
         setOrderForm((prev) => ({
           ...prev,
-          quantity: "0.001",
+          quantity: "",
           price: currentPrice.toFixed(
             tickSize.includes(".")
               ? tickSize.split(".")[1].replace(/0+$/, "").length
@@ -1553,6 +1605,9 @@ export function useTradingWindow({
     handleTpSliderChange,
     handleUserMaxLeverageChange,
     isConfigDirty,
+    readinessReason,
+    dataReadinessReason,
+    canSize,
     isDemoTradingBlocked,
     isLogarithmicSlider,
     isRefreshingDetails,
@@ -1622,6 +1677,9 @@ const TradingWindow = memo(function TradingWindow(props: TradingWindowProps) {
     handleTpSliderChange,
     handleUserMaxLeverageChange,
     isConfigDirty,
+    readinessReason,
+    dataReadinessReason,
+    canSize,
     isDemoTradingBlocked,
     isLogarithmicSlider,
     isRefreshingDetails,
@@ -1793,6 +1851,7 @@ const TradingWindow = memo(function TradingWindow(props: TradingWindowProps) {
                       : positionSizePercentage * 100,
                   ]}
                   onValueChange={handleSliderChange}
+                  disabled={!canSize}
                   onValueCommit={handleSliderCommit}
                   max={10000}
                   step={1}
@@ -2074,7 +2133,7 @@ const TradingWindow = memo(function TradingWindow(props: TradingWindowProps) {
                 </div>
                 <div className="summary-row">
                   <span>Available:</span>
-                  <span>${availableBalance.toFixed(2)}</span>
+                  <span>{dataReadinessReason ? "Unavailable" : "$" + availableBalance.toFixed(2)}</span>
                 </div>
               </div>
             </div>
@@ -2098,11 +2157,12 @@ const TradingWindow = memo(function TradingWindow(props: TradingWindowProps) {
             )}
             {success && <div className="success-message">{success}</div>}
 
+            {readinessReason && <p role="status" className="text-xs text-amber-600 mb-2">{readinessReason}</p>}
             {/* Submit Button */}
             <Button
               variant={orderForm.side === "BUY" ? "success" : "danger"}
               size="sm"
-              disabled={isSubmitting || isDemoTradingBlocked}
+              disabled={isSubmitting || isDemoTradingBlocked || !!readinessReason}
               onClick={submitOrder}
               className="w-full"
             >
@@ -2341,7 +2401,7 @@ const TradingWindow = memo(function TradingWindow(props: TradingWindowProps) {
                 </div>
 
                 {/* Account Details */}
-                {accountDetails && (
+                {!dataReadinessReason && accountDetails && (
                   <div className="bg-card p-3 rounded-md text-xs space-y-1.5 border shadow-sm">
                     <div className="font-medium text-muted-foreground mb-1 text-[1rem]">
                       Account Info

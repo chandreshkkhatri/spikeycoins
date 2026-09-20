@@ -18,6 +18,7 @@ const createDefaultTradingData = () => ({
     unrealizedPNL: 15,
   },
   symbolInfo: {
+    verified: true,
     tickSize: "0.01",
     stepSize: "0.001",
     minQty: 0,
@@ -29,6 +30,8 @@ const createDefaultTradingData = () => ({
   setActiveSymbol: vi.fn(),
   loading: false,
   lastRefresh: null,
+  dataScope: { accountId: "acc-binance", symbol: "BTCUSDT", asOf: Date.now() - 10 },
+  error: null,
 });
 
 const mockTradingData = createDefaultTradingData();
@@ -97,6 +100,7 @@ function resetMockTradingData(overrides: TradingDataOverrides = {}) {
   mockTradingData.setActiveSymbol = overrides.setActiveSymbol ?? vi.fn();
   mockTradingData.loading = overrides.loading ?? defaults.loading;
   mockTradingData.lastRefresh = overrides.lastRefresh ?? defaults.lastRefresh;
+  mockTradingData.dataScope = overrides.dataScope ?? defaults.dataScope;
 }
 
 function seedManualOrderEntry(options: { userMaxLeverage?: number } = {}) {
@@ -199,8 +203,51 @@ describe("TradingWindow", () => {
     await user.click(screen.getByRole("button", { name: /buy btcusdt/i }));
 
     expect(
-      await screen.findByText("Please select a trading account")
+      await screen.findByText("Select a trading account.")
     ).toBeInTheDocument();
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it("preserves zero available funds instead of using equity or guessed sizing", () => {
+    resetMockTradingData({ accountDetails: { availableBalance: 0, equity: 5000 } });
+    renderTradingWindow();
+    expect(screen.getByRole("button", { name: /buy btcusdt/i })).toBeDisabled();
+    expect(screen.getByText("No available funds for a new position.")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("0.001")).toHaveValue(null);
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  it("rounds percentage quantities down to stay within the allocation", async () => {
+    seedManualOrderEntry({ userMaxLeverage: 2 });
+    resetMockTradingData({ accountDetails: { availableBalance: 999.5 } });
+    renderTradingWindow();
+    await waitFor(() => expect(screen.getByPlaceholderText("0.001")).toHaveValue(0));
+  });
+
+  it.each(["missing", "stale", "account", "symbol", "rules", "loading"])(
+    "blocks sizing and submission for %s account inputs", (scenario) => {
+      resetMockTradingData();
+      if (scenario === "missing") mockTradingData.accountDetails.availableBalance = NaN;
+      if (scenario === "stale") mockTradingData.dataScope.asOf = Date.now() - 91000;
+      if (scenario === "account") mockTradingData.dataScope.accountId = "other-account";
+      if (scenario === "symbol") mockTradingData.dataScope.symbol = "ETHUSDT";
+      if (scenario === "rules") mockTradingData.symbolInfo.verified = false;
+      if (scenario === "loading") mockTradingData.loading = true;
+      renderTradingWindow();
+      expect(screen.getByRole("button", { name: /buy btcusdt/i })).toBeDisabled();
+      expect(screen.getByRole("status")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("0.001")).toHaveValue(null);
+      expect(postSpy).not.toHaveBeenCalled();
+    }
+  );
+
+  it("rejects an order whose required margin exceeds available funds", async () => {
+    seedManualOrderEntry();
+    const user = userEvent.setup();
+    renderTradingWindow();
+    await fillManualLimitOrder(user, { quantity: "100" });
+    await user.click(screen.getByRole("button", { name: /buy btcusdt/i }));
+    expect(await screen.findByText("Order size exceeds available funds. Reduce the quantity.")).toBeInTheDocument();
     expect(postSpy).not.toHaveBeenCalled();
   });
 
@@ -342,7 +389,7 @@ describe("TradingWindow", () => {
     expect(onOrderPlaced).toHaveBeenCalledTimes(1);
 
     await waitFor(() => {
-      expect(quantityInput.value).toBe("0.001");
+      expect(quantityInput.value).toBe("");
       expect(priceInput.value).toBe("20000");
       expect(stopLossInput.value).toBe("");
       expect(takeProfitInput.value).toBe("");
@@ -418,7 +465,7 @@ describe("TradingWindow", () => {
     ]);
 
     await waitFor(() => {
-      expect(quantityInput.value).toBe("0.001");
+      expect(quantityInput.value).toBe("");
     });
     expect(
       screen.queryByRole("button", { name: /retry sl\/tp orders/i })
@@ -518,6 +565,7 @@ describe("TradingWindow", () => {
       expect(
         screen.getByText("Min notional: $50 (at 20000.00 price)")
       ).toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
       expect(screen.getAllByText("$2500.00").length).toBeGreaterThan(0);
     });
   });

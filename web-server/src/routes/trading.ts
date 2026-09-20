@@ -55,7 +55,7 @@ router.get(
         "Cache-Control": "private, max-age=5, stale-while-revalidate=10",
         "X-Cache": "HIT",
       });
-      return res.json(cached);
+      return res.json(await cached);
     }
 
     const fetchPromise = (async () => {
@@ -66,6 +66,7 @@ router.get(
         accountDetails: any | null;
         symbolInfo: any | null;
         accountType: string;
+        asOf: number;
       } = {
         success: true,
         positions: [],
@@ -73,6 +74,7 @@ router.get(
         accountDetails: null,
         symbolInfo: null,
         accountType: account.accountType,
+        asOf: Date.now(),
       };
 
       if (account.accountType === "binance") {
@@ -156,16 +158,17 @@ router.get(
                 (f: any) => f.filterType === "MIN_NOTIONAL"
               );
 
-              let maxLeverage = 125;
-              if (leverageBrackets && Array.isArray(leverageBrackets) && leverageBrackets.length > 0) {
-                maxLeverage = leverageBrackets[0]?.initialLeverage || 125;
-              }
+              const bracket = Array.isArray(leverageBrackets)
+                ? leverageBrackets.find((item: { symbol: string }) => item.symbol === symbol)
+                : leverageBrackets;
+              const maxLeverage = bracket?.brackets?.[0]?.initialLeverage;
 
               response.symbolInfo = {
-                tickSize: priceFilter?.tickSize || "0.01",
-                stepSize: lotSizeFilter?.stepSize || "0.001",
-                minQty: parseFloat(lotSizeFilter?.minQty || "0"),
-                minNotional: parseFloat(minNotionalFilter?.notional || minNotionalFilter?.minNotional || "0"),
+                verified: !!priceFilter && !!lotSizeFilter && !!minNotionalFilter,
+                tickSize: priceFilter?.tickSize,
+                stepSize: lotSizeFilter?.stepSize,
+                minQty: parseFloat(lotSizeFilter?.minQty),
+                minNotional: parseFloat(minNotionalFilter?.notional ?? minNotionalFilter?.minNotional),
                 maxLeverage,
               };
             }

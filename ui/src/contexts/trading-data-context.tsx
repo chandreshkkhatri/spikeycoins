@@ -6,6 +6,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -53,6 +54,7 @@ interface AccountDetails {
 }
 
 interface SymbolInfo {
+  verified?: boolean;
   tickSize: string;
   stepSize: string;
   minQty: number;
@@ -68,6 +70,8 @@ interface TradingDataContextType {
   symbolInfo: SymbolInfo;
   existingPosition: Position | null;
   
+  // Verified source scope; local-storage hydration never grants readiness.
+  dataScope: { accountId: string; symbol: string; asOf: number } | null;
   // Loading states
   loading: boolean;
   error: string | null;
@@ -115,6 +119,7 @@ const ACCOUNT_CACHE_STALE_TTL = 60000; // 60 seconds - serve stale data while re
 
 // Cache for aggregated summary data
 interface SummaryCache {
+  asOf: number;
   positions: Position[];
   orders: Order[];
   accountDetails: AccountDetails | null;
@@ -195,10 +200,17 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<number | null>(null);
+  const [dataScope, setDataScope] = useState<TradingDataContextType['dataScope']>(null);
+  const scopeKey = `${selectedAccount?._id}:${activeSymbol}:${isLoggedIn}:${authLoading}`;
+  const currentScope = useRef(scopeKey);
+  useLayoutEffect(() => {
+    currentScope.current = scopeKey;
+    return () => { currentScope.current = ""; };
+  }, [scopeKey]);
   
   // Refs for deduplication
-  const fetchInProgress = useRef(false);
-  const lastFetchTime = useRef(0);
+  const fetchInProgress = useRef<string | null>(null);
+  const lastFetchTime = useRef({ key: '', at: 0 });
   const MIN_FETCH_INTERVAL = 1000; // 1 second between fetches
   
   // Derived: existing position for active symbol
@@ -436,7 +448,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
 
         const accountDetails = acctData ? {
           equity: acctData.equity || 0,
-          availableBalance: acctData.availableBalance || acctData.equity || 0,
+          availableBalance: acctData.availableBalance ?? Number.NaN,
           totalMargin: acctData.totalMargin,
         } : null;
 
@@ -494,6 +506,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
     account: TradingAccount,
     symbol: string
   ): Promise<{
+    asOf: number;
     positions: Position[];
     orders: Order[];
     accountDetails: AccountDetails | null;
@@ -506,6 +519,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
     const cached = SUMMARY_CACHE.get(cacheKey);
     if (cached && (now - cached.timestamp) < SUMMARY_CACHE_TTL) {
       return {
+        asOf: cached.asOf,
         positions: cached.positions,
         orders: cached.orders,
         accountDetails: cached.accountDetails,
@@ -515,6 +529,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
 
     // Check if already fetching
     let promise = DATA_PROMISE_CACHE.get(cacheKey) as Promise<{
+      asOf: number;
       positions: Position[];
       orders: Order[];
       accountDetails: AccountDetails | null;
@@ -525,6 +540,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
       // Return cached data while waiting if available
       if (cached) {
         return {
+          asOf: cached.asOf,
           positions: cached.positions,
           orders: cached.orders,
           accountDetails: cached.accountDetails,
@@ -546,6 +562,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
         const data = response.data;
         if (!data?.success) {
           return {
+            asOf: 0,
             positions: [],
             orders: [],
             accountDetails: null,
@@ -612,21 +629,24 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
         // Transform account details
         const accountDetails: AccountDetails | null = data.accountDetails ? {
           equity: data.accountDetails.equity || 0,
-          availableBalance: data.accountDetails.availableBalance || 0,
+          availableBalance: data.accountDetails.availableBalance ?? Number.NaN,
           totalMargin: data.accountDetails.totalMargin,
         } : null;
 
         // Transform symbol info
         const symbolInfo: SymbolInfo = data.symbolInfo ? {
-          tickSize: data.symbolInfo.tickSize || DEFAULT_SYMBOL_INFO.tickSize,
-          stepSize: data.symbolInfo.stepSize || DEFAULT_SYMBOL_INFO.stepSize,
-          minQty: data.symbolInfo.minQty || DEFAULT_SYMBOL_INFO.minQty,
-          minNotional: data.symbolInfo.minNotional || DEFAULT_SYMBOL_INFO.minNotional,
-          maxLeverage: data.symbolInfo.maxLeverage || DEFAULT_SYMBOL_INFO.maxLeverage,
+          verified: data.symbolInfo.verified === true,
+          tickSize: String(data.symbolInfo.tickSize ?? ""),
+          stepSize: String(data.symbolInfo.stepSize ?? ""),
+          minQty: data.symbolInfo.minQty,
+          minNotional: data.symbolInfo.minNotional,
+          maxLeverage: data.symbolInfo.maxLeverage,
         } : DEFAULT_SYMBOL_INFO;
 
+        const asOf = typeof data.asOf === 'number' ? data.asOf : 0;
         // Cache the result
         SUMMARY_CACHE.set(cacheKey, {
+          asOf,
           positions,
           orders,
           accountDetails,
@@ -642,7 +662,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
           });
         }
 
-        return { positions, orders, accountDetails, symbolInfo };
+        return { positions, orders, accountDetails, symbolInfo, asOf };
       } finally {
         setTimeout(() => DATA_PROMISE_CACHE.delete(cacheKey), SUMMARY_CACHE_TTL);
       }
@@ -676,21 +696,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
     if (cachedData) {
       setPositions(cachedData.positions || []);
       setOrders(cachedData.orders || []);
-      setAccountDetails(cachedData.accountDetails);
-      // Only restore symbolInfo if it matches the active symbol (since it's symbol-specific)
-      // Actually, symbolInfo is per-symbol, so we might want to cache it separately or just use defaults until fetch
-      // For now, let's trust the cache if we just loaded the page and activeSymbol matches what was cached? 
-      // Simpler: Just rely on the separate symbolInfo cache we'll build in Phase 3. 
-      // For this phase, let's persist the basic account data.
-    }
-    
-    // Also try to load symbol-specific info if available
-    if (activeSymbol) {
-      const symbolCacheKey = `spikeyCoins_symbolInfo_${activeSymbol}`;
-      const cachedSymbolInfo = localCache.get<SymbolInfo>(symbolCacheKey);
-      if (cachedSymbolInfo) {
-        setSymbolInfo(cachedSymbolInfo);
-      }
+      // Funds and rules must come from the scoped summary, never local storage.
     }
   }, [selectedAccount, selectedAccount?._id, activeSymbol]);
 
@@ -775,7 +781,10 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
   // ============================================================================
 
   const refreshAll = useCallback(async () => {
+    const requestScope = scopeKey;
+    if (currentScope.current !== requestScope) return;
     if (!selectedAccount) {
+      setDataScope(null);
       setPositions([]);
       setOrders([]);
       setAccountDetails(null);
@@ -785,6 +794,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
 
     // Do not fetch private account trading data while auth is settling or if user is not signed in
     if (authLoading || !isLoggedIn) {
+      setDataScope(null);
       setPositions([]);
       setOrders([]);
       setAccountDetails(null);
@@ -794,11 +804,11 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
 
     // Prevent duplicate fetches
     const now = Date.now();
-    if (fetchInProgress.current) return;
-    if (now - lastFetchTime.current < MIN_FETCH_INTERVAL) return;
+    if (fetchInProgress.current === requestScope) return;
+    if (lastFetchTime.current.key === requestScope && now - lastFetchTime.current.at < MIN_FETCH_INTERVAL) return;
 
-    fetchInProgress.current = true;
-    lastFetchTime.current = now;
+    fetchInProgress.current = requestScope;
+    lastFetchTime.current = { key: requestScope, at: now };
     setLoading(true);
     setError(null);
 
@@ -806,12 +816,12 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
       // Use aggregated endpoint for Binance accounts (single API call instead of 3)
       if (selectedAccount.accountType === 'binance' && activeSymbol) {
         const summaryData = await fetchTradingSummary(selectedAccount, activeSymbol);
+        if (currentScope.current !== requestScope) return;
+        setDataScope({ accountId: selectedAccount._id, symbol: activeSymbol, asOf: summaryData.asOf });
 
         setPositions(summaryData.positions);
         setOrders(summaryData.orders);
-        if (summaryData.accountDetails) {
-          setAccountDetails(summaryData.accountDetails);
-        }
+        setAccountDetails(summaryData.accountDetails);
         setSymbolInfo(summaryData.symbolInfo);
       } else {
         // Fallback to separate calls for non-Binance accounts or when no symbol
@@ -821,6 +831,10 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
           activeSymbol ? fetchAccountDetails(selectedAccount, activeSymbol) : Promise.resolve({ accountDetails: null, symbolInfo: DEFAULT_SYMBOL_INFO, position: null }),
         ]);
 
+        if (currentScope.current !== requestScope) return;
+        // Fallback endpoints do not supply verified symbol rules/source freshness.
+        setDataScope(null);
+        setAccountDetails(detailsData.accountDetails);
         setPositions(positionsData);
         setOrders(ordersData);
 
@@ -834,14 +848,16 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
 
       setLastRefresh(Date.now());
     } catch (err) {
+      if (currentScope.current !== requestScope) return;
+      setDataScope(null);
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch trading data';
       setError(errorMessage);
       console.error('TradingDataContext refresh error:', err);
     } finally {
-      fetchInProgress.current = false;
-      setLoading(false);
+      if (fetchInProgress.current === requestScope) fetchInProgress.current = null;
+      if (currentScope.current === requestScope) setLoading(false);
     }
-  }, [selectedAccount, activeSymbol, isLoggedIn, authLoading, fetchPositions, fetchOrders, fetchAccountDetails, fetchTradingSummary]);
+  }, [scopeKey, selectedAccount, activeSymbol, isLoggedIn, authLoading, fetchPositions, fetchOrders, fetchAccountDetails, fetchTradingSummary]);
   
   // ============================================================================
   // Effects
@@ -867,6 +883,7 @@ export const TradingDataProvider: React.FC<TradingDataProviderProps> = ({ childr
     loading,
     error,
     lastRefresh,
+    dataScope: dataScope?.accountId === selectedAccount?._id && dataScope?.symbol === activeSymbol && isLoggedIn && !authLoading ? dataScope : null,
     refreshAll,
     setActiveSymbol,
     activeSymbol,
