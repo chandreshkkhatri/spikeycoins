@@ -2,6 +2,10 @@
 
 This backlog lists prioritized engineering tasks, bugs, and feature requests.
 
+**Current focus: Market Watch.** Remaining Terminal work (BG-031–BG-034)
+is deferred until explicitly resumed. Deferral does not remove its safety
+priority or imply that the live-order journey is release-ready.
+
 ---
 
 ## 🔴 High Priority
@@ -15,6 +19,9 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-005** | Performance| Implement connection heartbeat monitoring for Upstox WebSocket streams. | `web-server` / WebSocket | 🟥 To Do |
 | **BG-017** | Security | Tighten CORS: replace the `*.vercel.app` wildcard origin with an explicit allow-list. Deferred from the Sprint-0 audit. See [sprint-1-iteration-1.md](sprints/sprint-1-iteration-1.md). | `web-server` / config | ✅ Done |
 | **BG-018** | Security | Auth-route ownership checks — verify the authenticated user owns the `accountId` they act on. Already enforced by `requireAccountAccess` (`auth-middleware.ts`) across account routes + inline in `historical-data.ts`; confirmed during Sprint-1 planning. | `web-server` / `routes` | ✅ Done |
+| **BG-031** | Reliability | Load fresh selected-instrument quotes independently of watchlist membership; explicitly handle missing/stale quotes. Audit T-03. | `ui` / Terminal feeds | ⏸ Deferred — Market Watch focus |
+| **BG-032** | Execution Safety | Bind in-flight submissions and SL/TP recovery to the originating account, instrument and order; safely handle switches, late responses and partial failures. Audit T-05. | `ui` / Terminal order entry | ⏸ Deferred — Market Watch focus |
+| **BG-033** | Execution Safety | Provide verified Spot/Upstox instrument rules and matching funds/venue provenance so their Terminal order forms can safely re-enable. Follow-up to audit T-02. | `ui` / `web-server` / broker adapters | ⏸ Deferred — Market Watch focus |
 
 ---
 
@@ -39,6 +46,7 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-027** | Tech Debt | Model real Upstox API v2 response/request shapes (funds, positions, holdings, orders, quote/LTP/OHLC, place/modify/cancel-order params, profile, historical candles — ~15 of `upstox-service.ts`'s 27 `any`s) and propagate through `trading.ts`'s consuming `.map`/`.filter` callbacks. The remaining ~9 SDK-boundary `any`s (`upstox-js-sdk` is untyped CommonJS) are out of scope without vendoring SDK type defs. Spun out of BG-025 during iteration-3 planning — too large to bundle with the mechanical tier. See [sprint-2-summary.md](sprints/sprint-2-summary.md). | `web-server` / `lib` | ✅ Done |
 | **BG-028** | Testing | Write integration test coverage for `TradingWindow.tsx` (2800 lines, 33 hooks, real order-entry path) capturing its *current* behavior — order placement, validation, leverage, SL/TP, retry-on-fail. 14 tests added (including the "no account selected" branch); safety net for BG-024's extraction. See [sprint-2-summary.md](sprints/sprint-2-summary.md). | `ui` / Tests | ✅ Done |
 | **BG-029** | Performance | Implement multi-tenant rate-limit fair-share estimation and caching to prevent user starvation on the shared Binance IP rate-limit budget. | `web-server` / `lib` | 🟥 To Do |
+| **BG-034** | UI/UX | Consolidate Terminal into one responsive workspace: eliminate duplicate chart mounts, fix mobile loading and the Brokers link, label liquidation estimates, and improve keyboard controls. See acceptance criteria below; audit T-06–T-09. | `ui` / Terminal | ⏸ Deferred — Market Watch focus |
 
 ---
 
@@ -54,6 +62,34 @@ This backlog lists prioritized engineering tasks, bugs, and feature requests.
 | **BG-030** | Scaling | Implement outbound IP rotation or proxy configuration for Binance API queries to expand rate limits under scale. | `web-server` / `lib` | 🟥 To Do |
 
 ---
+
+
+## Deferred Terminal — Acceptance Criteria
+
+Source: [Terminal product audit](TERMINAL_PRODUCT_AUDIT.md). Verified depth and
+funds/readiness safeguards are already implemented; these items cover remaining
+work, not a restart of those completed slices.
+
+- **BG-031:** An instrument opened outside the watchlist receives its own
+  account/venue/symbol-matched live quote. Missing or stale quotes display an
+  explicit unavailable/stale state, not `$0.00`, and cannot authorize
+  quote-dependent sizing or submission. Test outages, reconnects and switches.
+- **BG-032:** Capture originating account, venue, instrument and order identity.
+  Late responses must not alter a different active draft. Track accepted entry
+  orders with failed protection; retry only unresolved protection without
+  duplicating successful orders. Preserve existing account guards and verify
+  account/instrument switches, delayed responses and partial failures using
+  mocked order endpoints.
+- **BG-033:** Return real broker-specific instrument rules, applicable funds and
+  source freshness; never substitute generic exchange defaults. Keep trading
+  disabled for unsupported or unverified instruments. Test valid Spot/Upstox
+  entry as well as missing rules, zero funds and stale/mismatched responses
+  before re-enabling either form.
+- **BG-034:** Mount one active chart workspace and subscription set across
+  desktop/mobile, preserving the draft during viewport changes. Show mobile
+  loading/recovery states, route account setup to `/brokers`, distinguish
+  estimated liquidation from broker-reported values, and make instrument/sort
+  controls keyboard-operable. Verify mobile and desktop browser journeys.
 
 ## ⚙️ How to Add Items
 To add items to this backlog:
