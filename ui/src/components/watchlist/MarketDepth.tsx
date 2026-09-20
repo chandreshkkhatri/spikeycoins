@@ -33,13 +33,15 @@ const aggregateOrders = (orders: OrderBookItem[], tickSize: number, type: 'ask' 
   orders.forEach((order) => {
     // Calculate the rounded down price based on tick size
     // Example: 0.2563 with tick 0.001 -> 0.256
-    const factor = Math.round(1 / tickSize);
+    const factor = 1 / tickSize;
     // Use a small epsilon for float stability before flooring
-    const priceKey = Math.floor(order.price * factor + 0.0000001) / factor;
+    const priceKey = (type === 'ask'
+      ? Math.ceil(order.price * factor - 0.0000001)
+      : Math.floor(order.price * factor + 0.0000001)) / factor;
 
     // Normalize to avoid 0.30000000004
     // Count decimals in tickSize, but cap at 8 to avoid toFixed() errors
-    const decimals = Math.min(8, Math.max(0, Math.round(-Math.log10(tickSize))));
+    const decimals = tickSize.toFixed(8).replace(/0+$/, '').split('.')[1]?.length || 0;
     const normalizedPrice = parseFloat(priceKey.toFixed(decimals));
 
     const existing = grouped.get(normalizedPrice);
@@ -71,285 +73,156 @@ const MarketDepth = memo(function MarketDepth({
   const [asks, setAsks] = useState<OrderBookItem[]>([]);
   const [bids, setBids] = useState<OrderBookItem[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
-  const [precision, setPrecision] = useState<number | null>(null);
-  const [availablePrecisions, setAvailablePrecisions] = useState<number[]>([]);
-  const [lastSymbol, setLastSymbol] = useState<string>("");
+  const [selectedPrecision, setPrecision] = useState<number | null>(null);
   const [rowCount, setRowCount] = useState(7);
 
   // Throttle state updates to reduce re-renders
   const throttleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDataRef = useRef<{ asks: OrderBookItem[], bids: OrderBookItem[] } | null>(null);
-
-  // Reset precision when symbol changes
-  useEffect(() => {
-    if (symbol !== lastSymbol) {
-      setPrecision(null);
-      setLastSymbol(symbol);
+  const lastDepthAt = useRef(0);
+  const selectPrice = (price: string) => {
+    // This callback runs only on a user click, never during render.
+    // eslint-disable-next-line react-hooks/purity
+    if (wsConnected && Date.now() - lastDepthAt.current < 10000) {
+      onPriceSelect(price);
     }
-  }, [symbol, lastSymbol]);
+  };
 
-  // Calculate available precisions from actual order book data
-  useEffect(() => {
-    // Combine all prices from asks and bids
-    const allPrices = [...asks, ...bids].map(item => item.price).filter(p => p > 0);
-
-    if (allPrices.length < 2) {
-      // Fallback: use current price to determine decimals
-      if (currentPrice > 0) {
-        const priceStr = currentPrice.toString();
-        const decimals = Math.min(8, priceStr.includes('.') ? priceStr.split('.')[1].length : 0);
-        const steps: number[] = [];
-        for (let i = 0; i < 5; i++) {
-          const decimalPlaces = Math.min(8, Math.max(0, decimals - i));
-          const p = Math.pow(10, -(decimals - i));
-          if (p > currentPrice) break;
-          steps.push(parseFloat(p.toFixed(decimalPlaces)));
-        }
-        if (steps.length > 0) {
-          setAvailablePrecisions(steps);
-          if (precision === null) {
-            setPrecision(steps[0]);
-          }
-        }
-      }
-      return;
+  const availablePrecisions = useMemo(() => {
+    const prices = [...asks, ...bids].map(item => item.price).sort((a, b) => a - b);
+    let difference = Infinity;
+    for (let i = 1; i < prices.length; i++) {
+      const gap = prices[i] - prices[i - 1];
+      if (gap > 0) difference = Math.min(difference, gap);
     }
-
-    // Find the minimum price difference (tick size) in the order book
-    allPrices.sort((a, b) => a - b);
-    let minDiff = Infinity;
-    for (let i = 1; i < allPrices.length; i++) {
-      const diff = allPrices[i] - allPrices[i - 1];
-      if (diff > 0 && diff < minDiff) {
-        minDiff = diff;
-      }
-    }
-
-    if (minDiff !== Infinity && minDiff > 0) {
-      // Determine number of decimals in the tick size
-      const tickStr = minDiff.toFixed(10);
-      const tickDecimals = Math.min(8, tickStr.includes('.') ? tickStr.replace(/0+$/, '').split('.')[1]?.length || 0 : 0);
-
-      // Generate precision steps starting from minDiff
-      const steps: number[] = [];
-      const baseTickSize = parseFloat(minDiff.toFixed(Math.min(8, tickDecimals)));
-
-      // Add base tick and multiples (1x, 10x, 100x, 1000x, 10000x)
-      for (let i = 0; i < 5; i++) {
-        const step = baseTickSize * Math.pow(10, i);
-        if (step > currentPrice) break;
-        const decimalPlaces = Math.min(8, Math.max(0, tickDecimals - i));
-        steps.push(parseFloat(step.toFixed(decimalPlaces)));
-      }
-
-      if (steps.length > 0) {
-        setAvailablePrecisions(steps);
-        // Only set initial precision if not already set
-        if (precision === null) {
-          setPrecision(steps[0]);
-        }
-      }
-    }
-    // Note: precision is intentionally excluded from deps to avoid loops
-    // We only want to set it once when initially null
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asks, bids, currentPrice, symbol]);
+    if (!Number.isFinite(difference)) return [];
+    const base = Number(difference.toFixed(8));
+    if (base <= 0) return [];
+    return Array.from({ length: 5 }, (_, i) => Number((base * 10 ** i).toFixed(8)))
+      .filter(step => step <= prices[prices.length - 1]);
+  }, [asks, bids]);
+  const precision = selectedPrecision ?? availablePrecisions[0] ?? null;
 
   useEffect(() => {
     if (!symbol || accountType !== "binance") return;
 
-    // Use Binance WebSocket for real-time order book updates
     const isFutures = marketType === "binance-futures";
-    const wsBaseUrl = isFutures
-      ? "wss://fstream.binance.com/ws"
+    const base = isFutures
+      ? "wss://fstream.binance.com/public/ws"
       : "wss://stream.binance.com:9443/ws";
-    // Fetch more depth to allow for aggregation
-    const streamName = `${symbol.toLowerCase()}@depth20@100ms`;
+    let socket: WebSocket | null = null;
+    let disposed = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    let retryDelay = 1000;
 
-    let ws: WebSocket | null = null;
-    let isCleanedUp = false;
-    let isConnecting = false;
-
-    const safeCloseWebSocket = (socket: WebSocket | null) => {
-      if (!socket) return;
-
-      try {
-        // Clear handlers first
-        socket.onopen = null;
-        socket.onmessage = null;
-        socket.onerror = null;
-        socket.onclose = null;
-
-        const state = socket.readyState;
-
-        if (state === WebSocket.CONNECTING) {
-          let timeoutId: ReturnType<typeof setTimeout> | null = null;
-          // Wait for connection to open, then close normally
-          socket.onopen = () => {
-            if (timeoutId) clearTimeout(timeoutId);
-            try {
-              if (socket.readyState === WebSocket.OPEN) {
-                socket.close(1000, 'Normal closure');
-              }
-            } catch {
-              /* ignore */
-            }
-          };
-
-          socket.onclose = () => {
-            if (timeoutId) clearTimeout(timeoutId);
-          };
-
-          // Safety net: force close after 3 seconds if handshake stalled
-          timeoutId = setTimeout(() => {
-            try {
-              if (socket.readyState === WebSocket.OPEN) {
-                socket.close(1000, 'Normal closure');
-              } else if (socket.readyState === WebSocket.CONNECTING) {
-                socket.onerror = () => {};
-                socket.onclose = () => {};
-                socket.close();
-              }
-            } catch {
-              /* ignore */
-            }
-          }, 3000);
-        } else if (state === WebSocket.OPEN) {
-          socket.close(1000, 'Normal closure');
-        }
-      } catch (error) {
-        console.debug('[MarketDepth] Error during closure:', error);
-      }
+    const clearBook = () => {
+      lastDepthAt.current = 0;
+      setWsConnected(false);
+      setAsks([]);
+      setBids([]);
+      pendingDataRef.current = null;
+      if (throttleTimeoutRef.current) clearTimeout(throttleTimeoutRef.current);
+      throttleTimeoutRef.current = null;
     };
-
-    const connectWebSocket = () => {
-      // Prevent connection if already cleaned up or already connecting
-      if (isCleanedUp || isConnecting) return;
-
-      isConnecting = true;
-
+    const close = () => {
+      if (!socket) return;
+      const previous = socket;
+      socket = null;
+      previous.onmessage = null;
+      previous.onerror = null;
+      previous.onclose = null;
+      // Closing a CONNECTING socket produces noisy browser errors.
+      previous.onopen = () => previous.close();
+      if (previous.readyState === WebSocket.OPEN) previous.close();
+    };
+    const reconnect = () => {
+      if (disposed || retry) return;
+      clearBook();
+      clearTimeout(watchdog);
+      close();
+      retry = setTimeout(() => {
+        retry = undefined;
+        connect();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    };
+    const armWatchdog = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(reconnect, 10000);
+    };
+    const connect = () => {
+      if (disposed) return;
       try {
-        const newWs = new WebSocket(`${wsBaseUrl}/${streamName}`);
-
-        // Check cleanup didn't happen during construction
-        if (isCleanedUp) {
-          safeCloseWebSocket(newWs);
-          isConnecting = false;
-          return;
-        }
-
-        ws = newWs;
-
-        ws.onopen = () => {
-          isConnecting = false;
-          if (isCleanedUp) {
-            safeCloseWebSocket(ws);
-            return;
-          }
-          setWsConnected(true);
-        };
-
-        ws.onmessage = (event) => {
-          if (isCleanedUp) return;
-
+        const connection = new WebSocket(
+          `${base}/${symbol.toLowerCase()}@depth20@100ms`
+        );
+        socket = connection;
+        armWatchdog();
+        connection.onmessage = (event) => {
+          if (disposed || socket !== connection) return;
           try {
             const data = JSON.parse(event.data);
-            // Binance depth stream format: { bids: [[price, qty], ...], asks: [[price, qty], ...] }
-            if (data.bids && data.asks) {
-              const newAsks: OrderBookItem[] = data.asks
-                .map(([price, qty]: [string, string]) => ({
-                  price: parseFloat(price),
-                  quantity: parseFloat(qty),
-                  total: parseFloat(price) * parseFloat(qty),
-                }));
-
-              const newBids: OrderBookItem[] = data.bids
-                .map(([price, qty]: [string, string]) => ({
-                  price: parseFloat(price),
-                  quantity: parseFloat(qty),
-                  total: parseFloat(price) * parseFloat(qty),
-                }));
-
-              // Store pending data
-              pendingDataRef.current = { asks: newAsks, bids: newBids };
-
-              // Throttle updates to once per second
-              if (!throttleTimeoutRef.current) {
-                throttleTimeoutRef.current = setTimeout(() => {
-                  if (pendingDataRef.current && !isCleanedUp) {
-                    setAsks(pendingDataRef.current.asks);
-                    setBids(pendingDataRef.current.bids);
-                    pendingDataRef.current = null;
-                  }
-                  throttleTimeoutRef.current = null;
-                }, 250);
+            if (isFutures && data.s !== symbol.toUpperCase()) return;
+            const parseLevels = (levels: unknown): OrderBookItem[] | null => {
+              if (!Array.isArray(levels) || levels.length === 0) return null;
+              const parsed: OrderBookItem[] = [];
+              for (const level of levels) {
+                if (!Array.isArray(level) || level.length < 2) return null;
+                const price = Number(level[0]);
+                const quantity = Number(level[1]);
+                if (!Number.isFinite(price) || price <= 0 ||
+                    !Number.isFinite(quantity) || quantity < 0 ||
+                    !Number.isFinite(price * quantity)) return null;
+                if (quantity > 0) parsed.push({ price, quantity, total: price * quantity });
               }
+              return parsed.length ? parsed : null;
+            };
+            const nextAsks = parseLevels(isFutures ? data.a : data.asks);
+            const nextBids = parseLevels(isFutures ? data.b : data.bids);
+            if (!nextAsks || !nextBids) return;
+            // Reject delayed Futures events; connection state alone is not freshness.
+            if (isFutures && (!Number.isFinite(data.E) ||
+                Math.abs(Date.now() - data.E) > 10000)) return;
+            armWatchdog();
+            lastDepthAt.current = Date.now();
+            retryDelay = 1000;
+            pendingDataRef.current = { asks: nextAsks, bids: nextBids };
+            if (!throttleTimeoutRef.current) {
+              throttleTimeoutRef.current = setTimeout(() => {
+                if (!disposed && pendingDataRef.current) {
+                  setAsks(pendingDataRef.current.asks);
+                  setBids(pendingDataRef.current.bids);
+                  setWsConnected(true);
+                  pendingDataRef.current = null;
+                }
+                throttleTimeoutRef.current = null;
+              }, 250);
             }
-          } catch (err) {
-            console.error("Error parsing order book data:", err);
+          } catch {
+            // Malformed frames cannot establish or extend freshness.
           }
         };
-
-        ws.onerror = () => {
-          isConnecting = false;
-          if (isCleanedUp) return;
-          // Only log error if we haven't closed explicitly
-          if (ws?.readyState !== WebSocket.CLOSED && ws?.readyState !== WebSocket.CLOSING) {
-            // Suppress connection errors during unmount/remount cycles
-            // console.warn(`Order book WebSocket error for ${symbol}:`, error);
-          }
-          setWsConnected(false);
-        };
-
-        ws.onclose = () => {
-          if (isCleanedUp) return;
-          setWsConnected(false);
-        };
-      } catch (error) {
-        console.error('[MarketDepth] WebSocket creation failed:', error);
-        isConnecting = false;
+        connection.onerror = reconnect;
+        connection.onclose = reconnect;
+      } catch {
+        reconnect();
       }
     };
-
-    connectWebSocket();
-
+    connect();
     return () => {
-      isCleanedUp = true;
-
-      // Clear throttle timeout
-      if (throttleTimeoutRef.current) {
-        clearTimeout(throttleTimeoutRef.current);
-        throttleTimeoutRef.current = null;
-      }
+      disposed = true;
+      clearTimeout(retry);
+      clearTimeout(watchdog);
+      if (throttleTimeoutRef.current) clearTimeout(throttleTimeoutRef.current);
+      throttleTimeoutRef.current = null;
       pendingDataRef.current = null;
-
-      if (ws) {
-        safeCloseWebSocket(ws);
-        ws = null;
-      }
-
-      isConnecting = false;
+      close();
     };
   }, [symbol, accountType, marketType]);
 
-  // Fallback to mock data if no real data
-  const rawAsks =
-    asks.length > 0
-      ? asks
-      : Array.from({ length: 20 }).map((_, i) => ({
-        price: currentPrice + (20 - i) * (currentPrice * 0.0001),
-        quantity: Math.random() * 10,
-        total: Math.random() * 1000,
-      }));
-
-  const rawBids =
-    bids.length > 0
-      ? bids
-      : Array.from({ length: 20 }).map((_, i) => ({
-        price: currentPrice - (i + 1) * (currentPrice * 0.0001),
-        quantity: Math.random() * 10,
-        total: Math.random() * 1000,
-      }));
+  const rawAsks = asks;
+  const rawBids = bids;
 
   const displayAsks = useMemo(() => {
     if (precision && precision > 0) {
@@ -376,7 +249,7 @@ const MarketDepth = memo(function MarketDepth({
 
   // Calculate decimal places based on current price or selected precision
   const priceDecimals = precision
-    ? Math.max(0, Math.round(-Math.log10(precision)))
+    ? precision.toFixed(8).replace(/0+$/, '').split('.')[1]?.length || 0
     : calculatePriceDecimals(currentPrice);
 
   const handleResizeMouseDown = (e: React.MouseEvent) => {
@@ -386,7 +259,7 @@ const MarketDepth = memo(function MarketDepth({
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaY = moveEvent.clientY - startY;
-      // Approx 20px per row pair (ask+bid) change? 
+      // Approx 20px per row pair (ask+bid) change?
       // Actually each row is ~24px. Changing rowCount by 1 adds 1 ask AND 1 bid = 48px total height change.
       // Let's make it sensitive enough.
       const steps = Math.round(deltaY / 30);
@@ -430,32 +303,38 @@ const MarketDepth = memo(function MarketDepth({
       </div>
       <div className="asks">
         {displayAsks.map((item, i) => (
-          <div
+          <button
+            type="button"
             key={`ask-${i}`}
             className="depth-row ask"
-            onClick={() => onPriceSelect(item.price.toFixed(priceDecimals))}
+            disabled={!wsConnected}
+            onClick={() => selectPrice(item.price.toFixed(priceDecimals))}
           >
             <span className="price">{item.price.toFixed(priceDecimals)}</span>
             <span className="qty">{formatQuantity(item.quantity)}</span>
             <span className="total">{formatQuantity(item.total)}</span>
-          </div>
+          </button>
         ))}
       </div>
       <div className="current-price-display">
-        <span>{formatPrice(currentPrice)}</span>
-        {!wsConnected && <span className="text-xs ml-2 text-muted-foreground">(mock)</span>}
+        <span>{currentPrice > 0 ? formatPrice(currentPrice) : "—"}</span>
+        {!wsConnected && <span role="status" className="text-xs ml-2 text-muted-foreground">
+          {accountType !== "binance" ? "Depth unavailable" : "Waiting for live depth"}
+        </span>}
       </div>
       <div className="bids">
         {displayBids.map((item, i) => (
-          <div
+          <button
+            type="button"
             key={`bid-${i}`}
             className="depth-row bid"
-            onClick={() => onPriceSelect(item.price.toFixed(priceDecimals))}
+            disabled={!wsConnected}
+            onClick={() => selectPrice(item.price.toFixed(priceDecimals))}
           >
             <span className="price">{item.price.toFixed(priceDecimals)}</span>
             <span className="qty">{formatQuantity(item.quantity)}</span>
             <span className="total">{formatQuantity(item.total)}</span>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -524,6 +403,7 @@ const MarketDepth = memo(function MarketDepth({
           border-bottom: 1px solid #27272a;
         }
         .depth-row {
+          width: 100%;
           display: grid;
           grid-template-columns: 1fr 1fr 1fr;
           padding: 4px 8px;
@@ -553,7 +433,7 @@ const MarketDepth = memo(function MarketDepth({
           border-color: #27272a;
           background: rgba(255,255,255,0.02);
         }
-        
+
         /* Mobile view */
         @media (max-width: 768px) {
           .market-depth {
@@ -571,4 +451,7 @@ const MarketDepth = memo(function MarketDepth({
   );
 });
 
-export default MarketDepth;
+// Never render levels from the previous symbol or market, even for one render.
+export default function ScopedMarketDepth(props: MarketDepthProps) {
+  return <MarketDepth key={`${props.accountType}:${props.marketType}:${props.symbol}`} {...props} />;
+}
