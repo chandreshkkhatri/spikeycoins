@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { BarChart2 } from "lucide-react";
 import { PAGE_ROUTES } from "@/lib/constants";
@@ -29,7 +30,9 @@ export default function CryptoScreenerPage() {
       </div>
 
       <PanelErrorBoundary name="Screener">
-        <Ticker />
+        <Suspense fallback={<p>Loading screener...</p>}>
+          <Ticker />
+        </Suspense>
       </PanelErrorBoundary>
     </div>
   );

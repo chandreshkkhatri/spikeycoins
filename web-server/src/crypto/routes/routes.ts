@@ -35,7 +35,9 @@ export function healthCheck(req: Request, res: Response): void {
       success: true,
       message: "Spikey Coins Proxy Server",
       description: "Real-time cryptocurrency data proxy server",
-      status: "healthy",
+      status: stats.tickerCount > 0 && binanceClient &&
+        Object.values(binanceClient.getStatus().feedHealth).every(feed => feed.connected && !feed.isStale)
+        ? "healthy" : "degraded",
       timestamp: new Date().toISOString(),
       stats: {
         ...stats,
@@ -62,7 +64,9 @@ export function tickerHealth(req: Request, res: Response): void {
     res.json({
       success: true,
       message: "Ticker router is running",
-      status: "healthy",
+      status: stats.tickerCount > 0 && binanceClient &&
+        Object.values(binanceClient.getStatus().feedHealth).every(feed => feed.connected && !feed.isStale)
+        ? "healthy" : "degraded",
       tickerDataCount: stats.tickerCount,
       timestamp: new Date().toISOString(),
       websocketStatus: clientStatus,

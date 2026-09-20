@@ -12,6 +12,7 @@ import CandlestickStorage from "../services/CandlestickStorage";
 import { BinanceService } from "../../lib/binance-service";
 import BinanceSymbolCatalog from '../services/BinanceSymbolCatalog';
 import { normalizeMiniTicker } from './normalizeMiniTicker';
+import { watchTickerFeed } from '../../lib/ticker-feed-watchdog';
 
 class BinanceClient {
   private tickerWs: WebSocket | null = null;
@@ -22,6 +23,12 @@ class BinanceClient {
   private futuresReconnectAttempts: number = 0;
   private lastSpotMessageTime: number | null = null;
   private lastFuturesMessageTime: number | null = null;
+  private stopped = false;
+  private initialFetchTimer: NodeJS.Timeout | null = null;
+  private spotReconnectTimer: NodeJS.Timeout | null = null;
+  private futuresReconnectTimer: NodeJS.Timeout | null = null;
+  private spotWatchdog: ReturnType<typeof watchTickerFeed> | null = null;
+  private futuresWatchdog: ReturnType<typeof watchTickerFeed> | null = null;
   
   // Candlestick fetching configuration
   private candlestickFetchInterval: NodeJS.Timeout | null = null;
@@ -38,6 +45,7 @@ class BinanceClient {
    * Start all connections
    */
   async start(): Promise<void> {
+    this.stopped = false;
     logger.info("BinanceClient: Starting connections...");
     
     // Initialize services
@@ -49,7 +57,7 @@ class BinanceClient {
     this.connectFuturesTickerStream();
     
     // Wait for initial ticker data, then start candlestick fetching
-    setTimeout(() => {
+    this.initialFetchTimer = setTimeout(() => {
       this.startCandlestickFetching();
     }, 5000);
   }
@@ -61,19 +69,25 @@ class BinanceClient {
     const wsUrl = 'wss://stream.binance.com:9443/ws/!miniTicker@arr';
     
     this.tickerWs = new WebSocket(wsUrl);
+    this.lastSpotMessageTime = null;
+    this.spotWatchdog = watchTickerFeed(this.tickerWs, () => {
+      logger.warn('BinanceClient: Spot ticker feed silent for 60s; reconnecting');
+    });
     
     this.tickerWs.on('open', () => {
       logger.info("BinanceClient: Ticker WebSocket connected");
       this.isConnected = true;
-      this.reconnectAttempts = 0;
     });
     
     this.tickerWs.on('message', (data: Buffer) => {
       try {
-        this.lastSpotMessageTime = Date.now();
         const tickerArray = JSON.parse(data.toString());
         if (Array.isArray(tickerArray)) {
           const tickers = tickerArray.map(normalizeMiniTicker).filter(item => item !== null);
+          if (!tickers.length) return;
+          this.lastSpotMessageTime = Date.now();
+          this.reconnectAttempts = 0;
+          this.spotWatchdog?.receivedData();
           DataManager.updateTickers(tickers);
         }
       } catch (error) {
@@ -100,18 +114,26 @@ class BinanceClient {
     const wsUrl = 'wss://fstream.binance.com/market/ws/!ticker@arr';
 
     this.futuresWs = new WebSocket(wsUrl);
+    this.lastFuturesMessageTime = null;
+    this.futuresWatchdog = watchTickerFeed(this.futuresWs, () => {
+      logger.warn('BinanceClient: Futures ticker feed silent for 60s; reconnecting');
+    });
 
     this.futuresWs.on('open', () => {
       logger.info("BinanceClient: Futures ticker WebSocket connected");
       this.isFuturesConnected = true;
-      this.futuresReconnectAttempts = 0;
     });
 
     this.futuresWs.on('message', (data: Buffer) => {
       try {
-        this.lastFuturesMessageTime = Date.now();
         const tickerArray = JSON.parse(data.toString());
         if (Array.isArray(tickerArray)) {
+          if (!tickerArray.length || !tickerArray.every(item =>
+            typeof item?.s === 'string' && Number.isFinite(Number(item.c)) && Number(item.c) > 0
+          )) return;
+          this.lastFuturesMessageTime = Date.now();
+          this.futuresReconnectAttempts = 0;
+          this.futuresWatchdog?.receivedData();
           DataManager.updateFuturesTickers(tickerArray);
         }
       } catch (error) {
@@ -134,6 +156,10 @@ class BinanceClient {
    * Handle reconnection logic for futures stream
    */
   private handleFuturesReconnect(): void {
+    if (this.stopped) return;
+    this.isFuturesConnected = false;
+    this.futuresWatchdog?.stop();
+    if (this.futuresReconnectTimer) clearTimeout(this.futuresReconnectTimer);
     if (this.futuresWs) {
       try {
         this.futuresWs.removeAllListeners();
@@ -149,7 +175,7 @@ class BinanceClient {
 
     logger.info(`BinanceClient: Reconnecting futures in ${Math.round(delay)}ms (attempt ${this.futuresReconnectAttempts})`);
 
-    setTimeout(() => {
+    this.futuresReconnectTimer = setTimeout(() => {
       this.connectFuturesTickerStream();
     }, delay);
   }
@@ -355,6 +381,10 @@ class BinanceClient {
    * Handle reconnection logic
    */
   private handleReconnect(): void {
+    if (this.stopped) return;
+    this.isConnected = false;
+    this.spotWatchdog?.stop();
+    if (this.spotReconnectTimer) clearTimeout(this.spotReconnectTimer);
     // Clean up old connection to prevent memory leaks
     if (this.tickerWs) {
       try {
@@ -371,7 +401,7 @@ class BinanceClient {
 
     logger.info(`BinanceClient: Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts})`);
 
-    setTimeout(() => {
+    this.spotReconnectTimer = setTimeout(() => {
       this.connectTickerStream();
     }, delay);
   }
@@ -413,6 +443,14 @@ class BinanceClient {
    * Cleanup connections
    */
   cleanup(): void {
+    this.stopped = true;
+    this.isConnected = false;
+    this.isFuturesConnected = false;
+    this.spotWatchdog?.stop();
+    this.futuresWatchdog?.stop();
+    if (this.initialFetchTimer) clearTimeout(this.initialFetchTimer);
+    if (this.spotReconnectTimer) clearTimeout(this.spotReconnectTimer);
+    if (this.futuresReconnectTimer) clearTimeout(this.futuresReconnectTimer);
     if (this.candlestickFetchInterval) {
       clearInterval(this.candlestickFetchInterval);
     }

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   createColumnHelper,
   flexRender,
@@ -67,16 +67,16 @@ const readSearchParams = (): URLSearchParams =>
     ? new URLSearchParams()
     : new URLSearchParams(window.location.search);
 
-const readDirection = (): ScreenerDirection => {
-  const direction = readSearchParams().get("direction");
+const readDirection = (params = readSearchParams()): ScreenerDirection => {
+  const direction = params.get("direction");
   return direction === "gainers" || direction === "losers" ? direction : null;
 };
 
-const readTimeframe = (): ScreenerTimeframe =>
-  readSearchParams().get("timeframe") === "7d" ? "7d" : "24h";
+const readTimeframe = (params = readSearchParams()): ScreenerTimeframe =>
+  params.get("timeframe") === "7d" ? "7d" : "24h";
 
-const readPageIndex = (): number => {
-  const page = Number.parseInt(readSearchParams().get("page") || "1", 10);
+const readPageIndex = (params = readSearchParams()): number => {
+  const page = Number.parseInt(params.get("page") || "1", 10);
   return Number.isFinite(page) && page > 0 ? page - 1 : 0;
 };
 
@@ -133,23 +133,24 @@ const formatPrice = (value: number | undefined | null): string => {
 
 export default function Ticker() {
   const router = useRouter();
-  const { isLoggedIn } = useAuth();
+  const routeParams = useSearchParams();
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
   const { accounts, selectedAccount } = useAccount();
-  const initialParams = useRef(readSearchParams());
-  const initialSymbol = normalizePair(initialParams.current.get("symbol") || "");
+  const [initialParams] = useState(() => new URLSearchParams(routeParams.toString()));
+  const initialSymbol = normalizePair(initialParams.get("symbol") || "");
   const [tickerArray, setTickerArray] = useState<TickerData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [searchQuery, setSearchQuery] = useState(
-    initialSymbol || initialParams.current.get("q") || ""
+    initialParams.get("q") ?? initialSymbol
   );
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(
     initialSymbol || null
   );
-  const [timeframe, setTimeframe] = useState<ScreenerTimeframe>(readTimeframe);
-  const [direction, setDirection] = useState<ScreenerDirection>(readDirection);
+  const [timeframe, setTimeframe] = useState<ScreenerTimeframe>(() => readTimeframe(initialParams));
+  const [direction, setDirection] = useState<ScreenerDirection>(() => readDirection(initialParams));
   const [actionResult, setActionResult] = useState<{
     type: "success" | "error";
     message: string;
@@ -158,22 +159,25 @@ export default function Ticker() {
   const [analyzingSymbol, setAnalyzingSymbol] = useState<string | null>(null);
   const [analyzeResult, setAnalyzeResult] = useState<{ symbol: string; success: boolean; message: string } | null>(null);
   const [pagination, setPagination] = useState({
-    pageIndex: readPageIndex(),
+    pageIndex: readPageIndex(initialParams),
     pageSize: 20,
   });
 
   // Check admin status
   useEffect(() => {
+    if (!isLoggedIn || authLoading) return;
+    let cancelled = false;
     const checkAdmin = async () => {
       try {
         const response = await api.get("/admin/status");
-        setIsAdmin(response.data?.isAdmin === true);
+        if (!cancelled) setIsAdmin(response.data?.isAdmin === true);
       } catch {
-        setIsAdmin(false);
+        if (!cancelled) setIsAdmin(false);
       }
     };
     checkAdmin();
-  }, []);
+    return () => { cancelled = true; };
+  }, [isLoggedIn, authLoading]);
 
   const fetchTickers = useCallback(async (showLoading = false) => {
     try {
@@ -285,7 +289,6 @@ export default function Ticker() {
 
   const handleViewDetails = useCallback((symbol: string) => {
     setSelectedSymbol(symbol);
-    setPagination((current) => ({ ...current, pageIndex: 0 }));
   }, []);
 
   const handleAnalyze = useCallback(async (symbol: string) => {
@@ -438,7 +441,7 @@ export default function Ticker() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className="hidden h-7 px-2 text-xs md:inline-flex"
                 onClick={() => void handleSave(symbol)}
                 title={isLoggedIn ? "Add to watchlist" : "Sign in to save"}
               >
@@ -448,7 +451,7 @@ export default function Ticker() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-xs"
+                className="hidden h-7 px-2 text-xs md:inline-flex"
                 onClick={() => handleOpenTerminal(symbol)}
                 title="Open in Terminal"
               >
@@ -460,7 +463,7 @@ export default function Ticker() {
         },
         enableSorting: false,
       }),
-      ...(isAdmin
+      ...(isAdmin && isLoggedIn
         ? [
             columnHelper.display({
               id: "analyze",
@@ -523,7 +526,7 @@ export default function Ticker() {
   );
 
   const [sorting, setSorting] = useState<SortingState>(() => {
-    const params = readSearchParams();
+    const params = initialParams;
     const urlSort = params.get("sort");
     const sortableColumns = new Set([
       "s",
@@ -543,8 +546,8 @@ export default function Ticker() {
     }
     if (params.has("direction") || params.has("timeframe")) {
       return [{
-        id: readTimeframe() === "7d" ? "change_7d" : "change_24h",
-        desc: readDirection() !== "losers",
+        id: readTimeframe(params) === "7d" ? "change_7d" : "change_24h",
+        desc: readDirection(params) !== "losers",
       }];
     }
     if (typeof window !== "undefined") {
@@ -560,7 +563,7 @@ export default function Ticker() {
         // ignore JSON parse error
       }
     }
-    return [{ id: readTimeframe() === "7d" ? "change_7d" : "change_24h", desc: readDirection() !== "losers" }];
+    return [{ id: readTimeframe(params) === "7d" ? "change_7d" : "change_24h", desc: readDirection(params) !== "losers" }];
   });
 
   useEffect(() => {
@@ -577,7 +580,7 @@ export default function Ticker() {
 
     if (selectedSymbol) {
       params.set("symbol", selectedSymbol);
-      if (searchQuery && normalizePair(searchQuery) !== normalizePair(selectedSymbol)) {
+      if (normalizePair(searchQuery) !== normalizePair(selectedSymbol)) {
         params.set("q", searchQuery);
       } else {
         params.delete("q");
@@ -669,17 +672,16 @@ export default function Ticker() {
     getPaginationRowModel: getPaginationRowModel(),
   });
 
-  if (loading) {
-    return (
+  let dataState: React.ReactNode = null;
+  if (loading && tickerArray.length === 0) {
+    dataState = (
       <div className="text-center p-10">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
         <p className="text-lg text-muted-foreground">Loading market data...</p>
       </div>
     );
-  }
-
-  if (error) {
-    return (
+  } else if (error && tickerArray.length === 0) {
+    dataState = (
       <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
         <p className="text-lg font-semibold text-red-700 dark:text-red-400">
           Error Loading Data
@@ -695,23 +697,13 @@ export default function Ticker() {
         </Button>
       </div>
     );
-  }
-
-  if (!tickerArray || tickerArray.length === 0) {
-    return (
+  } else if (tickerArray.length === 0) {
+    dataState = (
       <div className="text-center p-10 bg-muted/50 rounded-lg">
         <p className="text-lg font-semibold text-muted-foreground">No Data Available</p>
         <p className="text-muted-foreground mt-2">
           The market provider returned no instruments.
         </p>
-        <Button
-          variant="outline"
-          className="mt-4"
-          onClick={() => fetchTickers(true)}
-        >
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
       </div>
     );
   }
@@ -908,7 +900,7 @@ export default function Ticker() {
         </div>
       )}
 
-      {table.getFilteredRowModel().rows.length === 0 ? (
+      {dataState || (table.getFilteredRowModel().rows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
           <p className="font-medium text-foreground">No matching instruments</p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -996,7 +988,7 @@ export default function Ticker() {
           </tbody>
         </table>
       </div>
-      )}
+      ))}
       <div className="mt-4 flex items-center justify-between flex-wrap gap-4 text-sm">
         <div className="text-muted-foreground">
           Showing {table.getRowModel().rows.length} of{" "}

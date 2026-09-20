@@ -10,6 +10,7 @@ import { renderWithProviders } from "@/__tests__/test-utils";
 const routerPush = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
   useRouter: () => ({
     push: routerPush,
     replace: vi.fn(),
@@ -118,9 +119,22 @@ describe("Ticker Screener", () => {
     renderWithProviders(<Ticker />);
 
     expect(await screen.findByText("No Data Available")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "7d", exact: true })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search pairs...")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
     expect(await screen.findByText("COIN1/USDT")).toBeInTheDocument();
+  });
+
+  it("lets anonymous users recover from a failed 7d request by switching to 24h", async () => {
+    window.history.replaceState(null, "", "/market-watch/screener?timeframe=7d");
+    vi.mocked(cryptoApi.getTickers).mockResolvedValue({ data: mockTickers } as never);
+    vi.mocked(cryptoApi.get7dTopMovers).mockRejectedValueOnce(new Error("Unavailable"));
+    renderWithProviders(<Ticker />, { authState: { isLoggedIn: false } });
+    await screen.findByText("Error Loading Data");
+    expect(api.get).not.toHaveBeenCalledWith("/admin/status");
+    await userEvent.click(screen.getByRole("button", { name: "24h", exact: true }));
+    expect(await screen.findByText("COIN45/USDT")).toBeInTheDocument();
   });
 
   it("should navigate pages and maintain pagination without reset when autoResetPageIndex is false", async () => {

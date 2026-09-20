@@ -22,6 +22,11 @@ values with `isStale: false`. A connected socket alone does not prove that
 data is arriving. Streams publish changed symbols, so coverage builds over
 successive messages.
 
+Both feed consumers terminate silent sockets after 60 seconds without valid
+ticker messages and reconnect with backoff. Transport pongs alone do not
+reset this deadline. The crypto health endpoints report degraded status if
+either feed is disconnected/stale or the ticker store is empty.
+
 References:
 - https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams
 - https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams/market

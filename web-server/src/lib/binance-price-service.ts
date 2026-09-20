@@ -5,6 +5,7 @@
  */
 
 import WebSocket from "ws";
+import { watchTickerFeed } from "./ticker-feed-watchdog";
 
 interface TickerData {
   symbol: string;
@@ -28,6 +29,9 @@ class BinancePriceService {
   private isConnecting = false;
   private subscribers: Set<PriceUpdateCallback> = new Set();
   private pingInterval: NodeJS.Timeout | null = null;
+  private watchdog: ReturnType<typeof watchTickerFeed> | null = null;
+  private stopped = false;
+  private reconnectTimer: NodeJS.Timeout | null = null;
 
   // Binance Futures WebSocket URL for all tickers stream
   private readonly WS_URL = "wss://fstream.binance.com/market/ws/!ticker@arr";
@@ -36,6 +40,7 @@ class BinancePriceService {
    * Start the WebSocket connection to Binance
    */
   start(): void {
+    this.stopped = false;
     if (this.ws || this.isConnecting) {
       console.log("[BinancePriceService] Already connected or connecting");
       return;
@@ -53,11 +58,13 @@ class BinancePriceService {
     try {
       console.log("[BinancePriceService] Connecting to Binance Futures ticker stream...");
       this.ws = new WebSocket(this.WS_URL);
+      this.watchdog = watchTickerFeed(this.ws, () => {
+        console.warn("[BinancePriceService] Ticker feed silent for 60s; reconnecting");
+      });
 
       this.ws.on("open", () => {
         console.log("[BinancePriceService] Connected to Binance");
         this.isConnecting = false;
-        this.reconnectAttempts = 0;
         this.startPingInterval();
       });
 
@@ -89,7 +96,11 @@ class BinancePriceService {
     try {
       const tickers = JSON.parse(data);
 
-      if (!Array.isArray(tickers)) return;
+      if (!Array.isArray(tickers) || !tickers.length || !tickers.every(ticker =>
+        typeof ticker?.s === "string" && Number.isFinite(Number(ticker.c)) && Number(ticker.c) > 0
+      )) return;
+      this.watchdog?.receivedData();
+      this.reconnectAttempts = 0;
 
       for (const ticker of tickers) {
         const tickerData: TickerData = {
@@ -124,6 +135,9 @@ class BinancePriceService {
    * Handle reconnection logic
    */
   private handleReconnect(): void {
+    if (this.stopped) return;
+    this.watchdog?.stop();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectAttempts++;
     const delay = Math.min(
       this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
@@ -132,7 +146,7 @@ class BinancePriceService {
     
     console.log(`[BinancePriceService] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
     
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
       this.connect();
     }, delay);
   }
@@ -221,6 +235,10 @@ class BinancePriceService {
    * Stop the service
    */
   stop(): void {
+    this.stopped = true;
+    this.isConnecting = false;
+    this.watchdog?.stop();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.stopPingInterval();
     if (this.ws) {
       this.ws.close();
