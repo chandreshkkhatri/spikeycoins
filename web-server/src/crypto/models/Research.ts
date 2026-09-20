@@ -8,6 +8,7 @@ import type { ResearchEvidence } from '../services/researchPublication';
 import type { ResearchInputSnapshot } from '../services/researchInputSnapshot';
 
 export interface IResearch extends Document {
+  revision?: number;
   inputSnapshot?: ResearchInputSnapshot;
   inputSnapshotHistory?: ResearchInputSnapshot[];
   headline?: string;
@@ -34,6 +35,7 @@ export interface IResearch extends Document {
 }
 
 export interface Research {
+  revision?: number;
   inputSnapshot?: ResearchInputSnapshot;
   inputSnapshotHistory?: ResearchInputSnapshot[];
   headline?: string;
@@ -80,6 +82,7 @@ const inputSnapshotSchema = new Schema<ResearchInputSnapshot>({
 }, { _id: false });
 
 const researchSchema = new Schema<IResearch>({
+  revision: { type: Number, min: 0 },
   // Optional for legacy rows; never backfill guessed historical observations.
   inputSnapshot: { type: inputSnapshotSchema, default: undefined },
   inputSnapshotHistory: { type: [inputSnapshotSchema], default: undefined },

@@ -7,11 +7,13 @@ const mocks = vi.hoisted(() => ({
   evidence: vi.fn(), create: vi.fn(), update: vi.fn(),
   summaryCreate: vi.fn(), retract: vi.fn(), aggregate: vi.fn(),
   tickers: vi.fn(), weekly: vi.fn(),
+  archive: vi.fn(),
 }));
 vi.mock("../utils/aiClient", () => ({ default: class { generateWithEvidence = mocks.evidence; } }));
 vi.mock("../models/Research", () => ({
-  ResearchModel: { create: mocks.create, findByIdAndUpdate: mocks.update, collection: { name: "researches" } },
+  ResearchModel: { create: mocks.create, findByIdAndUpdate: mocks.update, findOneAndUpdate: mocks.update, collection: { name: "researches" } },
 }));
+vi.mock('../models/ResearchRevision', () => ({ ResearchRevisionModel: { updateOne: mocks.archive } }));
 vi.mock("../models/Summary", () => ({
   SummaryModel: { create: mocks.summaryCreate, updateMany: mocks.retract, aggregate: mocks.aggregate },
 }));
@@ -55,6 +57,7 @@ beforeEach(() => {
   mocks.evidence.mockResolvedValue(evidence());
   mocks.create.mockResolvedValue({ _id: "research-id" });
   mocks.update.mockResolvedValue({});
+  mocks.archive.mockResolvedValue({});
   mocks.summaryCreate.mockResolvedValue({});
   mocks.retract.mockResolvedValue({});
   mocks.aggregate.mockResolvedValue([]);
@@ -116,7 +119,7 @@ describe("research publication paths", () => {
     expect(saved.inputSnapshotHistory).toEqual([saved.inputSnapshot]);
     expect(mocks.summaryCreate).toHaveBeenCalledTimes(1);
   });
-  it("retracts a rejected automated revision even if semantic comparison would say unchanged", async () => {
+  it.each(['saved', 'archive-failure', 'conflict'])("handles rejected automated revisions safely: %s", async outcome => {
     vi.useFakeTimers();
     const service = ResearchService.getInstance();
     const harness = service as unknown as Harness;
@@ -130,14 +133,24 @@ describe("research publication paths", () => {
     vi.spyOn(harness, "hasSignificantEvent").mockResolvedValue({ hasEvent: true, reason: "Event" });
     const compare = vi.spyOn(harness, "hasSignificantNewInfo").mockResolvedValue({ hasNewInfo: false, reason: "Same" });
     mocks.evidence.mockResolvedValue(evidence(false));
+    if (outcome === 'archive-failure') mocks.archive.mockRejectedValue(new Error('Archive unavailable'));
+    if (outcome === 'conflict') mocks.update.mockResolvedValue(null);
     const run = service.runAutomatedResearch();
+    const completion = outcome === 'saved' ? run : expect(run).rejects.toThrow('Research failed');
     await vi.runAllTimersAsync();
-    await run;
+    await completion;
     expect(compare).not.toHaveBeenCalled();
-    expect(mocks.update).toHaveBeenCalledWith("old", expect.objectContaining({
+    if (outcome !== 'saved') {
+      expect(mocks.retract).not.toHaveBeenCalled();
+      expect(mocks.summaryCreate).not.toHaveBeenCalled();
+      if (outcome === 'archive-failure') expect(mocks.update).not.toHaveBeenCalled();
+      return;
+    }
+    expect(mocks.archive).toHaveBeenCalledTimes(1);
+    expect(mocks.update).toHaveBeenCalledWith({ _id: 'old', revision: { $exists: false } }, expect.objectContaining({
       $set: expect.objectContaining({ isPublishable: false, inputSnapshot: expect.objectContaining({ priceChange: 30 }) }),
       $push: { inputSnapshotHistory: expect.objectContaining({ priceChange: 30 }) },
-    }), { runValidators: true });
+    }), { runValidators: true, new: true });
     const update = mocks.update.mock.calls.find(call => call[1].$push)![1];
     expect(update.$set.inputSnapshot).toEqual(update.$push.inputSnapshotHistory);
     expect(update.$set.inputSnapshotHistory).toBeUndefined();

@@ -11,6 +11,7 @@ import DataManager from "../core/DataManager";
 import MarketCapService from "./MarketCapService";
 import DailyCandlestickService from "./DailyCandlestickService";
 import logger from "../utils/logger";
+import { replaceResearchRevision } from './researchRevisions';
 import { snapshot24h, snapshot7d, type ResearchInputSnapshot } from './researchInputSnapshot';
 import { eligibleResearchTicker, directionalMovers, retainResearchHorizons } from "./researchCandidates";
 import { evaluatePublication, searchEntryPoint, PUBLICATION_POLICY_VERSION, type ResearchEvidence } from "./researchPublication";
@@ -449,6 +450,7 @@ Respond with JSON:
       research = { ...research, ...evaluatePublication(research.evidence) };
       // Save research to database
       const researchDoc = await ResearchModel.create({
+        revision: 1,
         inputSnapshot: research.inputSnapshot,
         inputSnapshotHistory: [research.inputSnapshot],
         headline: research.headline,
@@ -688,8 +690,7 @@ Respond with JSON:
                 `ResearchService: Updating ${mover.symbol} - ${comparison.reason}`
               );
 
-              await ResearchModel.findByIdAndUpdate(recentResearch._id, {
-                $set: {
+              await replaceResearchRevision(recentResearch, {
                   headline: newResearch.headline,
                   inputSnapshot: newResearch.inputSnapshot,
                   evidence: newResearch.evidence,
@@ -701,11 +702,7 @@ Respond with JSON:
                   publishableReason: newResearch.publishableReason,
                   category: newResearch.category,
                   impact: newResearch.impact,
-                  researchedAt: new Date(),
-                  updatedAt: new Date(),
-                },
-                $push: { inputSnapshotHistory: newResearch.inputSnapshot },
-              }, { runValidators: true });
+              });
 
               // Update summary if it exists and research is publishable
               if (newResearch.isPublishable) {

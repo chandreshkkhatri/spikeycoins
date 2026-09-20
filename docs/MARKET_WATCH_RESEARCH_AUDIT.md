@@ -353,3 +353,31 @@ immutability or full report/evidence revision history. It does not preserve
 discarded AI attempts or guarantee deterministic AI replay. Separate revision
 storage, concurrent-run ordering and retention/size policy remain follow-ups.
 No live research, database migration or environment-file reads were performed.
+
+## Implementation checkpoint — report/evidence revisions v1
+
+The current report now carries a revision number (new reports start at one).
+Before replacing it, the service archives the previous report in the separate
+`ResearchRevision` collection with a unique `(researchId, revision)` index.
+Archives retain the headline, body, source list, original AI evidence, publication
+decision/reason/policy version, classification, timestamps and input snapshot.
+Historical snapshot arrays are not recursively copied. The current report plus
+its archived predecessors form the available version history.
+
+- Archive writes use `$setOnInsert`; retrying does not overwrite archived content.
+- Archive failure stops replacement. A conditional revision check prevents a
+  stale writer from replacing a newer report; a conflict stops summary changes.
+- Legacy reports without revision numbers are archived as revision zero when
+  replaced. Their missing evidence/inputs remain missing. Older versions already
+  overwritten before this implementation cannot be recovered.
+- A crash after archiving but before replacement may leave an archive of the
+  still-current version. This is safe to retry; an archive alone is not proof that
+  replacement or publication succeeded.
+
+This adds internal storage, not a public history endpoint or review UI. Archive
+immutability is an application/Mongoose safeguard, not protection against direct
+database administration. There is no cross-collection transaction: summary writes
+remain separate, and concurrent summary ordering/reconciliation is still open.
+Discarded AI attempts, source retrieval snapshots, retention/size policy and a
+history viewer remain follow-ups. No live database or research job was run;
+regression tests mock writes and validate schemas without a database.
