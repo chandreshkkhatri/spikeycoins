@@ -110,6 +110,19 @@ describe("Ticker Screener", () => {
     expect(screen.getByText("COIN45/USDT")).toBeInTheDocument();
   });
 
+  it("offers recovery when the provider returns no instruments", async () => {
+    vi.mocked(cryptoApi.getTickers)
+      .mockResolvedValueOnce({ data: [] } as never)
+      .mockResolvedValueOnce({ data: mockTickers.slice(0, 1) } as never);
+
+    renderWithProviders(<Ticker />);
+
+    expect(await screen.findByText("No Data Available")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByText("COIN1/USDT")).toBeInTheDocument();
+  });
+
   it("should navigate pages and maintain pagination without reset when autoResetPageIndex is false", async () => {
     vi.mocked(cryptoApi.getTickers).mockResolvedValue({
       data: mockTickers,

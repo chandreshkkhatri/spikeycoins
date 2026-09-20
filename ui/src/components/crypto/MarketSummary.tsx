@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Clock, ExternalLink, TrendingUp, AlertCircle } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Clock, ExternalLink, TrendingUp, AlertCircle, RefreshCw } from "lucide-react";
 import { cryptoApi } from "@/lib/crypto-api";
 import { Button } from "@/components/ui/button";
 
@@ -46,6 +46,7 @@ export default function MarketSummary() {
   const [selectedStory, setSelectedStory] = useState<TrendingStory | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showAllStories, setShowAllStories] = useState(false);
+  const hasStories = useRef(false);
 
   const formatTimeAgo = (timestamp: string): string => {
     const date = new Date(timestamp);
@@ -67,11 +68,9 @@ export default function MarketSummary() {
     }
   };
 
-  useEffect(() => {
-    const fetchSummaries = async () => {
+  const fetchSummaries = useCallback(async (showLoading = false) => {
       try {
-        setLoading(true);
-        setError(null);
+        if (showLoading) setLoading(true);
 
         const response = await cryptoApi.getSummaries();
         const summariesData = response.data?.data || response.data || [];
@@ -94,19 +93,29 @@ export default function MarketSummary() {
         }));
 
         setStories(formattedStories);
+        hasStories.current = formattedStories.length > 0;
+        setError(null);
       } catch {
-        setError("Failed to load market summaries");
+        setError(
+          hasStories.current
+            ? "Update failed. Showing the last loaded research."
+            : "Failed to load market summaries"
+        );
       } finally {
-        setLoading(false);
+        if (showLoading) setLoading(false);
       }
-    };
+  }, []);
 
-    fetchSummaries();
+  useEffect(() => {
+    const initialRequest = window.setTimeout(() => void fetchSummaries(true), 0);
 
     // Auto-refresh every 5 minutes (research runs every 2 hours, so 5m is fine)
-    const interval = setInterval(fetchSummaries, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
+    const interval = setInterval(() => void fetchSummaries(false), 5 * 60 * 1000);
+    return () => {
+      window.clearTimeout(initialRequest);
+      clearInterval(interval);
+    };
+  }, [fetchSummaries]);
 
   if (loading) {
     return (
@@ -139,7 +148,7 @@ export default function MarketSummary() {
     );
   }
 
-  if (error || stories.length === 0) {
+  if (stories.length === 0) {
     return (
       <div className="bg-card rounded-lg border border-border p-4">
         <div className="flex items-center justify-between mb-4">
@@ -153,6 +162,15 @@ export default function MarketSummary() {
           <div className="text-center">
             <AlertCircle className="h-8 w-8 mx-auto mb-2 text-muted-foreground/60" />
             <p className="text-sm">{error || "No market summaries available yet"}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={() => void fetchSummaries(true)}
+            >
+              Retry
+            </Button>
           </div>
         </div>
       </div>
@@ -176,11 +194,36 @@ export default function MarketSummary() {
     <div className="bg-card rounded-lg border border-border p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-foreground">Market Summary</h2>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <TrendingUp className="h-4 w-4" />
-          <span>Top Stories</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <TrendingUp className="h-4 w-4" />
+            <span>Top Stories</span>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => void fetchSummaries(false)}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Refresh
+          </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <span>{error}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => void fetchSummaries(false)}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
 
       <div className="space-y-3">
         {stories.map((story, index) => (

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, AlertCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, ArrowUp, ArrowDown, AlertCircle, RefreshCw } from "lucide-react";
 import { cryptoApi } from "@/lib/crypto-api";
 import { PAGE_ROUTES } from "@/lib/constants";
 
@@ -45,6 +45,8 @@ export default function GainersLosers() {
   const [losers, setLosers] = useState<CryptoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const hasData = useRef(false);
 
   const formatPrice = (price: number): string => {
     if (price >= 1000) {
@@ -66,10 +68,10 @@ export default function GainersLosers() {
     }
   };
 
-  const fetchTickerData = useCallback(async () => {
+  const fetchTickerData = useCallback(async (showLoading = false) => {
       try {
-        setLoading(true);
-        setError(null);
+        if (showLoading) setLoading(true);
+        setRefreshError(null);
 
         if (timeframe === "24h") {
           const response = await cryptoApi.get24hrTicker();
@@ -123,15 +125,21 @@ export default function GainersLosers() {
           setGainers(rawGainers.slice(0, 5));
           setLosers(rawLosers.slice(0, 5));
         }
+        hasData.current = true;
+        setError(null);
       } catch {
-        setError("Failed to load gainers and losers data");
+        if (hasData.current) {
+          setRefreshError("Update failed. Showing the last loaded movers.");
+        } else {
+          setError("Failed to load gainers and losers data");
+        }
       } finally {
-        setLoading(false);
+        if (showLoading) setLoading(false);
       }
   }, [timeframe]);
 
   useEffect(() => {
-    const initialRequest = window.setTimeout(() => void fetchTickerData(), 0);
+    const initialRequest = window.setTimeout(() => void fetchTickerData(true), 0);
 
     // Auto-refresh every 30s
     const interval = setInterval(fetchTickerData, 30000);
@@ -173,7 +181,13 @@ export default function GainersLosers() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setTimeframe("24h")}
+            onClick={() => {
+              if (timeframe === "24h") return;
+              hasData.current = false;
+              setGainers([]);
+              setLosers([]);
+              setTimeframe("24h");
+            }}
             className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
               timeframe === "24h"
                 ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400"
@@ -183,7 +197,13 @@ export default function GainersLosers() {
             24h
           </button>
           <button
-            onClick={() => setTimeframe("7d")}
+            onClick={() => {
+              if (timeframe === "7d") return;
+              hasData.current = false;
+              setGainers([]);
+              setLosers([]);
+              setTimeframe("7d");
+            }}
             className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
               timeframe === "7d"
                 ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400"
@@ -194,6 +214,19 @@ export default function GainersLosers() {
           </button>
         </div>
       </div>
+
+      {refreshError && (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <span>{refreshError}</span>
+          <button
+            type="button"
+            className="font-medium underline underline-offset-2"
+            onClick={() => void fetchTickerData(false)}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Content Area */}
       {loading ? (
@@ -221,6 +254,14 @@ export default function GainersLosers() {
           <div className="text-center">
             <AlertCircle className="h-8 w-8 mx-auto mb-2 text-muted-foreground/60" />
             <p className="text-sm">{error}</p>
+            <button
+              type="button"
+              className="mt-3 inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground"
+              onClick={() => void fetchTickerData(true)}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Retry
+            </button>
           </div>
         </div>
       ) : items.length === 0 ? (

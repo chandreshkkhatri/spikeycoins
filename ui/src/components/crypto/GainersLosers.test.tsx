@@ -33,6 +33,22 @@ describe("GainersLosers", () => {
     expect(screen.getByRole("button", { name: "7d" })).toBeInTheDocument();
   });
 
+  it("should recover from an initial provider failure without losing its controls", async () => {
+    vi.mocked(cryptoApi.get24hrTicker)
+      .mockRejectedValueOnce(new Error("Network Failure"))
+      .mockResolvedValueOnce({
+        data: [{ s: "BTCUSDT", c: "65000", P: "5.5", q: "1000000" }],
+      } as never);
+
+    render(<GainersLosers />);
+
+    await screen.findByText(/Failed to load gainers and losers data/i);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("BTC")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "7d" })).toBeInTheDocument();
+  });
+
   it("should filter gainers strictly to change > 0 and losers strictly to change < 0", async () => {
     const mockTickers = [
       { s: "BTCUSDT", c: "65000", P: "5.5", q: "1000000" },
@@ -44,7 +60,7 @@ describe("GainersLosers", () => {
 
     vi.mocked(cryptoApi.get24hrTicker).mockResolvedValue({
       data: mockTickers,
-    } as any);
+    } as never);
 
     render(<GainersLosers />);
 
@@ -72,7 +88,7 @@ describe("GainersLosers", () => {
   it("should fetch 7d top movers when switching to 7d timeframe", async () => {
     vi.mocked(cryptoApi.get24hrTicker).mockResolvedValue({
       data: [{ s: "BTCUSDT", c: "65000", P: "5.0", q: "1000000" }],
-    } as any);
+    } as never);
 
     vi.mocked(cryptoApi.get7dTopMovers).mockResolvedValue({
       data: {
@@ -81,7 +97,7 @@ describe("GainersLosers", () => {
         ],
         losers: [],
       },
-    } as any);
+    } as never);
 
     render(<GainersLosers />);
 
@@ -98,4 +114,3 @@ describe("GainersLosers", () => {
     });
   });
 });
-

@@ -702,8 +702,16 @@ export default function Ticker() {
       <div className="text-center p-10 bg-muted/50 rounded-lg">
         <p className="text-lg font-semibold text-muted-foreground">No Data Available</p>
         <p className="text-muted-foreground mt-2">
-          Click &apos;Refresh&apos; to load market data.
+          The market provider returned no instruments.
         </p>
+        <Button
+          variant="outline"
+          className="mt-4"
+          onClick={() => fetchTickers(true)}
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
       </div>
     );
   }
