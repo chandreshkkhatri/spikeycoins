@@ -10,6 +10,8 @@ import DataManager from "./DataManager";
 import MarketCapService from "../services/MarketCapService";
 import CandlestickStorage from "../services/CandlestickStorage";
 import { BinanceService } from "../../lib/binance-service";
+import BinanceSymbolCatalog from '../services/BinanceSymbolCatalog';
+import { normalizeMiniTicker } from './normalizeMiniTicker';
 
 class BinanceClient {
   private tickerWs: WebSocket | null = null;
@@ -56,7 +58,7 @@ class BinanceClient {
    * Connect to Binance 24hr ticker stream
    */
   private connectTickerStream(): void {
-    const wsUrl = 'wss://stream.binance.com:9443/ws/!ticker@arr';
+    const wsUrl = 'wss://stream.binance.com:9443/ws/!miniTicker@arr';
     
     this.tickerWs = new WebSocket(wsUrl);
     
@@ -71,7 +73,8 @@ class BinanceClient {
         this.lastSpotMessageTime = Date.now();
         const tickerArray = JSON.parse(data.toString());
         if (Array.isArray(tickerArray)) {
-          DataManager.updateTickers(tickerArray);
+          const tickers = tickerArray.map(normalizeMiniTicker).filter(item => item !== null);
+          DataManager.updateTickers(tickers);
         }
       } catch (error) {
         logger.error("BinanceClient: Error processing ticker data:", error);
@@ -94,7 +97,7 @@ class BinanceClient {
    * Only futures-only symbols (not on spot) will be kept by DataManager.
    */
   private connectFuturesTickerStream(): void {
-    const wsUrl = 'wss://fstream.binance.com/ws/!ticker@arr';
+    const wsUrl = 'wss://fstream.binance.com/market/ws/!ticker@arr';
 
     this.futuresWs = new WebSocket(wsUrl);
 
@@ -167,6 +170,11 @@ class BinanceClient {
    * Update the list of symbols to track
    */
   private async updateSymbolsList(): Promise<void> {
+    try {
+      await BinanceSymbolCatalog.refresh();
+    } catch {
+      logger.warn('BinanceClient: Could not refresh exchange listings; using previously verified listings');
+    }
     // Get active symbols from DataManager
     const activeSymbols = DataManager.getActiveSymbols();
     
@@ -177,15 +185,11 @@ class BinanceClient {
     const allSymbols = new Set([...activeSymbols, ...topMarketCapSymbols]);
     
     // Sort by volume (prioritize high-volume pairs)
-    // Filter symbols: must end with USDT, cannot be self-referencing (USDTUSDT),
-    // and if DataManager has live ticker data, must be a confirmed Binance symbol.
+    // Require a confirmed, trading USDT listing even before live tickers arrive.
     this.symbolsToTrack = Array.from(allSymbols)
       .filter(symbol => {
         if (!symbol.endsWith('USDT') || symbol === 'USDTUSDT') return false;
-        if (DataManager.hasData() && !DataManager.getTickerBySymbol(symbol)) {
-          return false;
-        }
-        return true;
+        return BinanceSymbolCatalog.marketFor(symbol) !== undefined;
       })
       .sort((a, b) => {
         const tickerA = DataManager.getTickerBySymbol(a);
@@ -251,7 +255,7 @@ class BinanceClient {
     const totalSymbols = this.symbolsToTrack.length;
     const secondsPerCycle = this.UPDATE_CYCLE_MINUTES * 60;
     const delayBetweenFetches = Math.max(
-      (secondsPerCycle * 1000) / totalSymbols,
+      totalSymbols ? (secondsPerCycle * 1000) / totalSymbols : 5000,
       this.FETCH_DELAY_MS
     );
     
@@ -270,6 +274,7 @@ class BinanceClient {
         
         // Fetch next symbol
         if (this.symbolsToTrack.length > 0) {
+          this.currentSymbolIndex %= this.symbolsToTrack.length;
           const symbol = this.symbolsToTrack[this.currentSymbolIndex];
           
           try {
@@ -279,7 +284,7 @@ class BinanceClient {
           }
           
           // Move to next symbol
-          this.currentSymbolIndex = (this.currentSymbolIndex + 1) % this.symbolsToTrack.length;
+          this.currentSymbolIndex = (this.currentSymbolIndex + 1) % Math.max(this.symbolsToTrack.length, 1);
           
           // Log progress periodically
           if (this.currentSymbolIndex === 0) {
@@ -297,7 +302,9 @@ class BinanceClient {
    * Fetch candlestick data for a single symbol
    */
   private async fetchCandlesticksForSymbol(symbol: string): Promise<void> {
-    const isFutures = DataManager.getTickerBySymbol(symbol)?.is_futures;
+    const market = BinanceSymbolCatalog.marketFor(symbol);
+    if (!market) return;
+    const isFutures = market === 'futures';
     const url = isFutures
       ? 'https://fapi.binance.com/fapi/v1/klines'
       : 'https://api.binance.com/api/v3/klines';
@@ -334,7 +341,7 @@ class BinanceClient {
       if (statusCode === 429) {
         // Rate limited: the limiter will already have paused; just bail out
         logger.warn('BinanceClient: Rate limited by Binance, skipping symbol');
-      } else if (statusCode === 400 || binanceCode === -1121) {
+      } else if (binanceCode === -1121) {
         // Invalid symbol on Binance: remove from tracking list to prevent re-querying
         logger.warn(`BinanceClient: Symbol ${symbol} is not a valid Binance pair, evicting from tracking`);
         this.symbolsToTrack = this.symbolsToTrack.filter(s => s !== symbol);

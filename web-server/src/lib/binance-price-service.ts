@@ -30,7 +30,7 @@ class BinancePriceService {
   private pingInterval: NodeJS.Timeout | null = null;
 
   // Binance Futures WebSocket URL for all tickers stream
-  private readonly WS_URL = "wss://fstream.binance.com/ws/!ticker@arr";
+  private readonly WS_URL = "wss://fstream.binance.com/market/ws/!ticker@arr";
 
   /**
    * Start the WebSocket connection to Binance

@@ -142,7 +142,7 @@ class DataManager {
         volume_usd: parseFloat(rawTicker.q) || (volume * price),
         volume_base: volume,
         market_cap: marketCapData?.marketCap || null,
-        is_futures: marketCapData?.marketType === 'futures' || false,
+        is_futures: false,
         last_updated: now,
       };
       
