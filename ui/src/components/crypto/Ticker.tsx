@@ -62,6 +62,11 @@ type ScreenerDirection = "gainers" | "losers" | null;
 const normalizePair = (value: string): string =>
   value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
+const readThreshold = (value: string | null): string =>
+  value !== null && value.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= 0
+    ? value
+    : "";
+
 const readSearchParams = (): URLSearchParams =>
   typeof window === "undefined"
     ? new URLSearchParams()
@@ -151,6 +156,8 @@ export default function Ticker() {
   );
   const [timeframe, setTimeframe] = useState<ScreenerTimeframe>(() => readTimeframe(initialParams));
   const [direction, setDirection] = useState<ScreenerDirection>(() => readDirection(initialParams));
+  const [minVolume, setMinVolume] = useState(() => readThreshold(initialParams.get("minVolume")));
+  const [minChange, setMinChange] = useState(() => readThreshold(initialParams.get("minChange")));
   const [actionResult, setActionResult] = useState<{
     type: "success" | "error";
     message: string;
@@ -596,6 +603,10 @@ export default function Ticker() {
     params.set("timeframe", timeframe);
     if (direction) params.set("direction", direction);
     else params.delete("direction");
+    for (const [key, value] of [["minVolume", minVolume], ["minChange", minChange]]) {
+      if (value !== "" && Number(value) > 0) params.set(key, String(Number(value)));
+      else params.delete(key);
+    }
 
     const activeSort = sorting[0];
     if (activeSort) {
@@ -611,7 +622,7 @@ export default function Ticker() {
       "",
       `${window.location.pathname}${query ? `?${query}` : ""}`
     );
-  }, [direction, pagination.pageIndex, searchQuery, selectedSymbol, sorting, timeframe]);
+  }, [direction, minVolume, minChange, pagination.pageIndex, searchQuery, selectedSymbol, sorting, timeframe]);
 
   const resetSort = () => {
     setSorting([{
@@ -635,14 +646,17 @@ export default function Ticker() {
   );
 
   const directionalTickers = useMemo(() => {
-    if (!direction) return tickerArray;
     const field = timeframe === "7d" ? "change_7d" : "change_24h";
     return tickerArray.filter((ticker) => {
+      if (Number(minVolume) > 0 &&
+        (!Number.isFinite(ticker.volume_usd) || ticker.volume_usd < Number(minVolume))) return false;
       const change = ticker[field];
-      if (change === null || change === undefined) return false;
-      return direction === "gainers" ? change > 0 : change < 0;
+      if (!direction && Number(minChange) === 0) return true;
+      if (change === null || change === undefined || !Number.isFinite(change)) return false;
+      if (Math.abs(change) < Number(minChange)) return false;
+      return !direction || (direction === "gainers" ? change > 0 : change < 0);
     });
-  }, [direction, tickerArray, timeframe]);
+  }, [direction, minVolume, minChange, tickerArray, timeframe]);
 
   const selectedTicker = selectedSymbol
     ? tickerArray.find((ticker) => normalizePair(ticker.s) === normalizePair(selectedSymbol))
@@ -786,6 +800,53 @@ export default function Ticker() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="text-sm">
+          <span className="mb-1 block text-muted-foreground">Minimum 24h volume (USD)</span>
+          <Input
+            type="number"
+            min="0"
+            step="any"
+            inputMode="decimal"
+            placeholder="Any volume"
+            value={minVolume}
+            onChange={event => {
+              setMinVolume(readThreshold(event.target.value));
+              setPagination(current => ({ ...current, pageIndex: 0 }));
+            }}
+          />
+        </label>
+        <div className="text-sm">
+          <label htmlFor="minimum-move" className="mb-1 block text-muted-foreground">Minimum {timeframe} move (%)</label>
+          <Input
+            id="minimum-move"
+            type="number"
+            min="0"
+            step="any"
+            inputMode="decimal"
+            placeholder="Any move"
+            aria-describedby="move-filter-help"
+            value={minChange}
+            onChange={event => {
+              setMinChange(readThreshold(event.target.value));
+              setPagination(current => ({ ...current, pageIndex: 0 }));
+            }}
+          />
+          <span id="move-filter-help" className="mt-1 block text-xs text-muted-foreground">
+            Move size in either direction; 5 matches gains of at least 5% or losses of at least 5%.
+          </span>
+        </div>
+        {(minVolume !== "" || minChange !== "") && (
+          <Button variant="ghost" size="sm" className="w-fit" onClick={() => {
+            setMinVolume("");
+            setMinChange("");
+            setPagination(current => ({ ...current, pageIndex: 0 }));
+          }}>
+            Clear thresholds
+          </Button>
+        )}
+      </div>
+
       {/* Background refresh error banner */}
       {refreshError && (
         <div className="px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-sm text-amber-700 dark:text-amber-400 flex items-center justify-between">
@@ -904,7 +965,7 @@ export default function Ticker() {
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
           <p className="font-medium text-foreground">No matching instruments</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Clear the search or direction filter to continue scanning.
+            Adjust the volume or move threshold, or clear filters to continue scanning.
           </p>
           <Button
             variant="outline"
@@ -914,6 +975,8 @@ export default function Ticker() {
               setSearchQuery("");
               setSelectedSymbol(null);
               setDirection(null);
+              setMinVolume("");
+              setMinChange("");
               setPagination((current) => ({ ...current, pageIndex: 0 }));
             }}
           >

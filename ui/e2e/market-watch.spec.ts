@@ -38,6 +38,9 @@ test(`mobile scan retains context through details, Terminal, and an outage (auth
   await expect(page.getByText("BTC/USDT", { exact: true })).toBeVisible();
   await expect(page.getByText("ETH/USDT", { exact: true })).toHaveCount(0);
   if (!loggedIn) expect(adminRequests).toEqual([]);
+  await page.getByLabel("Minimum 24h volume (USD)").fill("1000000");
+  await page.getByLabel("Minimum 7d move (%)").fill("10");
+  await expect(page.getByText("BTC/USDT", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.getByRole("heading", { name: "BTC/USDT" })).toBeVisible();
@@ -51,6 +54,8 @@ test(`mobile scan retains context through details, Terminal, and an outage (auth
   await page.getByRole("link", { name: "Back to Market Watch scan" }).click();
   await expect(page.getByRole("heading", { name: "BTC/USDT" })).toBeVisible();
   await expect(page.getByPlaceholder("Search pairs...")).toHaveValue("");
+  await expect(page.getByLabel("Minimum 24h volume (USD)")).toHaveValue("1000000");
+  await expect(page.getByLabel("Minimum 7d move (%)")).toHaveValue("10");
   outage = true;
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByText(/Market feed update failed/)).toBeVisible();

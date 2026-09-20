@@ -57,6 +57,47 @@ describe("Ticker Screener", () => {
     } as never);
   });
 
+  it("combines inclusive volume and move thresholds restored from the URL", async () => {
+    window.history.replaceState(null, "", "/market-watch/screener?minVolume=101000&minChange=2");
+    vi.mocked(cryptoApi.getTickers).mockResolvedValue({ data: mockTickers.slice(0, 3) } as never);
+    renderWithProviders(<Ticker />);
+    expect(await screen.findByText("COIN2/USDT")).toBeInTheDocument();
+    expect(screen.getByText("COIN3/USDT")).toBeInTheDocument();
+    expect(screen.queryByText("COIN1/USDT")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Minimum 24h volume (USD)")).toHaveValue(101000);
+    await userEvent.clear(screen.getByLabelText("Minimum 24h move (%)"));
+    await userEvent.type(screen.getByLabelText("Minimum 24h move (%)"), "100");
+    expect(await screen.findByText("No matching instruments")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters", exact: true }));
+    expect(await screen.findByText("COIN1/USDT")).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).has("minVolume")).toBe(false);
+    expect(new URLSearchParams(window.location.search).has("minChange")).toBe(false);
+  });
+
+  it("applies the move threshold to 7d rather than 24h and excludes missing observations", async () => {
+    window.history.replaceState(null, "", "/market-watch/screener?timeframe=7d&minChange=10&direction=losers");
+    vi.mocked(cryptoApi.getTickers).mockResolvedValue({ data: mockTickers.slice(0, 3) } as never);
+    vi.mocked(cryptoApi.get7dTopMovers).mockResolvedValue({ data: { data: {
+      gainers: [{ symbol: "COIN1", change_7d: 15 }],
+      losers: [{ symbol: "COIN2", change_7d: -10 }],
+    } } } as never);
+    renderWithProviders(<Ticker />);
+    expect(await screen.findByText("COIN2/USDT")).toBeInTheDocument();
+    expect(screen.queryByText("COIN1/USDT")).not.toBeInTheDocument();
+    expect(screen.queryByText("COIN3/USDT")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "24h", exact: true }));
+    expect(await screen.findByText("No matching instruments")).toBeInTheDocument();
+  });
+
+  it("ignores malformed and negative URL thresholds", async () => {
+    window.history.replaceState(null, "", "/market-watch/screener?minVolume=-1&minChange=Infinity");
+    vi.mocked(cryptoApi.getTickers).mockResolvedValue({ data: mockTickers.slice(0, 1) } as never);
+    renderWithProviders(<Ticker />);
+    expect(await screen.findByText("COIN1/USDT")).toBeInTheDocument();
+    expect(screen.getByLabelText("Minimum 24h volume (USD)")).toHaveValue(null);
+    expect(screen.getByLabelText("Minimum 24h move (%)")).toHaveValue(null);
+  });
+
   it("should render table data and initialize sorting from localStorage if present", async () => {
     localStorage.setItem(
       "spikeyCoins_screener_sorting",
