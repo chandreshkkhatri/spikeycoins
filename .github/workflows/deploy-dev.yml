@@ -1,11 +1,8 @@
 name: Deploy to Dev Server
 
 on:
-  push:
-    branches: [development]
-    paths:
-      - 'web-server/**'
-      - '.github/workflows/deploy-dev.yml'
+  # Automatic deployment is paused: the dev server has been removed.
+  # Restore the development push trigger when a replacement server is ready.
   workflow_dispatch:
 
 jobs:
