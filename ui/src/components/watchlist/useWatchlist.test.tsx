@@ -90,6 +90,24 @@ describe("useWatchlist integration", () => {
     expect(binanceWebSocketService.connect).toHaveBeenCalled();
   });
 
+  it("should preserve a Terminal URL symbol before it is added to the watchlist", async () => {
+    const { result } = renderHookWithProviders(() =>
+      useWatchlist({
+        selectedAccount: mockBinanceAccount,
+        accounts: mockAccounts,
+        marketType: "binance-futures",
+        initialSymbol: "doge/usdt",
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.selectedSymbol).toBe("DOGEUSDT");
+    expect(result.current.watchlistSymbols).not.toContain("DOGEUSDT");
+  });
+
   it("should optimistically add a symbol and then roll back if backend persistence fails", async () => {
     // Intercept POST /api/watchlist/symbols to return error with a delay
     server.use(

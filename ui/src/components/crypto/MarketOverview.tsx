@@ -235,7 +235,7 @@ export default function MarketOverview() {
           <button
             type="button"
             key={crypto.symbol}
-            onClick={() => router.push(PAGE_ROUTES.CRYPTO_SCREENER)}
+            onClick={() => router.push(`${PAGE_ROUTES.CRYPTO_SCREENER}?symbol=${crypto.symbol}USDT&timeframe=24h`)}
             className="text-left flex-shrink-0 bg-muted/50 rounded-lg p-3 min-w-[140px] hover:bg-muted transition-colors"
           >
             <div className="flex items-center justify-between mb-1">

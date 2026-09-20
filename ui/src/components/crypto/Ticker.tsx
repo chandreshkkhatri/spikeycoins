@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   createColumnHelper,
   flexRender,
@@ -16,14 +17,30 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronUp, ChevronDown, Search, RefreshCw, ArrowUpDown, Sparkles, Loader2, AlertCircle } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowUpDown,
+  BookmarkPlus,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Search,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { cryptoApi } from "@/lib/crypto-api";
 import api from "@/lib/api";
+import { useAccount } from "@/contexts/account-context";
+import { useAuth } from "@/contexts/auth-context";
+import { PAGE_ROUTES } from "@/lib/constants";
 
 export interface TickerData {
   s: string;
   price: number;
   change_24h: number;
+  change_7d?: number | null;
   change_12h?: number | null;
   change_8h?: number | null;
   change_4h?: number | null;
@@ -39,6 +56,29 @@ export interface TickerData {
 }
 
 const columnHelper = createColumnHelper<TickerData>();
+type ScreenerTimeframe = "24h" | "7d";
+type ScreenerDirection = "gainers" | "losers" | null;
+
+const normalizePair = (value: string): string =>
+  value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+const readSearchParams = (): URLSearchParams =>
+  typeof window === "undefined"
+    ? new URLSearchParams()
+    : new URLSearchParams(window.location.search);
+
+const readDirection = (): ScreenerDirection => {
+  const direction = readSearchParams().get("direction");
+  return direction === "gainers" || direction === "losers" ? direction : null;
+};
+
+const readTimeframe = (): ScreenerTimeframe =>
+  readSearchParams().get("timeframe") === "7d" ? "7d" : "24h";
+
+const readPageIndex = (): number => {
+  const page = Number.parseInt(readSearchParams().get("page") || "1", 10);
+  return Number.isFinite(page) && page > 0 ? page - 1 : 0;
+};
 
 const numberSort = (
   rowA: Row<TickerData>,
@@ -92,19 +132,33 @@ const formatPrice = (value: number | undefined | null): string => {
 };
 
 export default function Ticker() {
+  const router = useRouter();
+  const { isLoggedIn } = useAuth();
+  const { accounts, selectedAccount } = useAccount();
+  const initialParams = useRef(readSearchParams());
+  const initialSymbol = normalizePair(initialParams.current.get("symbol") || "");
   const [tickerArray, setTickerArray] = useState<TickerData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(
+    initialSymbol || initialParams.current.get("q") || ""
+  );
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(
+    initialSymbol || null
+  );
+  const [timeframe, setTimeframe] = useState<ScreenerTimeframe>(readTimeframe);
+  const [direction, setDirection] = useState<ScreenerDirection>(readDirection);
+  const [actionResult, setActionResult] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [analyzingSymbol, setAnalyzingSymbol] = useState<string | null>(null);
   const [analyzeResult, setAnalyzeResult] = useState<{ symbol: string; success: boolean; message: string } | null>(null);
-  const isInitialLoad = useRef(true);
-
   const [pagination, setPagination] = useState({
-    pageIndex: 0,
+    pageIndex: readPageIndex(),
     pageSize: 20,
   });
 
@@ -125,9 +179,30 @@ export default function Ticker() {
     try {
       if (showLoading) setLoading(true);
       setRefreshError(null);
-      const response = await cryptoApi.getTickers();
+      const [response, sevenDayResponse] = await Promise.all([
+        cryptoApi.getTickers(),
+        timeframe === "7d" ? cryptoApi.get7dTopMovers(500) : Promise.resolve(null),
+      ]);
       const data = response.data?.data || response.data || [];
-      const newArray = Array.isArray(data) ? data : [];
+      const sevenDayData = sevenDayResponse?.data?.data;
+      const sevenDayItems = [
+        ...(sevenDayData?.gainers || []),
+        ...(sevenDayData?.losers || []),
+      ] as Array<{ symbol: string; change_7d: number }>;
+      const sevenDayBySymbol = new Map(
+        sevenDayItems.map((item) => [
+          normalizePair(item.symbol.endsWith("USDT") ? item.symbol : `${item.symbol}USDT`),
+          item.change_7d,
+        ])
+      );
+      const newArray = Array.isArray(data)
+        ? data.map((ticker: TickerData) => ({
+            ...ticker,
+            change_7d: timeframe === "7d"
+              ? sevenDayBySymbol.get(normalizePair(ticker.s)) ?? null
+              : ticker.change_7d,
+          }))
+        : [];
       setTickerArray(newArray);
       setLastUpdated(new Date());
       setError(null);
@@ -144,16 +219,74 @@ export default function Ticker() {
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, []);
+  }, [timeframe]);
 
   useEffect(() => {
     fetchTickers(true);
-    isInitialLoad.current = false;
 
     // Auto-refresh every 30s (silent, no loading spinner)
     const interval = setInterval(() => fetchTickers(false), 30000);
     return () => clearInterval(interval);
   }, [fetchTickers]);
+
+  const currentScreenerPath = useCallback(() => {
+    if (typeof window === "undefined") return PAGE_ROUTES.CRYPTO_SCREENER;
+    return `${window.location.pathname}${window.location.search}`;
+  }, []);
+
+  const handleOpenTerminal = useCallback((symbol: string) => {
+    const params = new URLSearchParams({
+      symbol,
+      returnTo: currentScreenerPath(),
+    });
+    router.push(`${PAGE_ROUTES.TRADING_PANEL}?${params.toString()}`);
+  }, [currentScreenerPath, router]);
+
+  const handleSave = useCallback(async (symbol: string) => {
+    if (!isLoggedIn) {
+      const returnTo = currentScreenerPath();
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("spikeyCoins_authReturnTo", returnTo);
+      }
+      router.push(`${PAGE_ROUTES.LOGIN}?returnTo=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+
+    const binanceAccount =
+      selectedAccount?.accountType === "binance"
+        ? selectedAccount
+        : accounts.find((account) => account.accountType === "binance" && account.isActive);
+
+    if (!binanceAccount) {
+      setActionResult({
+        type: "error",
+        message: "Connect a Binance broker account to save this instrument.",
+      });
+      return;
+    }
+
+    try {
+      await api.post("/watchlist/symbols", {
+        accountId: binanceAccount._id,
+        marketType: "binance-futures",
+        symbol,
+      });
+      setActionResult({
+        type: "success",
+        message: `${symbol.replace("USDT", "/USDT")} added to your watchlist.`,
+      });
+    } catch {
+      setActionResult({
+        type: "error",
+        message: "Could not add this instrument to your watchlist.",
+      });
+    }
+  }, [accounts, currentScreenerPath, isLoggedIn, router, selectedAccount]);
+
+  const handleViewDetails = useCallback((symbol: string) => {
+    setSelectedSymbol(symbol);
+    setPagination((current) => ({ ...current, pageIndex: 0 }));
+  }, []);
 
   const handleAnalyze = useCallback(async (symbol: string) => {
     try {
@@ -207,6 +340,15 @@ export default function Ticker() {
         cell: (info) => formatPercentage(info.getValue()),
         sortingFn: numberSort,
       }),
+      ...(timeframe === "7d"
+        ? [
+            columnHelper.accessor("change_7d", {
+              header: "7d Change",
+              cell: (info) => formatPercentage(info.getValue()),
+              sortingFn: numberSort,
+            }),
+          ]
+        : []),
       columnHelper.accessor("change_12h", {
         header: "12h Change",
         cell: (info) => formatPercentage(info.getValue()),
@@ -278,6 +420,46 @@ export default function Ticker() {
         },
         sortingFn: numberSort,
       }),
+      columnHelper.display({
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => {
+          const symbol = row.original.s;
+          return (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => handleViewDetails(symbol)}
+              >
+                Details
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => void handleSave(symbol)}
+                title={isLoggedIn ? "Add to watchlist" : "Sign in to save"}
+              >
+                <BookmarkPlus className="h-3.5 w-3.5" />
+                <span className="sr-only">{isLoggedIn ? "Add to watchlist" : "Sign in to save"} {symbol}</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => handleOpenTerminal(symbol)}
+                title="Open in Terminal"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span className="sr-only">Open {symbol} in Terminal</span>
+              </Button>
+            </div>
+          );
+        },
+        enableSorting: false,
+      }),
       ...(isAdmin
         ? [
             columnHelper.display({
@@ -327,10 +509,44 @@ export default function Ticker() {
           ]
         : []),
     ],
-    [isAdmin, analyzingSymbol, analyzeResult, handleAnalyze]
+    [
+      timeframe,
+      isLoggedIn,
+      isAdmin,
+      analyzingSymbol,
+      analyzeResult,
+      handleAnalyze,
+      handleOpenTerminal,
+      handleSave,
+      handleViewDetails,
+    ]
   );
 
   const [sorting, setSorting] = useState<SortingState>(() => {
+    const params = readSearchParams();
+    const urlSort = params.get("sort");
+    const sortableColumns = new Set([
+      "s",
+      "price",
+      "change_24h",
+      "change_7d",
+      "change_12h",
+      "change_8h",
+      "change_4h",
+      "change_1h",
+      "range_position_24h",
+      "volume_usd",
+      "market_cap",
+    ]);
+    if (urlSort && sortableColumns.has(urlSort)) {
+      return [{ id: urlSort, desc: params.get("sortDir") !== "asc" }];
+    }
+    if (params.has("direction") || params.has("timeframe")) {
+      return [{
+        id: readTimeframe() === "7d" ? "change_7d" : "change_24h",
+        desc: readDirection() !== "losers",
+      }];
+    }
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("spikeyCoins_screener_sorting");
@@ -344,7 +560,7 @@ export default function Ticker() {
         // ignore JSON parse error
       }
     }
-    return [{ id: "change_24h", desc: true }];
+    return [{ id: readTimeframe() === "7d" ? "change_7d" : "change_24h", desc: readDirection() !== "losers" }];
   });
 
   useEffect(() => {
@@ -355,8 +571,50 @@ export default function Ticker() {
     }
   }, [sorting]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+
+    if (selectedSymbol) {
+      params.set("symbol", selectedSymbol);
+      if (searchQuery && normalizePair(searchQuery) !== normalizePair(selectedSymbol)) {
+        params.set("q", searchQuery);
+      } else {
+        params.delete("q");
+      }
+    } else if (searchQuery) {
+      params.set("q", searchQuery);
+      params.delete("symbol");
+    } else {
+      params.delete("q");
+      params.delete("symbol");
+    }
+
+    params.set("timeframe", timeframe);
+    if (direction) params.set("direction", direction);
+    else params.delete("direction");
+
+    const activeSort = sorting[0];
+    if (activeSort) {
+      params.set("sort", activeSort.id);
+      params.set("sortDir", activeSort.desc ? "desc" : "asc");
+    }
+    if (pagination.pageIndex > 0) params.set("page", String(pagination.pageIndex + 1));
+    else params.delete("page");
+
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}`
+    );
+  }, [direction, pagination.pageIndex, searchQuery, selectedSymbol, sorting, timeframe]);
+
   const resetSort = () => {
-    setSorting([{ id: "change_24h", desc: true }]);
+    setSorting([{
+      id: timeframe === "7d" ? "change_7d" : "change_24h",
+      desc: direction !== "losers",
+    }]);
   };
 
   const customGlobalFilterFn: FilterFn<TickerData> = React.useCallback(
@@ -366,15 +624,29 @@ export default function Ticker() {
         | number
         | null
         | undefined;
-      const sValue = String(value).toLowerCase();
-      const fValue = String(filterValue).toLowerCase();
+      const sValue = normalizePair(String(value));
+      const fValue = normalizePair(String(filterValue));
       return sValue.includes(fValue);
     },
     []
   );
 
+  const directionalTickers = useMemo(() => {
+    if (!direction) return tickerArray;
+    const field = timeframe === "7d" ? "change_7d" : "change_24h";
+    return tickerArray.filter((ticker) => {
+      const change = ticker[field];
+      if (change === null || change === undefined) return false;
+      return direction === "gainers" ? change > 0 : change < 0;
+    });
+  }, [direction, tickerArray, timeframe]);
+
+  const selectedTicker = selectedSymbol
+    ? tickerArray.find((ticker) => normalizePair(ticker.s) === normalizePair(selectedSymbol))
+    : undefined;
+
   const table = useReactTable({
-    data: tickerArray,
+    data: directionalTickers,
     columns,
     state: {
       sorting,
@@ -434,8 +706,45 @@ export default function Ticker() {
     <div className="bg-card rounded-lg space-y-4">
       {/* Controls */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="text-sm text-muted-foreground">
-          {tickerArray.length} USDT trading pairs available
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            {tickerArray.length} USDT trading pairs available
+          </span>
+          <Button
+            variant={timeframe === "24h" ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setTimeframe("24h");
+              setSorting([{ id: "change_24h", desc: direction !== "losers" }]);
+              setPagination((current) => ({ ...current, pageIndex: 0 }));
+            }}
+          >
+            24h
+          </Button>
+          <Button
+            variant={timeframe === "7d" ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setTimeframe("7d");
+              setSorting([{ id: "change_7d", desc: direction !== "losers" }]);
+              setPagination((current) => ({ ...current, pageIndex: 0 }));
+            }}
+          >
+            7d
+          </Button>
+          {direction && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setDirection(null);
+                setPagination((current) => ({ ...current, pageIndex: 0 }));
+              }}
+            >
+              {direction === "gainers" ? "Gainers" : "Losers"}
+              <X className="ml-1 h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -444,7 +753,11 @@ export default function Ticker() {
               type="text"
               placeholder="Search pairs..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSelectedSymbol(null);
+                setSearchQuery(e.target.value);
+                setPagination((current) => ({ ...current, pageIndex: 0 }));
+              }}
               className="pl-9 w-64"
             />
           </div>
@@ -488,6 +801,83 @@ export default function Ticker() {
         </div>
       )}
 
+      {actionResult && (
+        <div
+          className={cn(
+            "flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm",
+            actionResult.type === "success"
+              ? "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-400"
+              : "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400"
+          )}
+        >
+          <span>{actionResult.message}</span>
+          <button
+            type="button"
+            aria-label="Dismiss notification"
+            onClick={() => setActionResult(null)}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {selectedTicker && (
+        <section className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4" aria-label={`${selectedTicker.s} details`}>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-foreground">
+                  {selectedTicker.s.replace("USDT", "/USDT")}
+                </h2>
+                {selectedTicker.is_futures && (
+                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                    PERP
+                  </span>
+                )}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2 text-sm sm:grid-cols-4">
+                <div>
+                  <span className="block text-xs text-muted-foreground">Price</span>
+                  <span className="font-mono">${formatPrice(selectedTicker.price)}</span>
+                </div>
+                <div>
+                  <span className="block text-xs text-muted-foreground">{timeframe} change</span>
+                  {formatPercentage(timeframe === "7d" ? selectedTicker.change_7d : selectedTicker.change_24h)}
+                </div>
+                <div>
+                  <span className="block text-xs text-muted-foreground">24h volume</span>
+                  <span className="font-mono">${formatNumber(selectedTicker.volume_usd)}</span>
+                </div>
+                <div>
+                  <span className="block text-xs text-muted-foreground">24h range</span>
+                  <span className="font-mono">
+                    ${formatPrice(selectedTicker.low_24h)}–${formatPrice(selectedTicker.high_24h)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => void handleSave(selectedTicker.s)}>
+                <BookmarkPlus className="mr-2 h-4 w-4" />
+                {isLoggedIn ? "Add to watchlist" : "Sign in to save"}
+              </Button>
+              <Button size="sm" onClick={() => handleOpenTerminal(selectedTicker.s)}>
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Open in Terminal
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Close details"
+                onClick={() => setSelectedSymbol(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Analyze result notification */}
       {analyzeResult && (
         <div
@@ -504,6 +894,27 @@ export default function Ticker() {
         </div>
       )}
 
+      {table.getFilteredRowModel().rows.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-8 text-center">
+          <p className="font-medium text-foreground">No matching instruments</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Clear the search or direction filter to continue scanning.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-4"
+            onClick={() => {
+              setSearchQuery("");
+              setSelectedSymbol(null);
+              setDirection(null);
+              setPagination((current) => ({ ...current, pageIndex: 0 }));
+            }}
+          >
+            Clear filters
+          </Button>
+        </div>
+      ) : (
       <div className="overflow-x-auto border border-border rounded-lg">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
@@ -512,10 +923,19 @@ export default function Ticker() {
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
+                    aria-sort={
+                      header.column.getIsSorted() === "asc"
+                        ? "ascending"
+                        : header.column.getIsSorted() === "desc"
+                          ? "descending"
+                          : "none"
+                    }
                     className="px-4 py-3 text-left font-medium text-muted-foreground uppercase tracking-wider"
                   >
                     {header.isPlaceholder ? null : (
-                      <div
+                      <button
+                        type="button"
+                        disabled={!header.column.getCanSort()}
                         className={cn(
                           "flex items-center gap-1",
                           header.column.getCanSort() &&
@@ -531,7 +951,7 @@ export default function Ticker() {
                           asc: <ChevronUp className="h-4 w-4" />,
                           desc: <ChevronDown className="h-4 w-4" />,
                         }[header.column.getIsSorted() as string] ?? null}
-                      </div>
+                      </button>
                     )}
                   </th>
                 ))}
@@ -551,11 +971,13 @@ export default function Ticker() {
           </tbody>
         </table>
       </div>
+      )}
       <div className="mt-4 flex items-center justify-between flex-wrap gap-4 text-sm">
         <div className="text-muted-foreground">
-          Showing {table.getRowModel().rows.length} of {tickerArray.length}{" "}
-          pairs
+          Showing {table.getRowModel().rows.length} of{" "}
+          {table.getFilteredRowModel().rows.length} matching pairs
         </div>
+        {table.getFilteredRowModel().rows.length > 0 && (
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -578,6 +1000,7 @@ export default function Ticker() {
             Next
           </Button>
         </div>
+        )}
       </div>
     </div>
   );

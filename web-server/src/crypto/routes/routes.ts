@@ -483,7 +483,11 @@ export async function getSummaries(req: Request, res: Response): Promise<void> {
 export async function get7dTopMovers(req: Request, res: Response): Promise<void> {
   try {
     const dailyCandlestickService = DailyCandlestickService.getInstance();
-    const topMovers = await dailyCandlestickService.get7dTopMovers(5);
+    const requestedLimit = Number.parseInt(String(req.query.limit || "5"), 10);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 500)
+      : 5;
+    const topMovers = await dailyCandlestickService.get7dTopMovers(limit);
 
     res.json({
       success: true,

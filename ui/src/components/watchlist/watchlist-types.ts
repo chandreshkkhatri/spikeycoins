@@ -41,6 +41,7 @@ export interface WatchlistProps {
     isActive: boolean;
   } | null;
   marketType?: string;
+  initialSymbol?: string;
 }
 
 export interface WatchlistInfo {

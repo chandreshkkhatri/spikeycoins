@@ -23,8 +23,8 @@ export const cryptoApi = {
     return api.get("/summaries");
   },
 
-  async get7dTopMovers() {
-    return api.get("/ticker/7d");
+  async get7dTopMovers(limit = 5) {
+    return api.get("/ticker/7d", { params: { limit } });
   },
 
   async researchCoin(symbol: string, _authToken?: string) {

@@ -20,6 +20,7 @@ import {
 export function useWatchlist({
   selectedAccount,
   marketType = "binance-futures",
+  initialSymbol,
 }: WatchlistProps) {
   const { user, getAccessToken } = useAuth();
 
@@ -33,12 +34,16 @@ export function useWatchlist({
     return headers;
   }, [getAccessToken]);
 
-  const storedWatchlistSettings = useRef(getStoredWatchlistSettings());
+  const storedWatchlistSettings = useMemo(
+    () => getStoredWatchlistSettings(),
+    []
+  );
+  const requestedSymbol = initialSymbol?.toUpperCase().replace(/[^A-Z0-9]/g, "") || "";
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [watchlistItemsData, setWatchlistItemsData] = useState<any[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string>(
-    storedWatchlistSettings.current?.lastSelectedSymbol || ""
+    requestedSymbol || storedWatchlistSettings?.lastSelectedSymbol || ""
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -116,8 +121,8 @@ export function useWatchlist({
   }, [isSearchOpen]);
 
   const [sortConfig, setSortConfig] = useState<SortConfig>({
-    key: storedWatchlistSettings.current?.sortKey || "symbol",
-    direction: storedWatchlistSettings.current?.sortDirection || "asc",
+    key: storedWatchlistSettings?.sortKey || "symbol",
+    direction: storedWatchlistSettings?.sortDirection || "asc",
   });
 
   // Persist sort + symbol settings to localStorage
@@ -149,16 +154,19 @@ export function useWatchlist({
       return;
     }
 
-    // Second priority: try to restore from localStorage
-    const storedSymbol = storedWatchlistSettings.current?.lastSelectedSymbol;
-    if (storedSymbol && watchlistSymbols.includes(storedSymbol)) {
-      setSelectedSymbol(storedSymbol);
+    // A URL-selected instrument can be inspected before it is saved.
+    if (requestedSymbol && selectedSymbol === requestedSymbol) {
       return;
     }
 
-    // Fallback: select first symbol from watchlist
-    setSelectedSymbol(watchlistSymbols[0]);
-  }, [watchlistSymbols, selectedSymbol]);
+    const storedSymbol = storedWatchlistSettings?.lastSelectedSymbol;
+    const nextSymbol =
+      storedSymbol && watchlistSymbols.includes(storedSymbol)
+        ? storedSymbol
+        : watchlistSymbols[0];
+    const update = window.setTimeout(() => setSelectedSymbol(nextSymbol), 0);
+    return () => window.clearTimeout(update);
+  }, [requestedSymbol, selectedSymbol, storedWatchlistSettings, watchlistSymbols]);
 
   // Pending updates buffer for throttling
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

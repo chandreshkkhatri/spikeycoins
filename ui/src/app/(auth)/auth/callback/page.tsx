@@ -18,7 +18,13 @@ export default function AuthCallbackPage() {
     if (isLoggedIn) {
       // Migrate local settings to server after successful login
       settingsService.migrateLocalSettingsToServer().then(() => {
-        router.replace("/");
+        const storedReturn = sessionStorage.getItem("spikeyCoins_authReturnTo");
+        sessionStorage.removeItem("spikeyCoins_authReturnTo");
+        const returnTo =
+          storedReturn?.startsWith("/") && !storedReturn.startsWith("//")
+            ? storedReturn
+            : "/";
+        router.replace(returnTo);
       });
     }
   }, [isLoggedIn, router]);

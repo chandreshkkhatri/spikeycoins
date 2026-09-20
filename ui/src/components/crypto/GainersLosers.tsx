@@ -237,7 +237,7 @@ export default function GainersLosers() {
           {items.map((item, index) => (
             <div
               key={item.id || item._id}
-              onClick={() => router.push(`${PAGE_ROUTES.CRYPTO_SCREENER}?symbol=${item.symbol}USDT&timeframe=${timeframe}`)}
+              onClick={() => router.push(`${PAGE_ROUTES.CRYPTO_SCREENER}?symbol=${item.symbol}USDT&direction=${activeTab}&timeframe=${timeframe}`)}
               className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg hover:bg-muted transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-3">

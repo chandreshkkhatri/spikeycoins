@@ -7,11 +7,15 @@ import { AlertCircle, Loader2, Mail } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+const safeReturnPath = (value: string | null): string =>
+  value?.startsWith("/") && !value.startsWith("//") ? value : "/";
+
 function LoginForm() {
   const { login, register, loginWithGoogle, isLoggedIn, isLoading, error } = useAuth();
   const { isDark } = useTheme();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const returnTo = safeReturnPath(searchParams.get("returnTo"));
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -44,9 +48,9 @@ function LoginForm() {
   // Redirect if already logged in
   useEffect(() => {
     if (isLoggedIn) {
-      router.push("/");
+      router.push(returnTo);
     }
-  }, [isLoggedIn, router]);
+  }, [isLoggedIn, returnTo, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,7 +71,7 @@ function LoginForm() {
         }
         await register(email, password, name, inviteCode);
       }
-      router.push("/");
+      router.push(returnTo);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "An error occurred";
       setLocalError(errorMessage);
@@ -77,6 +81,7 @@ function LoginForm() {
   };
 
   const handleGoogleLogin = () => {
+    sessionStorage.setItem("spikeyCoins_authReturnTo", returnTo);
     // Pass invite code when in register mode (for new user signups)
     loginWithGoogle(mode === "register" ? inviteCode.trim() || undefined : undefined);
   };
