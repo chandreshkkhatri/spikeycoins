@@ -13,7 +13,15 @@ const stories = Array.from({ length: 4 }, (_, index) => ({
   id: `story-${index + 1}`,
   title: `Story ${index + 1}`,
   summary: `Summary ${index + 1}`,
-  source: "Example source",
+  source: "https://example.com/report",
+  url: "https://example.com/report",
+  sources: [
+    {
+      type: "news",
+      url: "https://example.com/report",
+      title: "Example report",
+    },
+  ],
   impact: "medium",
   category: "Market",
 }));
@@ -31,6 +39,8 @@ describe("MarketSummary", () => {
     render(<MarketSummary />);
 
     expect(await screen.findByText("Story 1")).toBeInTheDocument();
+    expect(screen.getByText(/AI-assisted interpretation based on linked sources/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Source: example.com")[0]).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show all 4 stories" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
@@ -39,5 +49,27 @@ describe("MarketSummary", () => {
       expect(screen.getByText(/Update failed. Showing the last loaded research/i)).toBeInTheDocument();
     });
     expect(screen.getByText("Story 1")).toBeInTheDocument();
+  });
+
+  it("opens story details as a labelled dialog with supporting sources", async () => {
+    vi.mocked(cryptoApi.getSummaries).mockResolvedValueOnce({ data: stories } as never);
+
+    render(<MarketSummary />);
+
+    await screen.findByText("Story 1");
+    fireEvent.click(screen.getAllByRole("button", { name: "See more" })[0]);
+
+    const dialog = screen.getByRole("dialog", { name: "Story 1" });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText(/not a verified explanation or trade recommendation/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Example report/i })).toHaveAttribute(
+      "href",
+      "https://example.com/report"
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 });

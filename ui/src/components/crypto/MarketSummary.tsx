@@ -4,6 +4,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, ExternalLink, TrendingUp, AlertCircle, RefreshCw } from "lucide-react";
 import { cryptoApi } from "@/lib/crypto-api";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+interface ResearchSource {
+  type?: string;
+  url: string;
+  title?: string;
+  summary?: string;
+}
 
 interface TrendingStory {
   _id?: string;
@@ -11,6 +24,7 @@ interface TrendingStory {
   title: string;
   summary: string;
   source: string;
+  sources: ResearchSource[];
   time?: string;
   timestamp?: string;
   createdAt?: string;
@@ -28,6 +42,7 @@ interface SummaryData {
   title?: string;
   summary?: string;
   source?: string;
+  sources?: ResearchSource[];
   time?: string;
   timestamp?: string;
   createdAt?: string;
@@ -81,6 +96,7 @@ export default function MarketSummary() {
           title: story.title || "Untitled",
           summary: story.summary || "No summary available",
           source: story.source || "Research",
+          sources: story.sources || (story.url ? [{ url: story.url, title: story.source }] : []),
           time: story.time || (story.timestamp || story.createdAt ? formatTimeAgo(story.timestamp || story.createdAt || "") : "Recently"),
           timestamp: story.timestamp,
           createdAt: story.createdAt,
@@ -190,10 +206,24 @@ export default function MarketSummary() {
     }
   };
 
+  const getSourceName = (story: TrendingStory): string => {
+    const source = story.sources[0]?.title || story.source;
+    try {
+      return new URL(story.sources[0]?.url || story.url || source).hostname.replace(/^www\./, "");
+    } catch {
+      return source;
+    }
+  };
+
   return (
     <div className="bg-card rounded-lg border border-border p-4">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-foreground">Market Summary</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Market Research</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            AI-assisted interpretation based on linked sources
+          </p>
+        </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <TrendingUp className="h-4 w-4" />
@@ -246,7 +276,11 @@ export default function MarketSummary() {
                       {story.priceChange > 0 ? "+" : ""}{story.priceChange.toFixed(2)}%
                     </span>
                   )}
-                  <span className={`text-xs px-2 py-0.5 rounded-full border ${getImpactColor(story.impact)}`}>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full border ${getImpactColor(story.impact)}`}
+                    title="Estimated market relevance, not a trade recommendation"
+                    aria-label={`${story.impact} estimated market relevance`}
+                  >
                     {story.impact.toUpperCase()}
                   </span>
                   <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
@@ -260,6 +294,9 @@ export default function MarketSummary() {
                   {story.summary}
                 </p>
                 <div className="flex items-center gap-3 text-xs">
+                  <span className="truncate text-muted-foreground">
+                    Source: {getSourceName(story)}
+                  </span>
                   <span className="flex items-center gap-1 text-muted-foreground">
                     <Clock className="h-3 w-3" />
                     {story.time}
@@ -278,16 +315,16 @@ export default function MarketSummary() {
                     See more
                   </button>
                   {story.url && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        window.open(story.url, "_blank");
-                      }}
+                    <a
+                      href={story.url}
+                      target="_blank"
+                      rel="noreferrer"
                       className="text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                       title="Open source"
                     >
                       <ExternalLink className="h-4 w-4" />
-                    </button>
+                      <span className="sr-only">Open source for {story.title}</span>
+                    </a>
                   )}
                 </div>
               </div>
@@ -309,17 +346,11 @@ export default function MarketSummary() {
         </Button>
       )}
 
-      {showModal && selectedStory && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setShowModal(false)}
-        >
-          <div
-            className="bg-card rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto shadow-xl border border-border"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-start justify-between">
-              <div className="flex-1 pr-4">
+      <Dialog open={showModal && Boolean(selectedStory)} onOpenChange={setShowModal}>
+        {selectedStory && (
+          <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+            <DialogHeader className="border-b border-border pb-4 pr-8">
+              <div>
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                   {selectedStory.coinSymbol && (
                     <span className="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-3 py-1 rounded">
@@ -333,36 +364,34 @@ export default function MarketSummary() {
                       {selectedStory.priceChange > 0 ? "+" : ""}{selectedStory.priceChange.toFixed(2)}%
                     </span>
                   )}
-                  <span className={`text-xs px-2 py-1 rounded-full border ${getImpactColor(selectedStory.impact)}`}>
+                  <span
+                    className={`text-xs px-2 py-1 rounded-full border ${getImpactColor(selectedStory.impact)}`}
+                    title="Estimated market relevance, not a trade recommendation"
+                  >
                     {selectedStory.impact.toUpperCase()}
                   </span>
                   <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">
                     {selectedStory.category}
                   </span>
                 </div>
-                <h2 className="text-xl font-semibold text-foreground">
+                <DialogTitle className="text-xl leading-snug">
                   {selectedStory.title}
-                </h2>
+                </DialogTitle>
               </div>
-              <button
-                onClick={() => setShowModal(false)}
-                className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-              >
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+            </DialogHeader>
 
-            <div className="px-6 py-4">
+            <div>
+              <p className="mb-4 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                This is AI-assisted interpretation, not a verified explanation or trade recommendation.
+              </p>
               <div className="prose prose-sm max-w-none dark:prose-invert">
                 <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
                   {selectedStory.summary}
                 </p>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-border flex items-center justify-between">
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="mt-6 border-t border-border pt-4">
+                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Clock className="h-4 w-4" />
                     {selectedStory.time}
@@ -370,22 +399,37 @@ export default function MarketSummary() {
                   {selectedStory.timeframe && (
                     <span className="font-medium">{selectedStory.timeframe} change</span>
                   )}
-                  <span>Source: {selectedStory.source}</span>
+                  <span>Generated research</span>
                 </div>
-                {selectedStory.url && (
-                  <button
-                    onClick={() => window.open(selectedStory.url, "_blank")}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors"
-                  >
-                    <span>View Source</span>
-                    <ExternalLink className="h-4 w-4" />
-                  </button>
-                )}
+                <div className="mt-4">
+                  <h3 className="text-sm font-medium text-foreground">Supporting sources</h3>
+                  {selectedStory.sources.length > 0 ? (
+                    <ul className="mt-2 space-y-2">
+                      {selectedStory.sources.map((source) => (
+                        <li key={source.url}>
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            {source.title || getSourceName({ ...selectedStory, sources: [source] })}
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      No supporting source was attached to this interpretation.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 }

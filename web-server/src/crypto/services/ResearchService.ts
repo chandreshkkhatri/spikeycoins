@@ -902,6 +902,14 @@ Respond with JSON:
           title: summary.title,
           summary: research?.researchContent || '',
           source: research?.sources?.[0]?.url || 'Research',
+          sources: Array.isArray(research?.sources)
+            ? research.sources.map((source: { type?: string; url?: string; title?: string; summary?: string }) => ({
+                type: source.type || 'source',
+                url: source.url,
+                title: source.title,
+                summary: source.summary,
+              })).filter((source: { url?: string }) => Boolean(source.url))
+            : [],
           category: research?.category || 'General',
           impact: research?.impact || 'medium',
           url: research?.sources?.[0]?.url,
