@@ -4,13 +4,14 @@
  */
 
 import AIClient from "../utils/aiClient";
-import { ResearchModel } from "../models/Research";
+import { ResearchModel, type IResearch } from "../models/Research";
 import { SummaryModel } from "../models/Summary";
 import DatabaseConnection from "./DatabaseConnection";
 import DataManager from "../core/DataManager";
 import MarketCapService from "./MarketCapService";
 import DailyCandlestickService from "./DailyCandlestickService";
 import logger from "../utils/logger";
+import { evaluatePublication, searchEntryPoint, PUBLICATION_POLICY_VERSION, type ResearchEvidence } from "./researchPublication";
 
 interface TopMover {
   symbol: string;
@@ -22,6 +23,8 @@ interface TopMover {
 }
 
 interface ResearchResult {
+  evidence: ResearchEvidence;
+  publicationPolicyVersion: number;
   coinSymbol: string;
   coinName: string;
   priceChange: number;
@@ -38,6 +41,14 @@ interface ResearchResult {
   publishableReason?: string;
   category: string;
   impact: 'high' | 'medium' | 'low';
+}
+
+interface ResearchFeedRow {
+  _id: unknown;
+  title: string;
+  createdAt: Date;
+  publishedAt?: Date;
+  research: IResearch;
 }
 
 class ResearchService {
@@ -329,44 +340,18 @@ isPublishable = FALSE when:
 - Only speculation or social hype without substance
 - General market conditions (BTC moves, ETF flows, liquidations)
 
-Respond with ONLY the JSON object.`;
+Every factual statement in the headline and report must be supported by search evidence. Do not invent sources or technical levels. State uncertainty rather than claiming a proven cause.\n\nRespond with ONLY the JSON object.`;
 
-      const responseContent = await this.aiClient.generateCompletion(prompt, {
-        useWebSearch: true
-      });
-
-      if (!responseContent || responseContent.trim().length === 0) {
-        logger.error(`ResearchService: Empty response from AI for ${mover.symbol}`);
-        throw new Error("No response from Gemini");
-      }
-
-      logger.info(`ResearchService: Received response from AI for ${mover.symbol} (length: ${responseContent.length})`);
-
-      // Parse the JSON response with improved error handling
-      const fallbackResponse = {
-        headline: `${mover.symbol}: ${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}% (${mover.timeframe})`,
-        researchContent: responseContent.substring(0, 500) || "No research content available",
-        sources: [],
-        isPublishable: false,
-        publishableReason: "Failed to parse research response - using raw content",
-        category: "General",
-        impact: "medium" as const,
-      };
-
-      const parsedResponse = this.parseJSONResponse(responseContent, fallbackResponse);
-
+      const evidence = await this.aiClient.generateWithEvidence(prompt, { useWebSearch: true });
+      const decision = evaluatePublication(evidence);
       return {
+        ...decision,
         coinSymbol: mover.symbol,
         coinName: mover.name,
         priceChange: mover.priceChange,
         timeframe: mover.timeframe,
-        headline: parsedResponse.headline || `${mover.symbol}: ${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}% - ${parsedResponse.category || 'General'}`,
-        researchContent: parsedResponse.researchContent || "No research content available",
-        sources: parsedResponse.sources || [],
-        isPublishable: parsedResponse.isPublishable || false,
-        publishableReason: parsedResponse.publishableReason,
-        category: parsedResponse.category || "General",
-        impact: parsedResponse.impact || "medium",
+        evidence,
+        publicationPolicyVersion: PUBLICATION_POLICY_VERSION,
       };
     } catch (error) {
       logger.error(`ResearchService: Error researching ${mover.symbol}:`, error);
@@ -466,8 +451,13 @@ Respond with JSON:
         await DatabaseConnection.initialize();
       }
 
+      // Re-evaluate at the write boundary; no caller can override the policy flag.
+      research = { ...research, ...evaluatePublication(research.evidence) };
       // Save research to database
       const researchDoc = await ResearchModel.create({
+        headline: research.headline,
+        evidence: research.evidence,
+        publicationPolicyVersion: PUBLICATION_POLICY_VERSION,
         coinSymbol: research.coinSymbol,
         coinName: research.coinName,
         priceChange: research.priceChange,
@@ -700,9 +690,13 @@ Respond with JSON:
             const newResearch = await this.researchCoin(mover);
 
             // Compare with previous research
-            const comparison = await this.hasSignificantNewInfo(recentResearch, newResearch);
+            const comparison = newResearch.isPublishable
+              ? await this.hasSignificantNewInfo(recentResearch, newResearch)
+              : { hasNewInfo: true, reason: 'Current research did not pass publication policy; retract previous summary.' };
 
-            if (comparison.hasNewInfo) {
+            if (comparison.hasNewInfo ||
+                recentResearch.publicationPolicyVersion !== PUBLICATION_POLICY_VERSION ||
+                recentResearch.isPublishable !== newResearch.isPublishable) {
               // Update existing research with new information
               logger.info(
                 `ResearchService: Updating ${mover.symbol} - ${comparison.reason}`
@@ -710,6 +704,9 @@ Respond with JSON:
 
               await ResearchModel.findByIdAndUpdate(recentResearch._id, {
                 $set: {
+                  headline: newResearch.headline,
+                  evidence: newResearch.evidence,
+                  publicationPolicyVersion: PUBLICATION_POLICY_VERSION,
                   priceChange: newResearch.priceChange,
                   researchContent: newResearch.researchContent,
                   sources: newResearch.sources,
@@ -749,6 +746,10 @@ Respond with JSON:
                   });
                 }
                 publishableCount++;
+              } else {
+                await SummaryModel.updateMany({ researchId: recentResearch._id }, {
+                  $set: { isPublished: false, updatedAt: new Date() },
+                });
               }
 
               updatedCount++;
@@ -819,7 +820,7 @@ Respond with JSON:
 
   /**
    * Research a single coin on-demand (admin action from screener)
-   * Always creates a summary regardless of publishable status
+   * Saves a draft unless the same evidence gate used by automation passes
    */
   async researchSingleCoin(symbol: string): Promise<{ success: boolean; summary?: any; error?: string }> {
     try {
@@ -853,10 +854,6 @@ Respond with JSON:
       // Research the coin
       const research = await this.researchCoin(mover);
 
-      // Force publishable for on-demand research
-      research.isPublishable = true;
-      research.publishableReason = 'Admin-triggered on-demand research';
-
       // Save research and create summary
       await this.saveResearch(research);
 
@@ -865,6 +862,8 @@ Respond with JSON:
       return {
         success: true,
         summary: {
+          publicationStatus: research.isPublishable ? 'published' : 'draft',
+          publicationReason: research.publishableReason,
           coinSymbol: research.coinSymbol,
           headline: research.headline,
           category: research.category,
@@ -888,19 +887,35 @@ Respond with JSON:
         await DatabaseConnection.initialize();
       }
 
-      const summaries = await SummaryModel
-        .find({ isPublished: true })
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .populate('researchId')
-        .lean();
+      // Filter authoritative research before limiting. Legacy/unqualified stories
+      // stay private; a failed summary retraction cannot expose rejected research.
+      const summaries = await SummaryModel.aggregate<ResearchFeedRow>([
+        { $match: { isPublished: true } },
+        { $lookup: {
+          from: ResearchModel.collection.name,
+          localField: 'researchId', foreignField: '_id', as: 'research',
+        } },
+        { $unwind: '$research' },
+        { $match: {
+          'research.isPublishable': true,
+          'research.publicationPolicyVersion': PUBLICATION_POLICY_VERSION,
+        } },
+        { $sort: { publishedAt: -1, _id: -1 } },
+        { $limit: Math.max(1, Math.min(100, Math.trunc(limit) || 10)) },
+      ]);
 
-      return summaries.map((summary: any) => {
-        const research = summary.researchId;
+      return summaries.filter((summary) => summary.research?.isPublishable === true &&
+        summary.research?.publicationPolicyVersion === PUBLICATION_POLICY_VERSION && summary.research?.evidence &&
+        evaluatePublication(summary.research.evidence).isPublishable
+      ).map((summary) => {
+        // The filter above requires evidence and a passing publication decision.
+        const evidence = summary.research.evidence!;
+        const research = { ...summary.research, ...evaluatePublication(evidence) };
         return {
           _id: summary._id,
-          title: summary.title,
+          title: research.headline || summary.title,
           summary: research?.researchContent || '',
+          searchEntryPoint: searchEntryPoint(evidence),
           source: research?.sources?.[0]?.url || 'Research',
           sources: Array.isArray(research?.sources)
             ? research.sources.map((source: { type?: string; url?: string; title?: string; summary?: string }) => ({

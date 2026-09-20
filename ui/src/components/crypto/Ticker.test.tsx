@@ -50,6 +50,7 @@ describe("Ticker Screener", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(api.get).mockResolvedValue({ data: { isAdmin: false } } as never);
     localStorage.clear();
     window.history.replaceState(null, "", "/market-watch/screener");
     vi.mocked(cryptoApi.get7dTopMovers).mockResolvedValue({
@@ -72,6 +73,18 @@ describe("Ticker Screener", () => {
     expect(await screen.findByText("COIN1/USDT")).toBeInTheDocument();
     expect(new URLSearchParams(window.location.search).has("minVolume")).toBe(false);
     expect(new URLSearchParams(window.location.search).has("minChange")).toBe(false);
+  });
+
+  it("reports private drafts without claiming they were published", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: { isAdmin: true } } as never);
+    vi.mocked(cryptoApi.getTickers).mockResolvedValue({ data: mockTickers.slice(0, 1) } as never);
+    vi.mocked(cryptoApi.researchCoin).mockResolvedValue({
+      data: { summary: { publicationStatus: "draft", publicationReason: "Missing grounding", headline: "Unverified headline" } },
+    } as never);
+    renderWithProviders(<Ticker />);
+    await userEvent.click(await screen.findByRole("button", { name: "Research COIN1USDT" }));
+    expect(await screen.findByText(/Research saved as draft—not published/)).toBeInTheDocument();
+    expect(screen.queryByText("Added to market summaries")).not.toBeInTheDocument();
   });
 
   it("applies the move threshold to 7d rather than 24h and excludes missing observations", async () => {

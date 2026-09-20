@@ -72,4 +72,18 @@ describe("MarketSummary", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
   });
+
+  it("isolates provider search suggestions from the application document", async () => {
+    vi.mocked(cryptoApi.getSummaries).mockResolvedValueOnce({
+      data: [{ ...stories[0], searchEntryPoint: '<a href="https://google.com/search?q=fixture" target="_blank">Search</a>' }],
+    } as never);
+    render(<MarketSummary />);
+    await screen.findByText("Story 1");
+    fireEvent.click(screen.getByRole("button", { name: "See more" }));
+    const frame = screen.getByTitle("Google Search suggestions");
+    expect(frame).toHaveAttribute("sandbox", "allow-popups allow-popups-to-escape-sandbox");
+    expect(frame.getAttribute("srcdoc")).toContain("default-src 'none'");
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-scripts");
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+  });
 });

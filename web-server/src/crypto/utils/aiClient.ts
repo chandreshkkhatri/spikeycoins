@@ -5,6 +5,7 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import logger from "./logger";
+import type { ResearchEvidence } from "../services/researchPublication";
 
 export interface CompletionOptions {
   systemPrompt?: string;
@@ -37,6 +38,10 @@ export class AIClient {
    * Generate a completion with the configured Gemini model
    */
   async generateCompletion(prompt: string, options?: CompletionOptions): Promise<string> {
+    return (await this.generateWithEvidence(prompt, options)).text;
+  }
+
+  async generateWithEvidence(prompt: string, options?: CompletionOptions): Promise<ResearchEvidence> {
     try {
       const modelConfig: any = {
         model: this.model,
@@ -76,7 +81,13 @@ export class AIClient {
         throw new Error("No response from Gemini - empty text");
       }
 
-      return text;
+      const candidate = result.response.candidates?.[0];
+      return {
+        text,
+        model: this.model,
+        grounding: candidate?.groundingMetadata ?? null,
+        finishReason: candidate?.finishReason,
+      };
     } catch (error: any) {
       // Format Gemini API errors for better error handling
       const errorMessage = error?.message || String(error);

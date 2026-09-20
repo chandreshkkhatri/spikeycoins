@@ -306,7 +306,11 @@ export default function Ticker() {
       setAnalyzeResult({
         symbol,
         success: true,
-        message: response.data?.summary?.headline || "Added to market summaries",
+        message: response.data?.summary?.publicationStatus === "draft"
+          ? "Research saved as draft—not published. " + (response.data.summary.publicationReason || "Evidence requirements were not met.")
+          : response.data?.summary?.publicationStatus === "published"
+            ? response.data.summary.headline || "Added to market summaries"
+            : "Research completed. Publication status unavailable.",
       });
       // Clear success message after 5 seconds
       setTimeout(() => setAnalyzeResult(null), 5000);
@@ -490,7 +494,8 @@ export default function Ticker() {
                         handleAnalyze(symbol);
                       }}
                       disabled={isAnalyzing}
-                      title="Analyze & add to market summaries"
+                      title="Research instrument"
+                      aria-label={`Research ${symbol}`}
                     >
                       {isAnalyzing ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />

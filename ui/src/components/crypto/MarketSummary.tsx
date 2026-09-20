@@ -19,6 +19,7 @@ interface ResearchSource {
 }
 
 interface TrendingStory {
+  searchEntryPoint?: string;
   _id?: string;
   id?: string;
   title: string;
@@ -37,6 +38,7 @@ interface TrendingStory {
 }
 
 interface SummaryData {
+  searchEntryPoint?: string;
   _id?: string;
   id?: string;
   title?: string;
@@ -92,6 +94,7 @@ export default function MarketSummary() {
 
         const formattedStories = summariesData.slice(0, 10).map((story: SummaryData): TrendingStory => ({
           _id: story._id,
+          searchEntryPoint: story.searchEntryPoint,
           id: story._id || story.id || Math.random().toString(36).substring(2, 11),
           title: story.title || "Untitled",
           summary: story.summary || "No summary available",
@@ -403,6 +406,15 @@ export default function MarketSummary() {
                 </div>
                 <div className="mt-4">
                   <h3 className="text-sm font-medium text-foreground">Supporting sources</h3>
+                  {selectedStory.searchEntryPoint && (
+                    <iframe
+                      title="Google Search suggestions"
+                      sandbox="allow-popups allow-popups-to-escape-sandbox"
+                      referrerPolicy="no-referrer"
+                      className="mt-2 w-full border-0"
+                      srcDoc={'<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src https: data:; base-uri \'none\'; form-action \'none\'">' + selectedStory.searchEntryPoint}
+                    />
+                  )}
                   {selectedStory.sources.length > 0 ? (
                     <ul className="mt-2 space-y-2">
                       {selectedStory.sources.map((source) => (

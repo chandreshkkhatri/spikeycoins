@@ -4,8 +4,12 @@
  */
 
 import mongoose, { Document, Schema } from 'mongoose';
+import type { ResearchEvidence } from '../services/researchPublication';
 
 export interface IResearch extends Document {
+  headline?: string;
+  evidence?: ResearchEvidence;
+  publicationPolicyVersion?: number;
   coinSymbol: string;
   coinName: string;
   priceChange: number;
@@ -27,6 +31,9 @@ export interface IResearch extends Document {
 }
 
 export interface Research {
+  headline?: string;
+  evidence?: ResearchEvidence;
+  publicationPolicyVersion?: number;
   _id?: mongoose.Types.ObjectId;
   coinSymbol: string;
   coinName: string;
@@ -49,6 +56,10 @@ export interface Research {
 }
 
 const researchSchema = new Schema<IResearch>({
+  headline: String,
+  // Normalized and gated by the publication policy before use.
+  evidence: Schema.Types.Mixed,
+  publicationPolicyVersion: Number,
   coinSymbol: {
     type: String,
     required: true,
