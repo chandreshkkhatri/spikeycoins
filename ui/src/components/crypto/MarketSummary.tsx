@@ -305,7 +305,7 @@ export default function MarketSummary() {
                     {story.time}
                   </span>
                   {story.timeframe && (
-                    <span className="font-medium text-muted-foreground">{story.timeframe} change</span>
+                    <span className="font-medium text-muted-foreground">{story.timeframe === '7d' ? 'Change since 00:00 UTC seven days ago' : `${story.timeframe} change`}</span>
                   )}
                   <button
                     onClick={(e) => {
@@ -400,7 +400,7 @@ export default function MarketSummary() {
                     {selectedStory.time}
                   </span>
                   {selectedStory.timeframe && (
-                    <span className="font-medium">{selectedStory.timeframe} change</span>
+                    <span className="font-medium">{selectedStory.timeframe === '7d' ? 'Change since 00:00 UTC seven days ago' : `${selectedStory.timeframe} change`}</span>
                   )}
                   <span>Generated research</span>
                 </div>

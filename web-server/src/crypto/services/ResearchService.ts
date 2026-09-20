@@ -15,6 +15,8 @@ import { eligibleResearchTicker, directionalMovers, retainResearchHorizons } fro
 import { evaluatePublication, searchEntryPoint, PUBLICATION_POLICY_VERSION, type ResearchEvidence } from "./researchPublication";
 
 interface TopMover {
+  referenceTime?: string;
+  observedAt?: string;
   symbol: string;
   name: string;
   priceChange: number;
@@ -110,6 +112,8 @@ class ResearchService {
         if (!ticker || !eligibleResearchTicker(ticker, Date.now()) || !Number.isFinite(change.change_7d) ||
             !Number.isFinite(Number(change.price)) || Number(change.price) <= 0) continue;
         candidates.push({
+          referenceTime: change.referenceTime,
+          observedAt: change.observedAt,
           symbol,
           name: MarketCapService.getMarketCapData(symbol)?.coingeckoName || change.symbol,
           priceChange: change.change_7d,
@@ -209,7 +213,8 @@ class ResearchService {
       const prompt = `You are a cryptocurrency analyst. Quickly check if there's a COIN-SPECIFIC SIGNIFICANT EVENT that might explain this price movement.
 
 Coin: ${mover.symbol}
-Price Change: ${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}% (${mover.timeframe})
+Price Change: ${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}% (${mover.timeframe === '7d' ? 'since 00:00 UTC seven calendar days ago; not a rolling 168-hour return' : '24h'})
+${mover.referenceTime ? `Reference: ${mover.referenceTime}; observed: ${mover.observedAt}` : ''}
 Current Price: $${mover.price}
 
 Use web search to quickly check for COIN-SPECIFIC events:
@@ -273,7 +278,8 @@ Remember: Respond with ONLY the JSON object, nothing else.`;
       const prompt = `You are a senior cryptocurrency research analyst writing for active traders. Research why this cryptocurrency had significant price movement and produce a brief, actionable market intelligence report.
 
 Coin: ${mover.name} (${mover.symbol})
-Price Change: ${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}% (${mover.timeframe})
+Price Change: ${mover.priceChange > 0 ? '+' : ''}${mover.priceChange.toFixed(2)}% (${mover.timeframe === '7d' ? 'since 00:00 UTC seven calendar days ago; not a rolling 168-hour return' : '24h'})
+${mover.referenceTime ? `Reference: ${mover.referenceTime}; observed: ${mover.observedAt}` : ''}
 Current Price: $${mover.price.toFixed(mover.price >= 1 ? 2 : 6)}
 Volume: $${mover.volume.toLocaleString()}
 

@@ -215,6 +215,9 @@ export default function GainersLosers() {
         </div>
       </div>
 
+      {timeframe === "7d" && (
+        <p className="mb-3 text-xs text-muted-foreground">Spot price change since 00:00 UTC seven days ago, not a rolling 168-hour return. Missing history is excluded.</p>
+      )}
       {refreshError && (
         <div className="mb-3 flex items-center justify-between gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
           <span>{refreshError}</span>

@@ -9,6 +9,7 @@ import DataManager from "../core/DataManager";
 import { DailyCandlestickModel } from "../models/DailyCandlestick";
 import logger from "../utils/logger";
 import { BinanceService } from "../../lib/binance-service";
+import { eligibleResearchTicker } from "./researchCandidates";
 
 interface DailyCandle {
   symbol: string;
@@ -22,6 +23,9 @@ interface DailyCandle {
 }
 
 interface CryptoWith7dChange {
+  referenceTime?: string;
+  observedAt?: string;
+  windowMethod?: 'utc-calendar-7d';
   symbol: string;
   name: string;
   price: string;
@@ -100,7 +104,8 @@ class DailyCandlestickService {
         return;
       }
 
-      const symbols = currentTickers.map((t: any) => t.s).filter((s: string) => s);
+      const symbols = currentTickers.filter(t => !t.is_futures).map(t => t.s);
+      if (symbols.length === 0) return;
 
       // Check which symbols need backfill (sample 50 symbols to avoid heavy queries)
       const sampleSize = Math.min(50, symbols.length);
@@ -147,12 +152,13 @@ class DailyCandlestickService {
    */
   private async needsBackfill(symbol: string): Promise<boolean> {
     try {
-      const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const now = new Date();
+      const sevenDaysAgo = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - 7 * 24 * 60 * 60 * 1000;
 
       // Check if we have a daily candle from around 7 days ago
       const oldCandle = await DailyCandlestickModel.findOne({
         symbol,
-        openTime: { $gte: sevenDaysAgo - 24 * 60 * 60 * 1000, $lte: sevenDaysAgo + 24 * 60 * 60 * 1000 }
+        openTime: sevenDaysAgo,
       });
 
       return !oldCandle;
@@ -267,10 +273,11 @@ class DailyCandlestickService {
   async calculate7dChanges(): Promise<CryptoWith7dChange[]> {
     try {
       // Get current prices
-      const currentTickers = DataManager.getAllTickers();
+      const currentTickers = DataManager.getAllTickers().filter(ticker =>
+        !ticker.is_futures && eligibleResearchTicker(ticker, Date.now()));
 
       if (currentTickers.length === 0) {
-        logger.warn('DailyCandlestickService: No current ticker data available');
+        logger.warn('DailyCandlestickService: No eligible Spot ticker data available');
         return [];
       }
 
@@ -280,21 +287,18 @@ class DailyCandlestickService {
       const sevenDaysAgoMidnight = todayMidnightUTC - 7 * 24 * 60 * 60 * 1000;
 
       // Get all symbols
-      const symbols = currentTickers.map((t: any) => t.s).filter((s: string) => s);
+      const symbols = currentTickers.map(ticker => ticker.s);
 
       // Fetch old prices in one query from dedicated daily collection matching 7 calendar days ago
       const oldCandles = await DailyCandlestickModel.find({
         symbol: { $in: symbols },
-        openTime: {
-          $gte: sevenDaysAgoMidnight - 12 * 60 * 60 * 1000,
-          $lte: sevenDaysAgoMidnight + 12 * 60 * 60 * 1000,
-        },
+        openTime: sevenDaysAgoMidnight,
       });
 
       // Create a map of symbol -> old price
       const oldPriceMap = new Map<string, number>();
       oldCandles.forEach(candle => {
-        if (!oldPriceMap.has(candle.symbol)) {
+        if (candle.openTime === sevenDaysAgoMidnight && Number.isFinite(candle.open) && candle.open > 0 && !oldPriceMap.has(candle.symbol)) {
           oldPriceMap.set(candle.symbol, candle.open);
         }
       });
@@ -312,26 +316,26 @@ class DailyCandlestickService {
 
       // Calculate 7d changes
       const result: CryptoWith7dChange[] = currentTickers
-        .map((ticker: any) => {
-          const symbol = ticker.s || 'UNKNOWN';
-          const currentPrice = parseFloat(ticker.c || '0');
+        .flatMap(ticker => {
+          const symbol = ticker.s;
+          const currentPrice = ticker.price;
           const oldPrice = oldPriceMap.get(symbol);
+          if (oldPrice === undefined || !eligibleResearchTicker(ticker, Date.now())) return [];
+          const change_7d = ((currentPrice - oldPrice) / oldPrice) * 100;
+          if (!Number.isFinite(change_7d)) return [];
 
-          let change_7d = 0;
-          if (oldPrice && oldPrice > 0) {
-            change_7d = ((currentPrice - oldPrice) / oldPrice) * 100;
-          }
-
-          return {
-            symbol: symbol.replace('USDT', ''),
-            name: symbol.replace('USDT', ''),
+          return [{
+            referenceTime: new Date(sevenDaysAgoMidnight).toISOString(),
+            observedAt: ticker.last_updated,
+            windowMethod: 'utc-calendar-7d' as const,
+            symbol: symbol.slice(0, -4),
+            name: symbol.slice(0, -4),
             price: currentPrice.toString(),
-            change_24h: parseFloat(ticker.P || '0'),
+            change_24h: ticker.change_24h,
             change_7d,
-            volume: ticker.q || '0',
-          };
-        })
-        .filter((item) => !isNaN(item.change_7d) && item.change_7d !== 0);
+            volume: ticker.volume_usd.toString(),
+          }];
+        });
 
       return result;
     } catch (error) {
@@ -387,7 +391,7 @@ class DailyCandlestickService {
    */
   async manualBackfill(): Promise<void> {
     const currentTickers = DataManager.getAllTickers();
-    const symbols = currentTickers.map((t: any) => t.s).filter((s: string) => s);
+    const symbols = currentTickers.filter(t => !t.is_futures).map(t => t.s);
     
     if (symbols.length > 500) {
       logger.warn(`DailyCandlestickService: Manual backfill triggered for large set (${symbols.length} symbols). This may take a while.`);

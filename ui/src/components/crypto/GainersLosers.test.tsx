@@ -107,6 +107,7 @@ describe("GainersLosers", () => {
 
     // Switch to 7d
     fireEvent.click(screen.getByRole("button", { name: "7d" }));
+    expect(screen.getByText(/since 00:00 UTC seven days ago, not a rolling 168-hour return/)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(cryptoApi.get7dTopMovers).toHaveBeenCalled();

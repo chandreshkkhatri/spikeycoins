@@ -304,3 +304,27 @@ The calendar-based seven-day reference still spans 168–192 hours; rolling-wind
 or explicit calendar-window presentation, venue-correct historical storage,
 durable exclusion reports and event-driven novelty remain open. No live
 research jobs or environment-file reads were performed.
+
+## Implementation checkpoint — explicit UTC calendar window
+
+The existing `7d` key now explicitly means price change from the Spot daily open
+at 00:00 UTC seven calendar days before calculation. It is **not** a rolling
+168-hour return. The screener, mover panel, research story labels and both AI
+research prompts disclose this convention. Existing API keys remain compatible.
+
+- Reference lookup and backfill checks require the exact UTC candle timestamp;
+  adjacent candles are not substitutes.
+- Calculation uses normalized, fresh Spot ticker values and finite positive
+  historical opens. Futures-only instruments are excluded from Spot backfills
+  and calculations. No history migration or additional provider was introduced.
+- Missing/invalid history is unavailable, not a zero return. A genuine zero is
+  retained by the calculation but remains outside directional mover lists.
+- Calculated rows carry `referenceTime`, `observedAt` and
+  `windowMethod: utc-calendar-7d`; prompts include reference/observation times.
+  Persisting these inputs as immutable research provenance is still pending.
+- UTC-midnight rollover, invalid references, stale observations, venue exclusion
+  and the visible explanation have regression coverage.
+
+Rolling 168-hour history, venue-keyed storage, the existing sampled backfill
+coverage policy and reproducible research snapshots remain follow-up work.
+No live research, database migration or environment-file reads were performed.

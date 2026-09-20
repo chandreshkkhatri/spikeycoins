@@ -3,6 +3,7 @@ import { test, expect } from "@playwright/test";
 for (const loggedIn of [false, true]) {
 test(`mobile scan retains context through details, Terminal, and an outage (authenticated: ${loggedIn})`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.routeWebSocket(/.*/, socket => socket.close());
   const user = { _id: "fixture-user", email: "fixture@example.com", name: "Fixture User" };
   if (loggedIn) await page.addInitScript(user => {
     localStorage.setItem("spikeyCoins_user", JSON.stringify(user));
@@ -35,6 +36,7 @@ test(`mobile scan retains context through details, Terminal, and an outage (auth
     return route.fulfill({ json: { success: true, data: [], accounts: [], symbols: [] } });
   });
   await page.goto("/market-watch/screener?direction=losers&timeframe=7d");
+  await expect(page.getByText(/since 00:00 UTC seven days ago, not a rolling 168-hour return/)).toBeVisible();
   await expect(page.getByText("BTC/USDT", { exact: true })).toBeVisible();
   await expect(page.getByText("ETH/USDT", { exact: true })).toHaveCount(0);
   if (!loggedIn) expect(adminRequests).toEqual([]);

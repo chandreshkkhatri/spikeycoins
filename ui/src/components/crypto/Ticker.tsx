@@ -771,6 +771,9 @@ export default function Ticker() {
             </Button>
           )}
         </div>
+        {timeframe === "7d" && (
+          <p className="text-xs text-muted-foreground">Spot price change since 00:00 UTC seven days ago, not a rolling 168-hour return. Missing history is excluded.</p>
+        )}
         <div className="flex w-full items-center gap-2 sm:w-auto sm:gap-3">
           <div className="relative min-w-0 flex-1 sm:flex-none">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

@@ -276,6 +276,7 @@ describe("Ticker Screener", () => {
       expect(cryptoApi.get7dTopMovers).toHaveBeenCalledWith(500);
     });
     expect(screen.getByRole("button", { name: /7d change/i })).toBeInTheDocument();
+    expect(screen.getByText(/since 00:00 UTC seven days ago, not a rolling 168-hour return/)).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /7d change/i })).not.toHaveClass("hidden");
     expect(screen.getByRole("columnheader", { name: /24h change/i })).toHaveClass("hidden");
     expect(screen.getByText("COIN2/USDT")).toBeInTheDocument();
