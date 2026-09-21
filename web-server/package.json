@@ -24,7 +24,7 @@
   "license": "ISC",
   "dependencies": {
     "@binance/connector": "^3.6.1",
-    "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^2.23.0",
     "@types/compression": "^1.7.5",
     "@types/cookie-parser": "^1.4.6",
     "@types/cors": "^2.8.17",
@@ -66,6 +66,6 @@
     "utf-8-validate": "6.0.6"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }

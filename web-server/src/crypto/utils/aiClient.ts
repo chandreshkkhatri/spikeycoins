@@ -3,7 +3,7 @@
  * Provides a unified interface for Gemini models
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI, type GenerateContentConfig } from "@google/genai";
 import logger from "./logger";
 import type { ResearchEvidence } from "../services/researchPublication";
 
@@ -15,17 +15,17 @@ export interface CompletionOptions {
 }
 
 export class AIClient {
-  private geminiClient: GoogleGenerativeAI;
+  private geminiClient: GoogleGenAI;
   private model: string;
 
   constructor(model?: string) {
     this.model = model || process.env.AI_MODEL || "gemini-2.5-flash";
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
     if (!apiKey) {
       throw new Error("GEMINI_API_KEY environment variable is required");
     }
-    this.geminiClient = new GoogleGenerativeAI(apiKey);
+    this.geminiClient = new GoogleGenAI({ apiKey });
 
     logger.info(`AIClient initialized with model: ${this.model}`);
   }
@@ -43,33 +43,38 @@ export class AIClient {
 
   async generateWithEvidence(prompt: string, options?: CompletionOptions): Promise<ResearchEvidence> {
     try {
-      const modelConfig: any = {
-        model: this.model,
-        generationConfig: {
-          temperature: options?.temperature,
-          maxOutputTokens: options?.maxTokens,
-        },
-      };
+      const config: GenerateContentConfig = {};
 
       if (options?.useWebSearch) {
-        modelConfig.tools = [{ googleSearch: {} }];
+        config.tools = [{ googleSearch: {} }];
       }
 
       if (options?.systemPrompt) {
-        modelConfig.systemInstruction = options.systemPrompt;
+        config.systemInstruction = options.systemPrompt;
       }
 
-      const model = this.geminiClient.getGenerativeModel(modelConfig);
-      const result = await model.generateContent(prompt);
+      if (options?.temperature !== undefined) {
+        config.temperature = options.temperature;
+      }
+
+      if (options?.maxTokens !== undefined) {
+        config.maxOutputTokens = options.maxTokens;
+      }
+
+      const response = await this.geminiClient.models.generateContent({
+        model: this.model,
+        contents: prompt,
+        config,
+      });
 
       // Check if response has content
-      if (!result || !result.response) {
+      if (!response) {
         throw new Error("No response from Gemini - empty response object");
       }
 
       let text: string;
       try {
-        text = result.response.text();
+        text = response.text ?? "";
       } catch (textError) {
         const textErrorMessage = textError instanceof Error ? textError.message : String(textError);
         logger.error(`AIClient: Error extracting text from response - ${textErrorMessage}`);
@@ -81,7 +86,7 @@ export class AIClient {
         throw new Error("No response from Gemini - empty text");
       }
 
-      const candidate = result.response.candidates?.[0];
+      const candidate = response.candidates?.[0];
       return {
         text,
         model: this.model,

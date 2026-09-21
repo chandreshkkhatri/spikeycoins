@@ -2,8 +2,7 @@ export const PUBLICATION_POLICY_VERSION = 1;
 export interface ResearchEvidence {
   text: string;
   model: string;
-  // The installed SDK's legacy grounding types do not match the wire schema.
-  // Keep the provider payload intact and validate it at the policy boundary.
+  // Keep the provider grounding payload intact and validate it at the policy boundary.
   grounding: unknown;
   finishReason?: string;
 }
