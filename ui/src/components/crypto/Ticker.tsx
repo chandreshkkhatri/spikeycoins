@@ -34,6 +34,7 @@ import { cryptoApi } from "@/lib/crypto-api";
 import api from "@/lib/api";
 import { useAccount } from "@/contexts/account-context";
 import { useAuth } from "@/contexts/auth-context";
+import { safeSessionStorage } from "@/lib/browser-storage";
 import { PAGE_ROUTES } from "@/lib/constants";
 
 export interface TickerData {
@@ -257,7 +258,7 @@ export default function Ticker() {
     if (!isLoggedIn) {
       const returnTo = currentScreenerPath();
       if (typeof window !== "undefined") {
-        sessionStorage.setItem("spikeyCoins_authReturnTo", returnTo);
+        safeSessionStorage.setItem("spikeyCoins_authReturnTo", returnTo);
       }
       router.push(`${PAGE_ROUTES.LOGIN}?returnTo=${encodeURIComponent(returnTo)}`);
       return;

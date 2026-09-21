@@ -4,11 +4,20 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
 import { useTheme } from "@/contexts/theme-context";
 import { AlertCircle, Loader2, Mail } from "lucide-react";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { safeLocalStorage, safeSessionStorage } from "@/lib/browser-storage";
 
 const safeReturnPath = (value: string | null): string =>
   value?.startsWith("/") && !value.startsWith("//") ? value : "/";
+const oauthErrorMessages: Record<string, string> = {
+  google_auth_cancelled: "Google authentication was cancelled",
+  google_auth_failed: "Google authentication failed",
+  google_token_failed: "Failed to get Google token",
+  google_userinfo_failed: "Failed to get Google user info",
+  invite_required: "Registration is invite-only. Enter an invite code below, then click 'Continue with Google'.",
+  invalid_invite: "Invalid or expired invite code. Please check your code and try again.",
+};
 
 function LoginForm() {
   const { login, register, loginWithGoogle, isLoggedIn, isLoading, error } = useAuth();
@@ -16,34 +25,22 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = safeReturnPath(searchParams.get("returnTo"));
+  const initialUrlError = searchParams.get("error");
+  const requiresInvite = initialUrlError === "invite_required" || initialUrlError === "invalid_invite";
 
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register">(requiresInvite ? "register" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(() =>
+    initialUrlError ? oauthErrorMessages[initialUrlError] || "Authentication failed" : null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Check for OAuth errors in URL
-  useEffect(() => {
-    const urlError = searchParams.get("error");
-    if (urlError) {
-      const errorMessages: Record<string, string> = {
-        google_auth_cancelled: "Google authentication was cancelled",
-        google_auth_failed: "Google authentication failed",
-        google_token_failed: "Failed to get Google token",
-        google_userinfo_failed: "Failed to get Google user info",
-        invite_required: "Registration is invite-only. Enter an invite code below, then click 'Continue with Google'.",
-        invalid_invite: "Invalid or expired invite code. Please check your code and try again.",
-      };
-      setLocalError(errorMessages[urlError] || "Authentication failed");
-      // If invite required or invalid, switch to register mode
-      if (urlError === "invite_required" || urlError === "invalid_invite") {
-        setMode("register");
-      }
-    }
-  }, [searchParams]);
+  const storageUnavailable = useSyncExternalStore(
+    () => () => {},
+    () => !safeLocalStorage.isPersistent() || !safeSessionStorage.isPersistent(),
+    () => false,
+  );
 
   // Redirect if already logged in
   useEffect(() => {
@@ -81,7 +78,7 @@ function LoginForm() {
   };
 
   const handleGoogleLogin = () => {
-    sessionStorage.setItem("spikeyCoins_authReturnTo", returnTo);
+    safeSessionStorage.setItem("spikeyCoins_authReturnTo", returnTo);
     // Pass invite code when in register mode (for new user signups)
     loginWithGoogle(mode === "register" ? inviteCode.trim() || undefined : undefined);
   };
@@ -123,6 +120,12 @@ function LoginForm() {
           <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
             <p>{localError || error}</p>
+          </div>
+        )}
+
+        {storageUnavailable && (
+          <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300">
+            Browser storage is unavailable. You can sign in, but this session will end when the page reloads. Open the site directly in Safari or Chrome and allow website storage for a persistent session.
           </div>
         )}
 

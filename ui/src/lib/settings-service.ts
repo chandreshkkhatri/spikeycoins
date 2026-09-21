@@ -8,6 +8,7 @@
  */
 
 import api from "./api";
+import { safeLocalStorage } from "./browser-storage";
 
 // Settings keys in localStorage
 const THEME_KEY = "theme";
@@ -57,7 +58,7 @@ class SettingsSyncService {
       return this.getDefaultSettings();
     }
 
-    const token = localStorage.getItem("spikeyCoins_accessToken");
+    const token = safeLocalStorage.getItem("spikeyCoins_accessToken");
 
     if (token) {
       try {
@@ -121,7 +122,7 @@ class SettingsSyncService {
   private async syncToServer(): Promise<void> {
     if (typeof window === "undefined") return;
 
-    const token = localStorage.getItem("spikeyCoins_accessToken");
+    const token = safeLocalStorage.getItem("spikeyCoins_accessToken");
 
     if (
       !token ||
@@ -180,12 +181,12 @@ class SettingsSyncService {
     }
 
     const theme =
-      (localStorage.getItem(THEME_KEY) as "light" | "dark" | "system") ||
+      (safeLocalStorage.getItem(THEME_KEY) as "light" | "dark" | "system") ||
       "system";
 
     let chartSettings = {};
     try {
-      const stored = localStorage.getItem(CHART_SETTINGS_KEY);
+      const stored = safeLocalStorage.getItem(CHART_SETTINGS_KEY);
       if (stored) chartSettings = JSON.parse(stored);
     } catch {
       // Ignore parse errors
@@ -193,7 +194,7 @@ class SettingsSyncService {
 
     let watchlistSettings = {};
     try {
-      const stored = localStorage.getItem(WATCHLIST_SETTINGS_KEY);
+      const stored = safeLocalStorage.getItem(WATCHLIST_SETTINGS_KEY);
       if (stored) watchlistSettings = JSON.parse(stored);
     } catch {
       // Ignore parse errors
@@ -214,18 +215,18 @@ class SettingsSyncService {
     if (typeof window === "undefined") return;
 
     if (settings.theme !== undefined) {
-      localStorage.setItem(THEME_KEY, settings.theme);
+      safeLocalStorage.setItem(THEME_KEY, settings.theme);
     }
 
     if (settings.chartSettings !== undefined) {
-      localStorage.setItem(
+      safeLocalStorage.setItem(
         CHART_SETTINGS_KEY,
         JSON.stringify(settings.chartSettings),
       );
     }
 
     if (settings.watchlistSettings !== undefined) {
-      localStorage.setItem(
+      safeLocalStorage.setItem(
         WATCHLIST_SETTINGS_KEY,
         JSON.stringify(settings.watchlistSettings),
       );
@@ -238,7 +239,7 @@ class SettingsSyncService {
   async migrateLocalSettingsToServer(): Promise<void> {
     if (typeof window === "undefined") return;
 
-    const token = localStorage.getItem("spikeyCoins_accessToken");
+    const token = safeLocalStorage.getItem("spikeyCoins_accessToken");
     if (!token) return;
 
     try {

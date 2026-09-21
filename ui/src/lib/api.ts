@@ -1,6 +1,7 @@
 "use client";
 
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { safeLocalStorage, safeSessionStorage } from './browser-storage';
 
 // API Base URL
 // Prefer relative URLs ("/api") so Next.js can proxy via rewrites.
@@ -30,14 +31,14 @@ export const isAuthenticationError = (error: unknown): boolean =>
 // Clear all auth data
 const clearAuth = () => {
   if (typeof window === 'undefined') return;
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
-  sessionStorage.removeItem("authStatusCache");
-  sessionStorage.removeItem("authStatusCacheTime");
-  localStorage.removeItem("accountsCache");
-  localStorage.removeItem("accountsCacheTime");
-  localStorage.removeItem("selectedAccountId");
+  safeLocalStorage.removeItem(ACCESS_TOKEN_KEY);
+  safeLocalStorage.removeItem(REFRESH_TOKEN_KEY);
+  safeLocalStorage.removeItem(USER_KEY);
+  safeSessionStorage.removeItem("authStatusCache");
+  safeSessionStorage.removeItem("authStatusCacheTime");
+  safeLocalStorage.removeItem("accountsCache");
+  safeLocalStorage.removeItem("accountsCacheTime");
+  safeLocalStorage.removeItem("selectedAccountId");
   window.dispatchEvent(new Event(AUTH_CLEARED_EVENT));
 };
 
@@ -50,7 +51,7 @@ const refreshTokens = async (): Promise<boolean> => {
     return refreshPromise;
   }
 
-  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+  const refreshToken = safeLocalStorage.getItem(REFRESH_TOKEN_KEY);
   if (!refreshToken) return false;
 
   refreshPromise = (async () => {
@@ -78,8 +79,8 @@ const refreshTokens = async (): Promise<boolean> => {
         throw new Error("Malformed refresh response");
       }
 
-      localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-      localStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
+      safeLocalStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+      safeLocalStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
       return true;
     } catch (error) {
       console.error("Token refresh failed:", error);
@@ -103,7 +104,7 @@ api.interceptors.request.use((config) => {
   }
 
   if (typeof window === 'undefined') return config;
-  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const token = safeLocalStorage.getItem(ACCESS_TOKEN_KEY);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -176,16 +177,17 @@ export const manualRefreshTokens = refreshTokens;
 export const manualClearAuth = clearAuth;
 export const getAccessToken = (): string | null => {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+  return safeLocalStorage.getItem(ACCESS_TOKEN_KEY);
 };
 export const getRefreshToken = (): string | null => {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
+  return safeLocalStorage.getItem(REFRESH_TOKEN_KEY);
 };
-export const setTokens = (accessToken: string, refreshToken: string) => {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-  localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+export const setTokens = (accessToken: string, refreshToken: string): boolean => {
+  if (typeof window === 'undefined') return false;
+  const accessPersisted = safeLocalStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+  const refreshPersisted = safeLocalStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  return accessPersisted && refreshPersisted;
 };
 
 export default api;

@@ -17,6 +17,7 @@ import api, {
   getApiUrl,
   AUTH_CLEARED_EVENT,
 } from "@/lib/api";
+import { safeLocalStorage } from "@/lib/browser-storage";
 
 // Storage keys (must match api.ts)
 const USER_KEY = "spikeyCoins_user";
@@ -74,7 +75,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const saveAuth = useCallback(
     (accessToken: string, refreshToken: string, userData: User) => {
       setTokens(accessToken, refreshToken);
-      localStorage.setItem(USER_KEY, JSON.stringify(userData));
+      const userPersisted = safeLocalStorage.setItem(USER_KEY, JSON.stringify(userData));
+      if (!userPersisted) {
+        setError("Browser storage is unavailable. You are signed in for this page only; reloading will end the session.");
+      }
       setUser(userData);
     },
     []
@@ -128,7 +132,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const checkAuth = async () => {
       // Load user from localStorage immediately
       try {
-        const stored = localStorage.getItem(USER_KEY);
+        const stored = safeLocalStorage.getItem(USER_KEY);
         if (stored) {
           setUser(JSON.parse(stored));
         }
@@ -158,7 +162,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const response = await api.get("/auth/me");
         if (response.data.success && response.data.user) {
           setUser(response.data.user);
-          localStorage.setItem(USER_KEY, JSON.stringify(response.data.user));
+          safeLocalStorage.setItem(USER_KEY, JSON.stringify(response.data.user));
         }
       } catch (error: any) {
         // Token might be expired (if local check failed or clock skew), try refresh
@@ -170,7 +174,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               const retryResponse = await api.get("/auth/me");
               if (retryResponse.data.success && retryResponse.data.user) {
                 setUser(retryResponse.data.user);
-                localStorage.setItem(
+                safeLocalStorage.setItem(
                   USER_KEY,
                   JSON.stringify(retryResponse.data.user)
                 );

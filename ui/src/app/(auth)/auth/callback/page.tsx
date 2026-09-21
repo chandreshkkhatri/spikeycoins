@@ -5,6 +5,7 @@ import { settingsService } from "@/lib/settings-service";
 import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { safeSessionStorage } from "@/lib/browser-storage";
 
 /**
  * OAuth callback page - handles token extraction from URL and redirects
@@ -18,8 +19,8 @@ export default function AuthCallbackPage() {
     if (isLoggedIn) {
       // Migrate local settings to server after successful login
       settingsService.migrateLocalSettingsToServer().then(() => {
-        const storedReturn = sessionStorage.getItem("spikeyCoins_authReturnTo");
-        sessionStorage.removeItem("spikeyCoins_authReturnTo");
+        const storedReturn = safeSessionStorage.getItem("spikeyCoins_authReturnTo");
+        safeSessionStorage.removeItem("spikeyCoins_authReturnTo");
         const returnTo =
           storedReturn?.startsWith("/") && !storedReturn.startsWith("//")
             ? storedReturn

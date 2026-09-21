@@ -12,6 +12,7 @@ import React, {
 import { useAuth } from './auth-context';
 import { API_ROUTES } from '@/lib/constants';
 import api, { getApiPath } from '@/lib/api';
+import { safeLocalStorage } from '@/lib/browser-storage';
 
 interface TradingAccount {
   _id: string;
@@ -74,11 +75,11 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   useEffect(() => {
     if (prevIsLoggedIn.current && !isLoggedIn) {
       // User logged out - clear all cached data
-      localStorage.removeItem('accountsCache');
-      localStorage.removeItem('accountsCacheTime');
-      localStorage.removeItem('demoAccountsCache');
-      localStorage.removeItem('demoAccountsCacheTime');
-      localStorage.removeItem('selectedAccountId');
+      safeLocalStorage.removeItem('accountsCache');
+      safeLocalStorage.removeItem('accountsCacheTime');
+      safeLocalStorage.removeItem('demoAccountsCache');
+      safeLocalStorage.removeItem('demoAccountsCacheTime');
+      safeLocalStorage.removeItem('selectedAccountId');
       setAccounts([]);
       setSelectedAccountState(null);
       setError(null);
@@ -110,8 +111,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
       const cacheTimeKey = isLoggedIn ? 'accountsCacheTime' : 'demoAccountsCacheTime';
       const cacheTime = 120000; // 2 minutes
 
-      const cachedData = localStorage.getItem(cacheKey);
-      const cacheTimestamp = localStorage.getItem(cacheTimeKey);
+      const cachedData = safeLocalStorage.getItem(cacheKey);
+      const cacheTimestamp = safeLocalStorage.getItem(cacheTimeKey);
 
       // Use cache if valid and not a background refresh
       if (cachedData && cacheTimestamp && !isBackground) {
@@ -121,7 +122,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
           setAccounts(cachedAccounts);
           setLoadingAccounts(false);
 
-          const savedAccountId = localStorage.getItem('selectedAccountId');
+          const savedAccountId = safeLocalStorage.getItem('selectedAccountId');
           if (savedAccountId && cachedAccounts.length > 0) {
             const savedAccount = cachedAccounts.find(acc => acc._id === savedAccountId);
             if (savedAccount) {
@@ -172,8 +173,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
         if (response.data?.success) {
           const allAccounts = response.data.accounts as TradingAccount[];
 
-          localStorage.setItem(cacheKey, JSON.stringify(allAccounts));
-          localStorage.setItem(cacheTimeKey, Date.now().toString());
+          safeLocalStorage.setItem(cacheKey, JSON.stringify(allAccounts));
+          safeLocalStorage.setItem(cacheTimeKey, Date.now().toString());
 
           setAccounts(allAccounts);
 
@@ -189,7 +190,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
             };
 
             // ALWAYS check localStorage first for the saved selection
-            const savedAccountId = localStorage.getItem('selectedAccountId');
+            const savedAccountId = safeLocalStorage.getItem('selectedAccountId');
 
             // If we have a saved account ID, try to find it in the fresh list
             if (savedAccountId) {
@@ -207,7 +208,7 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
             if (prev) {
               const prevMatch = allAccounts.find(acc => acc._id === prev._id);
               if (prevMatch) {
-                localStorage.setItem('selectedAccountId', prevMatch._id);
+                safeLocalStorage.setItem('selectedAccountId', prevMatch._id);
                 // Keep prev reference if data hasn't changed
                 if (!accountChanged(prev, prevMatch)) return prev;
                 return prevMatch;
@@ -217,11 +218,11 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
             // Fallback to an active account or the first available
             if (allAccounts.length > 0) {
               const defaultAccount = allAccounts.find(acc => acc.isActive) || allAccounts[0];
-              localStorage.setItem('selectedAccountId', defaultAccount._id);
+              safeLocalStorage.setItem('selectedAccountId', defaultAccount._id);
               return defaultAccount;
             }
 
-            localStorage.removeItem('selectedAccountId');
+            safeLocalStorage.removeItem('selectedAccountId');
             return null;
           });
         }
@@ -243,9 +244,9 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
   const setSelectedAccount = useCallback((account: TradingAccount | null) => {
     setSelectedAccountState(account);
     if (account) {
-      localStorage.setItem('selectedAccountId', account._id);
+      safeLocalStorage.setItem('selectedAccountId', account._id);
     } else {
-      localStorage.removeItem('selectedAccountId');
+      safeLocalStorage.removeItem('selectedAccountId');
     }
   }, []);
 
@@ -263,8 +264,8 @@ export const AccountProvider: React.FC<AccountProviderProps> = ({ children }) =>
 
     // Use different cache keys for demo vs authenticated
     const cacheKey = isLoggedIn ? 'accountsCache' : 'demoAccountsCache';
-    const cachedData = localStorage.getItem(cacheKey);
-    const savedAccountId = localStorage.getItem('selectedAccountId');
+    const cachedData = safeLocalStorage.getItem(cacheKey);
+    const savedAccountId = safeLocalStorage.getItem('selectedAccountId');
 
     // Load from cache immediately for fast UI
     if (cachedData) {
