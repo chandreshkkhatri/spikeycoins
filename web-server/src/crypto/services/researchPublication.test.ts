@@ -21,11 +21,33 @@ export function evidenceFixture(overrides: Record<string, unknown> = {}): Resear
   };
 }
 
+function replaceGrounding(evidence: ResearchEvidence, segments: string[]): ResearchEvidence {
+  return {
+    ...evidence,
+    grounding: {
+      groundingChunks: [{ web: { uri: "https://primary.example/announcement", title: "Announcement" } }],
+      groundingSupports: segments.map(text => ({ segment: { text }, groundingChunkIndices: [0] })),
+    },
+  };
+}
+
 describe("publication policy", () => {
   it("publishes supported text using provider URLs, never generated URLs", () => {
     const result = evaluatePublication(evidenceFixture());
     expect(result.isPublishable).toBe(true);
     expect(result.sources.map(source => source.url)).toEqual(["https://primary.example/announcement"]);
+  });
+  it("accepts grounded paraphrases and bounded interpretation without new hard facts", () => {
+    const headline = "Protocol upgrade moves closer";
+    const researchContent =
+      "The protocol announced an upgrade for its network. Traders should watch upgrade implementation risk.";
+    const evidence = replaceGrounding(
+      evidenceFixture({ headline, researchContent }),
+      ["Protocol", "upgrade", "The protocol announced an upgrade"],
+    );
+    const result = evaluatePublication(evidence);
+    expect(result.isPublishable).toBe(true);
+    expect(result.publishableReason).toContain("claim-oriented");
   });
   it.each([
     { isPublishable: "false" }, { isPublishable: 1 }, { impact: ["high"] },
@@ -42,9 +64,36 @@ describe("publication policy", () => {
       expect(evaluatePublication({ ...evidenceFixture(), grounding }).isPublishable).toBe(false);
     },
   );
-  it("rejects support for only part of the report", () => {
-    const evidence = evidenceFixture({ researchContent: "The protocol announced an upgrade. Price will double tomorrow." });
-    expect(evaluatePublication(evidence).isPublishable).toBe(false);
+  it("reports which sentence lacks grounding", () => {
+    const researchContent = "The protocol announced an upgrade. Price will double tomorrow.";
+    const evidence = replaceGrounding(
+      evidenceFixture({ researchContent }),
+      ["Protocol announces upgrade", "The protocol announced an upgrade"],
+    );
+    const result = evaluatePublication(evidence);
+    expect(result.isPublishable).toBe(false);
+    expect(result.publishableReason).toContain("Report sentence 2");
+    expect(result.publishableReason).toContain("tomorrow");
+  });
+  it("rejects unsupported numbers even in explicitly interpretive prose", () => {
+    const researchContent =
+      "The protocol announced an upgrade. Traders should watch a possible 25% price target.";
+    const evidence = replaceGrounding(
+      evidenceFixture({ researchContent }),
+      ["Protocol announces upgrade", "The protocol announced an upgrade"],
+    );
+    const result = evaluatePublication(evidence);
+    expect(result.isPublishable).toBe(false);
+    expect(result.publishableReason).toContain("25%");
+  });
+  it("explains when no valid provider-linked source exists", () => {
+    const evidence = evidenceFixture();
+    evidence.grounding = {
+      groundingChunks: [],
+      groundingSupports: [{ segment: { text: evidence.text }, groundingChunkIndices: [0] }],
+    };
+    expect(evaluatePublication(evidence).publishableReason)
+      .toBe("No valid provider-linked search sources.");
   });
   it("rejects invalid chunk indices and unsafe provider URLs", () => {
     for (const index of [-1, 3, 0.5]) {

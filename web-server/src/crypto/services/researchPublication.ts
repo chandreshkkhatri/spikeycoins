@@ -27,6 +27,22 @@ const categories = new Set([
   "Regulatory", "Hack/Exploit", "Ecosystem Growth", "Market Structure",
   "Community Event", "General",
 ]);
+const stopWords = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "for", "from",
+  "had", "has", "have", "if", "in", "into", "is", "it", "its", "of", "on", "or",
+  "that", "the", "their", "then", "there", "these", "this", "those", "to", "was",
+  "were", "will", "with",
+]);
+const temporalTokens = new Set([
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  "january", "february", "march", "april", "may", "june", "july", "august",
+  "september", "october", "november", "december", "today", "tomorrow", "yesterday",
+]);
+const sentenceLeadWords = new Set([
+  "a", "an", "however", "interpretation", "investors", "it", "limitation",
+  "looking", "meanwhile", "possible", "that", "the", "these", "this", "those",
+  "traders", "uncertainty", "watch", "what",
+]);
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const nonempty = (value: unknown): value is string =>
@@ -42,32 +58,66 @@ const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 function decodeSegment(text: string): string {
   try { return JSON.parse('"' + text + '"') as string; } catch { return text; }
 }
-
-// Provider support is provenance, not proof of truth or causal attribution.
-// Fail closed when any substantive headline/body text lacks provider support.
-function covered(text: string, segments: string[]): boolean {
-  const target = normalize(text);
-  if (!/[\p{L}\p{N}]/u.test(target)) return false;
-  const coverage = new Array<boolean>(target.length).fill(false);
-  for (const raw of segments) {
-    const segment = normalize(decodeSegment(raw));
-    if (!segment) continue;
-    if (segment.includes(target)) return true;
-    let start = target.indexOf(segment);
-    while (start >= 0) {
-      coverage.fill(true, start, start + segment.length);
-      start = target.indexOf(segment, start + 1);
-    }
+function lexicalTokens(text: string): string[] {
+  return normalize(text).toLocaleLowerCase().match(/\d+(?:[.,]\d+)*%?|[\p{L}]+(?:['.-][\p{L}\p{N}]+)*/gu) ?? [];
+}
+function contentTokens(text: string): string[] {
+  return lexicalTokens(text).filter(token => !stopWords.has(token));
+}
+function sentenceList(text: string): string[] {
+  return normalize(text).split(/(?<=[.!?])\s+(?=[\p{Lu}\p{N}])/u).filter(nonempty);
+}
+function explicitFactTokens(text: string): string[] {
+  const facts = new Set(
+    lexicalTokens(text).filter(token => /\p{N}/u.test(token) || temporalTokens.has(token)),
+  );
+  const capitalized = normalize(text).match(/\b[\p{Lu}][\p{L}\p{N}-]*\b/gu) ?? [];
+  for (const token of capitalized) {
+    const normalized = token.toLocaleLowerCase();
+    if (!sentenceLeadWords.has(normalized)) facts.add(normalized);
   }
-  let offset = 0;
-  for (const character of target) {
-    if (/[\p{L}\p{N}]/u.test(character) &&
-        !coverage.slice(offset, offset + character.length).every(Boolean)) return false;
-    offset += character.length;
-  }
-  return true;
+  return [...facts];
 }
 
+interface GroundingAssessment {
+  ratio: number;
+  matched: number;
+  unsupportedFacts: string[];
+  interpretive: boolean;
+}
+
+function assessGrounding(text: string, segments: string[]): GroundingAssessment {
+  const targetTokens = contentTokens(text);
+  const segmentTokens = segments.map(segment => new Set(contentTokens(decodeSegment(segment))));
+  const supported = new Set(segmentTokens.flatMap(tokens => [...tokens]));
+  const matched = Math.max(0, ...segmentTokens.map(tokens =>
+    targetTokens.filter(token => tokens.has(token)).length
+  ));
+  const unsupportedFacts = explicitFactTokens(text).filter(token => !supported.has(token));
+  return {
+    ratio: targetTokens.length ? matched / targetTokens.length : 0,
+    matched,
+    unsupportedFacts: [...new Set(unsupportedFacts)],
+    interpretive: /\b(?:may|might|could|appears?|suggests?|uncertain|uncertainty|possible|possibly|likely|risk|watch|monitor|if|would)\b/i.test(text),
+  };
+}
+
+function groundedClaim(
+  assessment: GroundingAssessment,
+  minimumRatio: number,
+  allowInterpretive: boolean,
+): boolean {
+  const enoughDirectSupport = assessment.ratio >= minimumRatio && assessment.matched >= 2;
+  const boundedInterpretation = allowInterpretive && assessment.interpretive &&
+    assessment.matched >= 1 && assessment.unsupportedFacts.length === 0;
+  return assessment.unsupportedFacts.length === 0 && (enoughDirectSupport || boundedInterpretation);
+}
+
+const percent = (ratio: number): number => Math.round(ratio * 100);
+
+// Provider support is provenance, not proof of truth or causal attribution.
+// Require direct support for factual claims while allowing explicitly uncertain
+// interpretation that reuses grounded subject matter and introduces no hard facts.
 export function evaluatePublication(evidence: ResearchEvidence): PublicationDecision {
   const draft: PublicationDecision = {
     headline: "Research retained as draft",
@@ -123,11 +173,37 @@ export function evaluatePublication(evidence: ResearchEvidence): PublicationDeci
     segments.push(segment);
     linked.forEach(source => sources.set(source.url, source));
   }
-  if (!sources.size || !covered(result.headline, segments) || !covered(result.researchContent, segments)) {
-    return { ...result, publishableReason: "Headline or report lacks complete search-grounding support." };
+  if (!sources.size) {
+    return { ...result, publishableReason: "No valid provider-linked search sources." };
   }
+
+  const headline = assessGrounding(result.headline, segments);
+  if (!groundedClaim(headline, 0.5, false)) {
+    const facts = headline.unsupportedFacts.length
+      ? ` Unsupported facts: ${headline.unsupportedFacts.join(", ")}.`
+      : "";
+    return {
+      ...result,
+      publishableReason: `Headline search grounding incomplete (${percent(headline.ratio)}% content-token coverage).${facts}`,
+    };
+  }
+
+  const sentences = sentenceList(result.researchContent);
+  for (const [index, sentence] of sentences.entries()) {
+    const assessment = assessGrounding(sentence, segments);
+    if (!groundedClaim(assessment, 0.45, true)) {
+      const facts = assessment.unsupportedFacts.length
+        ? ` Unsupported facts: ${assessment.unsupportedFacts.join(", ")}.`
+        : "";
+      return {
+        ...result,
+        publishableReason: `Report sentence ${index + 1} lacks search grounding (${percent(assessment.ratio)}% content-token coverage).${facts}`,
+      };
+    }
+  }
+
   return {
     ...result, sources: [...sources.values()], isPublishable: true,
-    publishableReason: "Passed structured-output and search-grounding policy v1; not independent fact verification.",
+    publishableReason: "Passed structured-output and claim-oriented search-grounding policy v1; not independent fact verification.",
   };
 }

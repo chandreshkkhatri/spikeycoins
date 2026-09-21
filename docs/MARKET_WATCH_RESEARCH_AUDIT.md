@@ -409,3 +409,7 @@ these gaps and rollout-era unbound summaries remains a follow-up (there is no
 new retry/reconciliation worker in this slice). Cross-collection writes remain
 non-transactional. Tests cover delayed older publish/retract records, mismatched
 and current feed revisions, and schema/index declarations without a live DB.
+
+## Implementation checkpoint — claim-oriented grounding correction
+
+The publication gate no longer requires every alphanumeric character in the full prose to occur verbatim in provider grounding spans. It now evaluates the headline and each report sentence using content-token overlap, requires all explicit numbers, dates and named entities to occur in grounded spans, and permits only clearly uncertain interpretation that reuses grounded subject matter without introducing new hard facts. Valid provider-linked HTTPS sources remain mandatory, generated source URLs remain untrusted, and malformed or mismatched grounding still fails closed. Rejection reasons now identify missing sources, headline coverage, or the first unsupported report sentence. The prompt was aligned with these rules. This is a documented correction to publication policy v1, not independent fact verification or source-authority validation.

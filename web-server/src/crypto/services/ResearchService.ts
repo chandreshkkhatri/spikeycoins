@@ -336,7 +336,7 @@ isPublishable = FALSE when:
 - Only speculation or social hype without substance
 - General market conditions (BTC moves, ETF flows, liquidations)
 
-Every factual statement in the headline and report must be supported by search evidence. Do not invent sources or technical levels. State uncertainty rather than claiming a proven cause.\n\nRespond with ONLY the JSON object.`;
+Every concrete event, entity action, number, date, price, volume, or technical level in the headline and report must be supported by search evidence. Reuse key grounded terms in the headline. Clearly mark interpretation and what-to-watch statements with uncertainty language such as "may", "could", "possible", "risk", or "watch"; they must refer to grounded subject matter and introduce no new facts. Do not invent sources or technical levels. State uncertainty rather than claiming a proven cause.\n\nRespond with ONLY the JSON object.`;
 
       const evidence = await this.aiClient.generateWithEvidence(prompt, { useWebSearch: true });
       const decision = evaluatePublication(evidence);
