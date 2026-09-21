@@ -86,6 +86,34 @@ const readPageIndex = (params = readSearchParams()): number => {
   return Number.isFinite(page) && page > 0 ? page - 1 : 0;
 };
 
+const SORTABLE_COLUMN_IDS = new Set([
+  "s", "price", "change_24h", "change_7d", "change_12h", "change_8h",
+  "change_4h", "change_1h", "range_position_24h", "volume_usd", "market_cap",
+]);
+
+const defaultSorting = (
+  timeframe: ScreenerTimeframe,
+  direction: ScreenerDirection,
+): SortingState => [{
+  id: timeframe === "7d" ? "change_7d" : "change_24h",
+  desc: direction !== "losers",
+}];
+
+const validSorting = (
+  candidate: unknown,
+  timeframe: ScreenerTimeframe,
+  direction: ScreenerDirection,
+): SortingState => {
+  if (!Array.isArray(candidate)) return defaultSorting(timeframe, direction);
+  const available = candidate.filter((item): item is { id: string; desc: boolean } =>
+    typeof item === "object" && item !== null &&
+    typeof (item as { id?: unknown }).id === "string" &&
+    typeof (item as { desc?: unknown }).desc === "boolean" &&
+    SORTABLE_COLUMN_IDS.has((item as { id: string }).id) &&
+    (timeframe === "7d" || (item as { id: string }).id !== "change_7d"));
+  return available.length > 0 ? available : defaultSorting(timeframe, direction);
+};
+
 const numberSort = (
   rowA: Row<TickerData>,
   rowB: Row<TickerData>,
@@ -540,28 +568,18 @@ export default function Ticker() {
 
   const [sorting, setSorting] = useState<SortingState>(() => {
     const params = initialParams;
+    const initialTimeframe = readTimeframe(params);
+    const initialDirection = readDirection(params);
     const urlSort = params.get("sort");
-    const sortableColumns = new Set([
-      "s",
-      "price",
-      "change_24h",
-      "change_7d",
-      "change_12h",
-      "change_8h",
-      "change_4h",
-      "change_1h",
-      "range_position_24h",
-      "volume_usd",
-      "market_cap",
-    ]);
-    if (urlSort && sortableColumns.has(urlSort)) {
-      return [{ id: urlSort, desc: params.get("sortDir") !== "asc" }];
+    if (urlSort) {
+      return validSorting(
+        [{ id: urlSort, desc: params.get("sortDir") !== "asc" }],
+        initialTimeframe,
+        initialDirection,
+      );
     }
     if (params.has("direction") || params.has("timeframe")) {
-      return [{
-        id: readTimeframe(params) === "7d" ? "change_7d" : "change_24h",
-        desc: readDirection(params) !== "losers",
-      }];
+      return defaultSorting(initialTimeframe, initialDirection);
     }
     if (typeof window !== "undefined") {
       try {
@@ -569,14 +587,14 @@ export default function Ticker() {
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed;
+            return validSorting(parsed, initialTimeframe, initialDirection);
           }
         }
       } catch {
         // ignore JSON parse error
       }
     }
-    return [{ id: readTimeframe(params) === "7d" ? "change_7d" : "change_24h", desc: readDirection(params) !== "losers" }];
+    return defaultSorting(initialTimeframe, initialDirection);
   });
 
   useEffect(() => {
@@ -631,10 +649,7 @@ export default function Ticker() {
   }, [direction, minVolume, minChange, pagination.pageIndex, searchQuery, selectedSymbol, sorting, timeframe]);
 
   const resetSort = () => {
-    setSorting([{
-      id: timeframe === "7d" ? "change_7d" : "change_24h",
-      desc: direction !== "losers",
-    }]);
+    setSorting(defaultSorting(timeframe, direction));
   };
 
   const customGlobalFilterFn: FilterFn<TickerData> = React.useCallback(

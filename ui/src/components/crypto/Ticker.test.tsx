@@ -136,6 +136,25 @@ describe("Ticker Screener", () => {
     expect(localStorage.getItem("spikeyCoins_screener_sorting")).toContain("price");
   });
 
+  it.each([
+    ["URL", "/market-watch/screener?timeframe=24h&sort=change_7d", null],
+    ["saved preference", "/market-watch/screener", JSON.stringify([{ id: "change_7d", desc: true }])],
+  ])("replaces a 7d sort from a stale %s while displaying 24h columns", async (_source, path, saved) => {
+    window.history.replaceState(null, "", path);
+    if (saved) localStorage.setItem("spikeyCoins_screener_sorting", saved);
+    vi.mocked(cryptoApi.getTickers).mockResolvedValue({ data: mockTickers.slice(0, 3) } as never);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    renderWithProviders(<Ticker />);
+
+    expect(await screen.findByText("COIN1/USDT")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(new URLSearchParams(window.location.search).get("sort")).toBe("change_24h");
+      expect(localStorage.getItem("spikeyCoins_screener_sorting")).toContain("change_24h");
+    });
+    expect(consoleError.mock.calls.flat().join(" ")).not.toContain("Column with id 'change_7d' does not exist");
+  });
+
   it("should preserve existing data and show a banner when background refresh fails", async () => {
     // 1. Initial success
     vi.mocked(cryptoApi.getTickers).mockResolvedValueOnce({
