@@ -125,6 +125,7 @@ router.post(
 // GET /api/accounts/:id - Get a specific account
 router.get(
   "/:id",
+  requireAuth,
   requireAccountAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const account = req.account!;
@@ -183,14 +184,15 @@ const handleUpdateAccount = asyncHandler(async (req: AuthenticatedRequest, res: 
 });
 
 // PUT /api/accounts/:id - Update an account
-router.put("/:id", requireAccountAccess, handleUpdateAccount);
+router.put("/:id", requireAuth, requireAccountAccess, handleUpdateAccount);
 
 // PATCH /api/accounts/:id - Update an account (partial update)
-router.patch("/:id", requireAccountAccess, handleUpdateAccount);
+router.patch("/:id", requireAuth, requireAccountAccess, handleUpdateAccount);
 
 // DELETE /api/accounts/:id - Delete (deactivate) an account
 router.delete(
   "/:id",
+  requireAuth,
   requireAccountAccess,
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { id } = req.params;
